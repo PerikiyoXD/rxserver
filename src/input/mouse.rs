@@ -2,9 +2,9 @@
 //!
 //! This module handles mouse events, cursor position, and button state.
 
+use crate::protocol::events::Event;
 use crate::protocol::types::*;
-use crate::protocol::responses::{Event, ButtonPressEvent, ButtonReleaseEvent, MotionNotifyEvent};
-use crate::{Result, todo_medium, todo_low};
+use crate::{todo_low, todo_medium, Result};
 
 /// Mouse state manager
 pub struct MouseManager {
@@ -107,11 +107,7 @@ impl MouseManager {
     }
 
     /// Process a mouse enter event
-    pub fn enter_window(
-        &mut self,
-        window: Window,
-        timestamp: Timestamp,
-    ) -> Result<Event> {
+    pub fn enter_window(&mut self, window: Window, timestamp: Timestamp) -> Result<Event> {
         Ok(Event::EnterNotify {
             detail: NOTIFY_NORMAL,
             time: timestamp,
@@ -129,11 +125,7 @@ impl MouseManager {
     }
 
     /// Process a mouse leave event
-    pub fn leave_window(
-        &mut self,
-        window: Window,
-        timestamp: Timestamp,
-    ) -> Result<Event> {
+    pub fn leave_window(&mut self, window: Window, timestamp: Timestamp) -> Result<Event> {
         Ok(Event::LeaveNotify {
             detail: NOTIFY_NORMAL,
             time: timestamp,
@@ -181,7 +173,7 @@ impl MouseManager {
         // Apply acceleration
         let accel_dx = (dx as f32 * self.acceleration) as i16;
         let accel_dy = (dy as f32 * self.acceleration) as i16;
-        
+
         self.x += accel_dx;
         self.y += accel_dy;
     }
