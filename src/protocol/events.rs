@@ -197,10 +197,14 @@ impl Event {
                 data[26..28].copy_from_slice(&state.to_ne_bytes());
                 data[28] = if *same_screen { 1 } else { 0 };
             } // Handle other event types similarly...
-            _ => todo_high!(
-                "event_serialization",
-                "Handle serialization for other event types"
-            ),
+            _ => {
+                todo_high!(
+                    "event_serialization",
+                    "Handle serialization for other event types"
+                );
+                // Return empty data for now
+                data
+            }
         }
         data
     }
