@@ -2,11 +2,12 @@
 //!
 //! This module contains the main server event loop.
 
-use crate::server::{ClientManager, ConnectionManager, RequestHandler};
 use crate::server::ServerEvent;
-use crate::{Error, Result};
+use crate::server::{ClientManager, ConnectionManager, RequestHandler};
+use crate::{todo_critical, todo_high, todo_medium, Result};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tracing::{info, warn};
 
 /// Main server event loop
 pub struct EventLoop {
@@ -32,7 +33,26 @@ impl EventLoop {
     }
 
     pub async fn run(&self) -> Result<()> {
-        // TODO: Implement main event loop
+        todo_critical!(
+            "event_loop",
+            "Main event loop not implemented - this is core server functionality"
+        );
+
+        info!("Starting main server event loop");
+
+        // TODO: Set up connection acceptance
+        todo_high!("event_loop", "Connection acceptance loop not implemented");
+
+        // TODO: Set up request processing
+        todo_high!("event_loop", "Request processing pipeline not implemented");
+
+        // TODO: Set up event handling
+        todo_high!("event_loop", "Event handling system not implemented");
+
+        // TODO: Set up client lifecycle management
+        todo_medium!("event_loop", "Client lifecycle management not implemented");
+
+        warn!("Event loop returning immediately - no actual loop implemented");
         Ok(())
     }
 }
