@@ -4,6 +4,7 @@
 
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
@@ -18,7 +19,7 @@ pub struct ClientManager {
     /// Next client ID to assign
     next_client_id: AtomicU32,
     /// Event broadcaster
-    event_sender: broadcast::Sender<ServerEvent>,
+    event_sender: Arc<broadcast::Sender<ServerEvent>>,
 }
 
 /// Information about a connected client
@@ -48,7 +49,7 @@ impl ClientManager {
         Self {
             clients: DashMap::new(),
             next_client_id: AtomicU32::new(1),
-            event_sender,
+            event_sender: Arc::new(event_sender),
         }
     }
 
@@ -74,12 +75,13 @@ impl ClientManager {
 
         self.clients.insert(client_id, client_info);
 
-        info!("Client {} registered: {} (PID: {:?})", client_id, name, pid);
-
-        // Broadcast client connected event
+        info!("Client {} registered: {} (PID: {:?})", client_id, name, pid);        // Broadcast client connected event
         let _ = self
             .event_sender
-            .send(ServerEvent::ClientConnected { client_id });
+            .send(ServerEvent::ClientConnected { 
+                client_id, 
+                address: "unknown".to_string() // TODO: Get actual client address
+            });
 
         Ok(client_id)
     }
