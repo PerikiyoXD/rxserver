@@ -3,7 +3,7 @@ use std::process;
 use clap::Parser;
 use log::{error, info};
 
-use rxserver::{config::ServerConfig, server::XServer};
+use rxserver::{config::ServerConfig, server::XServer, utils::log_implementation_status};
 
 /// RX - Rust X Window System Server
 #[derive(Parser)]
@@ -40,11 +40,12 @@ async fn main() {
     };
     
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
-        .init();
-
-    info!("Starting RX - Rust X Window System Server");
+        .init();    info!("Starting RX - Rust X Window System Server");
     info!("Display: {}", args.display);
     info!("Config: {}", args.config);
+    
+    // Log implementation status for awareness
+    log_implementation_status();
 
     // Load configuration
     let config = match ServerConfig::load(&args.config) {
