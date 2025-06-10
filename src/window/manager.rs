@@ -3,9 +3,9 @@
 //! This module provides the core window management functionality including
 //! window stacking, focus management, and window tree operations.
 
-use std::collections::HashMap;
 use crate::protocol::types::*;
-use crate::{Error, Result};
+use crate::{todo_high, todo_low, todo_medium, Error, Result};
+use std::collections::HashMap;
 
 /// Window manager state
 pub struct WindowManager {
@@ -94,6 +94,7 @@ impl WindowManager {
 
     /// Set window focus
     pub fn set_focus(&mut self, window: Window) -> Result<()> {
+        todo_high!("window_manager", "Window focus validation not implemented - not checking if window exists or is mappable");
         // TODO: Validate window exists and is mappable
         self.focused_window = Some(window);
         log::debug!("Focus set to window {}", window);
@@ -111,7 +112,7 @@ impl WindowManager {
         self.stacking_order.retain(|&w| w != window);
         // Add to top
         self.stacking_order.push(window);
-        
+
         log::debug!("Raised window {} to top", window);
         Ok(())
     }
@@ -126,7 +127,7 @@ impl WindowManager {
         } else {
             self.stacking_order.insert(1, window);
         }
-        
+
         log::debug!("Lowered window {} to bottom", window);
         Ok(())
     }
@@ -138,6 +139,10 @@ impl WindowManager {
 
     /// Find the topmost window at a given point
     pub fn window_at_point(&self, x: i16, y: i16) -> Option<Window> {
+        todo_medium!(
+            "window_manager",
+            "Point-in-window hit testing not implemented - need window geometry access"
+        );
         // Search from top to bottom
         for &window in self.stacking_order.iter().rev() {
             // TODO: Check if point is within window bounds
