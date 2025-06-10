@@ -84,6 +84,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             server: ServerSettings {
+                display_num: 0,
                 max_clients: 256,
                 tcp_port_base: 6000,
                 enable_tcp: false,
@@ -118,7 +119,7 @@ impl ServerConfig {
     /// Load configuration from a file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        
+
         if !path.exists() {
             log::warn!("Configuration file {:?} not found, using defaults", path);
             return Ok(Self::default());
