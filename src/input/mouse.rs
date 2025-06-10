@@ -3,8 +3,8 @@
 //! This module handles mouse events, cursor position, and button state.
 
 use crate::protocol::types::*;
-use crate::protocol::Event;
-use crate::{Error, Result};
+use crate::protocol::responses::{Event, ButtonPressEvent, ButtonReleaseEvent, MotionNotifyEvent};
+use crate::Result;
 
 /// Mouse state manager
 pub struct MouseManager {

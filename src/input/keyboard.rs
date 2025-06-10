@@ -3,8 +3,8 @@
 //! This module handles keyboard events, key mapping, and keyboard state.
 
 use crate::protocol::types::*;
-use crate::protocol::Event;
-use crate::{Error, Result};
+use crate::protocol::responses::{Event, KeyPressEvent, KeyReleaseEvent};
+use crate::Result;
 
 /// Keyboard state manager
 pub struct KeyboardManager {
@@ -27,14 +27,11 @@ impl KeyboardManager {
             repeat_rate: 30,   // 30 Hz
             auto_repeat: [true; 256], // All keys auto-repeat by default
         }
-    }
-
-    /// Process a key press event
-    pub fn key_press(&mut self, keycode: Keycode, timestamp: Timestamp) -> Result<Event> {
+    }    /// Process a key press event
+    pub fn key_press(&mut self, keycode: KeyCode, timestamp: Timestamp) -> Result<Event> {
         self.key_state[keycode as usize] = true;
 
-        // TODO: Generate appropriate KeyPress event
-        Ok(Event::KeyPress {
+        let event = KeyPressEvent {
             detail: keycode,
             time: timestamp,
             root: 1, // Root window
@@ -44,16 +41,18 @@ impl KeyboardManager {
             root_y: 0,
             event_x: 0,
             event_y: 0,
-            state: self.get_modifier_state(),
+            state: ModifierMask::from_bits_truncate(self.get_modifier_state()),
             same_screen: true,
-        })
+        };
+
+        Ok(Event::KeyPress(event))
     }
 
     /// Process a key release event
-    pub fn key_release(&mut self, keycode: Keycode, timestamp: Timestamp) -> Result<Event> {
+    pub fn key_release(&mut self, keycode: KeyCode, timestamp: Timestamp) -> Result<Event> {
         self.key_state[keycode as usize] = false;
 
-        Ok(Event::KeyRelease {
+        let event = KeyReleaseEvent {
             detail: keycode,
             time: timestamp,
             root: 1,
@@ -63,13 +62,13 @@ impl KeyboardManager {
             root_y: 0,
             event_x: 0,
             event_y: 0,
-            state: self.get_modifier_state(),
+            state: ModifierMask::from_bits_truncate(self.get_modifier_state()),
             same_screen: true,
-        })
-    }
+        };
 
-    /// Check if a key is currently pressed
-    pub fn is_key_pressed(&self, keycode: Keycode) -> bool {
+        Ok(Event::KeyRelease(event))
+    }    /// Check if a key is currently pressed
+    pub fn is_key_pressed(&self, keycode: KeyCode) -> bool {
         self.key_state[keycode as usize]
     }
 
@@ -101,17 +100,17 @@ impl KeyboardManager {
     }
 
     /// Enable or disable auto-repeat for a key
-    pub fn set_auto_repeat(&mut self, keycode: Keycode, enabled: bool) {
+    pub fn set_auto_repeat(&mut self, keycode: KeyCode, enabled: bool) {
         self.auto_repeat[keycode as usize] = enabled;
     }
 
     /// Check if auto-repeat is enabled for a key
-    pub fn is_auto_repeat_enabled(&self, keycode: Keycode) -> bool {
+    pub fn is_auto_repeat_enabled(&self, keycode: KeyCode) -> bool {
         self.auto_repeat[keycode as usize]
     }
 
     /// Convert keycode to keysym (basic mapping)
-    pub fn keycode_to_keysym(&self, keycode: Keycode) -> Keysym {
+    pub fn keycode_to_keysym(&self, keycode: KeyCode) -> KeySym {
         // TODO: Implement proper keycode to keysym mapping
         // This is a very basic mapping for demonstration
         match keycode {
@@ -121,12 +120,12 @@ impl KeyboardManager {
             KEYCODE_SPACE => KEYSYM_SPACE,
             KEYCODE_ENTER => KEYSYM_RETURN,
             KEYCODE_ESC => KEYSYM_ESCAPE,
-            _ => keycode as Keysym,
+            _ => keycode as KeySym,
         }
     }
 
     /// Convert keysym to keycode (reverse mapping)
-    pub fn keysym_to_keycode(&self, keysym: Keysym) -> Option<Keycode> {
+    pub fn keysym_to_keycode(&self, keysym: KeySym) -> Option<KeyCode> {
         // TODO: Implement proper keysym to keycode mapping
         match keysym {
             KEYSYM_A => Some(KEYCODE_A),
@@ -141,60 +140,60 @@ impl KeyboardManager {
 }
 
 // Common keycode constants
-pub const KEYCODE_ESC: Keycode = 9;
-pub const KEYCODE_1: Keycode = 10;
-pub const KEYCODE_2: Keycode = 11;
-pub const KEYCODE_3: Keycode = 12;
-pub const KEYCODE_4: Keycode = 13;
-pub const KEYCODE_5: Keycode = 14;
-pub const KEYCODE_6: Keycode = 15;
-pub const KEYCODE_7: Keycode = 16;
-pub const KEYCODE_8: Keycode = 17;
-pub const KEYCODE_9: Keycode = 18;
-pub const KEYCODE_0: Keycode = 19;
-pub const KEYCODE_Q: Keycode = 24;
-pub const KEYCODE_W: Keycode = 25;
-pub const KEYCODE_E: Keycode = 26;
-pub const KEYCODE_R: Keycode = 27;
-pub const KEYCODE_T: Keycode = 28;
-pub const KEYCODE_Y: Keycode = 29;
-pub const KEYCODE_U: Keycode = 30;
-pub const KEYCODE_I: Keycode = 31;
-pub const KEYCODE_O: Keycode = 32;
-pub const KEYCODE_P: Keycode = 33;
-pub const KEYCODE_A: Keycode = 38;
-pub const KEYCODE_S: Keycode = 39;
-pub const KEYCODE_D: Keycode = 40;
-pub const KEYCODE_F: Keycode = 41;
-pub const KEYCODE_G: Keycode = 42;
-pub const KEYCODE_H: Keycode = 43;
-pub const KEYCODE_J: Keycode = 44;
-pub const KEYCODE_K: Keycode = 45;
-pub const KEYCODE_L: Keycode = 46;
-pub const KEYCODE_Z: Keycode = 52;
-pub const KEYCODE_X: Keycode = 53;
-pub const KEYCODE_C: Keycode = 54;
-pub const KEYCODE_V: Keycode = 55;
-pub const KEYCODE_B: Keycode = 56;
-pub const KEYCODE_N: Keycode = 57;
-pub const KEYCODE_M: Keycode = 58;
-pub const KEYCODE_SPACE: Keycode = 65;
-pub const KEYCODE_CAPS_LOCK: Keycode = 66;
-pub const KEYCODE_SHIFT_L: Keycode = 50;
-pub const KEYCODE_SHIFT_R: Keycode = 62;
-pub const KEYCODE_CTRL_L: Keycode = 37;
-pub const KEYCODE_CTRL_R: Keycode = 105;
-pub const KEYCODE_ALT_L: Keycode = 64;
-pub const KEYCODE_ALT_R: Keycode = 108;
-pub const KEYCODE_ENTER: Keycode = 36;
+pub const KEYCODE_ESC: KeyCode = 9;
+pub const KEYCODE_1: KeyCode = 10;
+pub const KEYCODE_2: KeyCode = 11;
+pub const KEYCODE_3: KeyCode = 12;
+pub const KEYCODE_4: KeyCode = 13;
+pub const KEYCODE_5: KeyCode = 14;
+pub const KEYCODE_6: KeyCode = 15;
+pub const KEYCODE_7: KeyCode = 16;
+pub const KEYCODE_8: KeyCode = 17;
+pub const KEYCODE_9: KeyCode = 18;
+pub const KEYCODE_0: KeyCode = 19;
+pub const KEYCODE_Q: KeyCode = 24;
+pub const KEYCODE_W: KeyCode = 25;
+pub const KEYCODE_E: KeyCode = 26;
+pub const KEYCODE_R: KeyCode = 27;
+pub const KEYCODE_T: KeyCode = 28;
+pub const KEYCODE_Y: KeyCode = 29;
+pub const KEYCODE_U: KeyCode = 30;
+pub const KEYCODE_I: KeyCode = 31;
+pub const KEYCODE_O: KeyCode = 32;
+pub const KEYCODE_P: KeyCode = 33;
+pub const KEYCODE_A: KeyCode = 38;
+pub const KEYCODE_S: KeyCode = 39;
+pub const KEYCODE_D: KeyCode = 40;
+pub const KEYCODE_F: KeyCode = 41;
+pub const KEYCODE_G: KeyCode = 42;
+pub const KEYCODE_H: KeyCode = 43;
+pub const KEYCODE_J: KeyCode = 44;
+pub const KEYCODE_K: KeyCode = 45;
+pub const KEYCODE_L: KeyCode = 46;
+pub const KEYCODE_Z: KeyCode = 52;
+pub const KEYCODE_X: KeyCode = 53;
+pub const KEYCODE_C: KeyCode = 54;
+pub const KEYCODE_V: KeyCode = 55;
+pub const KEYCODE_B: KeyCode = 56;
+pub const KEYCODE_N: KeyCode = 57;
+pub const KEYCODE_M: KeyCode = 58;
+pub const KEYCODE_SPACE: KeyCode = 65;
+pub const KEYCODE_CAPS_LOCK: KeyCode = 66;
+pub const KEYCODE_SHIFT_L: KeyCode = 50;
+pub const KEYCODE_SHIFT_R: KeyCode = 62;
+pub const KEYCODE_CTRL_L: KeyCode = 37;
+pub const KEYCODE_CTRL_R: KeyCode = 105;
+pub const KEYCODE_ALT_L: KeyCode = 64;
+pub const KEYCODE_ALT_R: KeyCode = 108;
+pub const KEYCODE_ENTER: KeyCode = 36;
 
 // Common keysym constants
-pub const KEYSYM_A: Keysym = 0x0061;
-pub const KEYSYM_B: Keysym = 0x0062;
-pub const KEYSYM_C: Keysym = 0x0063;
-pub const KEYSYM_SPACE: Keysym = 0x0020;
-pub const KEYSYM_RETURN: Keysym = 0xFF0D;
-pub const KEYSYM_ESCAPE: Keysym = 0xFF1B;
+pub const KEYSYM_A: KeySym = 0x0061;
+pub const KEYSYM_B: KeySym = 0x0062;
+pub const KEYSYM_C: KeySym = 0x0063;
+pub const KEYSYM_SPACE: KeySym = 0x0020;
+pub const KEYSYM_RETURN: KeySym = 0xFF0D;
+pub const KEYSYM_ESCAPE: KeySym = 0xFF1B;
 
 // Modifier state constants
 pub const MODIFIER_SHIFT: u16 = 1;

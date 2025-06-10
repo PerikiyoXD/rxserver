@@ -8,9 +8,8 @@ pub mod requests;
 pub mod responses;
 pub mod types;
 
-pub use events::*;
-pub use requests::*;
-pub use responses::*;
+// Export specific types to avoid naming conflicts
+pub use events::Event as ProtocolEvent;
+pub use requests::{Request, RequestParser};
+pub use responses::{Response, Reply, Event as ResponseEvent};
 pub use types::*;
-
-use crate::{Error, Result};

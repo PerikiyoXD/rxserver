@@ -142,3 +142,6 @@ impl ServerConfig {
         Ok(())
     }
 }
+
+/// Alias for DisplaySettings for backward compatibility
+pub type DisplayConfig = DisplaySettings;
