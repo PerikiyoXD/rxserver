@@ -122,6 +122,9 @@ impl ClientConnection {
             "Request handling not implemented for request: {:?}",
             request
         );
+        Err(crate::Error::NotImplemented(
+            "Request handling not implemented".to_string(),
+        ))
     }
 
     /// Send a response to the client
