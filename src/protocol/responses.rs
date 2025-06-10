@@ -3,6 +3,7 @@
 //! This module handles the generation of X11 protocol responses, replies, and errors.
 //! All responses are type-safe and follow the X11 protocol specification.
 
+use crate::protocol::events::Event;
 use crate::protocol::types::*;
 use crate::{todo_high, todo_medium};
 use bytes::{BufMut, BytesMut};
@@ -27,22 +28,6 @@ pub enum Reply {
     InternAtom(InternAtomReply),
     GetAtomName(GetAtomNameReply),
     // Add more replies as needed
-}
-
-/// X11 events sent to clients
-#[derive(Debug, Clone)]
-pub enum Event {
-    Expose(ExposeEvent),
-    ConfigureNotify(ConfigureNotifyEvent),
-    MapNotify(MapNotifyEvent),
-    UnmapNotify(UnmapNotifyEvent),
-    DestroyNotify(DestroyNotifyEvent),
-    KeyPress(KeyPressEvent),
-    KeyRelease(KeyReleaseEvent),
-    ButtonPress(ButtonPressEvent),
-    ButtonRelease(ButtonReleaseEvent),
-    MotionNotify(MotionNotifyEvent),
-    // Add more events as needed
 }
 
 /// X11 error response
@@ -225,18 +210,10 @@ impl ResponseSerializer {
     /// Serialize a response to bytes
     pub fn serialize(response: &Response, sequence: u16) -> Vec<u8> {
         let mut buf = BytesMut::new();
-
         match response {
             Response::Reply(reply) => Self::serialize_reply(reply, sequence, &mut buf),
             Response::Event(event) => Self::serialize_event(event, &mut buf),
             Response::Error(error) => Self::serialize_error(error, &mut buf),
-            _ => {
-                debug!("Unhandled response type: {:?}", response);
-                todo_high!(
-                    "protocol_responses",
-                    "Most response types not implemented yet"
-                );
-            }
         }
 
         buf.to_vec()
@@ -346,13 +323,6 @@ impl fmt::Display for Response {
             Response::Event(event) => write!(f, "Event({:?})", event),
             Response::Error(error) => {
                 write!(f, "Error({:?}: {})", error.error_code, error.bad_value)
-            }
-            _ => {
-                todo_high!(
-                    "protocol_responses",
-                    "Display not implemented for this response type"
-                );
-                write!(f, "Unknown Response")
             }
         }
     }
