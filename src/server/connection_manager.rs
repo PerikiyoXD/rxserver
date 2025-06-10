@@ -65,6 +65,9 @@ impl ConnectionManager {
     /// Accept incoming connections
     pub async fn accept_connections(&self) -> Result<()> {
         todo_critical!("connection_manager", "accept_connections not implemented");
+        Err(crate::Error::NotImplemented(
+            "accept_connections not implemented".to_string(),
+        ))
     }
 
     /// Get the display number
