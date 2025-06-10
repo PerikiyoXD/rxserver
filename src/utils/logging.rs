@@ -63,8 +63,10 @@ pub fn log_shutdown_info() {
 }
 
 /// Performance timing utility
+#[derive(Debug)]
 pub struct Timer {
     start: std::time::Instant,
+    stop: Option<std::time::Instant>,
     name: String,
 }
 
@@ -73,18 +75,21 @@ impl Timer {
     pub fn start(name: &str) -> Self {
         Self {
             start: std::time::Instant::now(),
+            stop: None,
             name: name.to_string(),
         }
     }
 
     /// Stop the timer and log the elapsed time
-    pub fn stop(self) {
+    pub fn stop(mut self) {
+        self.stop = Some(std::time::Instant::now());
         let elapsed = self.start.elapsed();
         log::debug!("Timer '{}': {:.2}ms", self.name, elapsed.as_secs_f64() * 1000.0);
     }
 
     /// Stop the timer and return elapsed milliseconds
-    pub fn stop_and_return(self) -> f64 {
+    pub fn stop_and_return(mut self) -> f64 {
+        self.stop = Some(std::time::Instant::now());
         let elapsed = self.start.elapsed();
         let ms = elapsed.as_secs_f64() * 1000.0;
         log::debug!("Timer '{}': {:.2}ms", self.name, ms);
