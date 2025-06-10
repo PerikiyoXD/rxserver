@@ -3,12 +3,13 @@
 //! This module defines X11 events that are sent from the server to clients.
 
 use crate::protocol::types::*;
+use crate::{todo_high, todo_medium};
 
 /// X11 event types
 #[derive(Debug, Clone)]
 pub enum Event {
     KeyPress {
-        detail: Keycode,
+        detail: KeyCode,
         time: Timestamp,
         root: Window,
         event: Window,
@@ -19,9 +20,8 @@ pub enum Event {
         event_y: i16,
         state: u16,
         same_screen: bool,
-    },
-    KeyRelease {
-        detail: Keycode,
+    },    KeyRelease {
+        detail: KeyCode,
         time: Timestamp,
         root: Window,
         event: Window,
@@ -169,10 +169,24 @@ impl Event {
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = vec![0u8; 32]; // X11 events are always 32 bytes
         data[0] = self.event_code();
-        
-        // TODO: Implement proper serialization for each event type
-        // For now, just return the basic structure
-        
+        todo_medium!("Implement event serialization");
+        match self {
+            Event::KeyPress { detail, time, root, event, child, root_x, root_y, event_x, event_y, state, same_screen } => {
+                data[1] = *detail;
+                data[2..6].copy_from_slice(&time.to_ne_bytes());
+                data[6..10].copy_from_slice(&root.to_ne_bytes());
+                data[10..14].copy_from_slice(&event.to_ne_bytes());
+                data[14..18].copy_from_slice(&child.to_ne_bytes());
+                data[18..20].copy_from_slice(&root_x.to_ne_bytes());
+                data[20..22].copy_from_slice(&root_y.to_ne_bytes());
+                data[22..24].copy_from_slice(&event_x.to_ne_bytes());
+                data[24..26].copy_from_slice(&event_y.to_ne_bytes());
+                data[26..28].copy_from_slice(&state.to_ne_bytes());
+                data[28] = if *same_screen { 1 } else { 0 };
+            },
+            // Handle other event types similarly...
+            _ => todo_high!("Handle serialization for other event types"),
+        }
         data
     }
 }

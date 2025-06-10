@@ -3,9 +3,10 @@
 //! This module defines all X11 protocol requests in a clean, type-safe manner.
 //! Each request is represented as a Rust struct with proper validation.
 
+use crate::protocol::opcodes;
 use crate::protocol::types::*;
-use crate::{Error, Result};
-use bytes::Buf;
+use crate::{todo_high, todo_medium, Result};
+use bytes::{Buf, Bytes};
 use std::fmt;
 
 /// X11 protocol request header
@@ -29,7 +30,8 @@ pub enum Request {
     CreateGC(CreateGCRequest),
     ClearArea(ClearAreaRequest),
     CopyArea(CopyAreaRequest),
-    // Add more requests as needed
+    // Unknown request for unimplemented opcodes
+    Unknown { opcode: u8, data: bytes::Bytes },
 }
 
 /// Create Window request
@@ -172,20 +174,30 @@ impl RequestParser {
                 data.len()
             )));
         }
-
         match opcode {
             opcodes::window::CREATE_WINDOW => Self::parse_create_window(&data[4..]),
             opcodes::window::MAP_WINDOW => Self::parse_map_window(&data[4..]),
             opcodes::window::UNMAP_WINDOW => Self::parse_unmap_window(&data[4..]),
             opcodes::graphics::CLEAR_AREA => Self::parse_clear_area(&data[4..]),
-            _ => Err(crate::Error::Protocol(format!(
-                "Unknown opcode: {}",
-                opcode
-            ))),
+            _ => {
+                todo_high!(
+                    "request_parsing",
+                    "Unknown opcode {} not implemented",
+                    opcode
+                );
+                Ok(Request::Unknown {
+                    opcode,
+                    data: Bytes::copy_from_slice(data),
+                })
+            }
         }
     }
-
     fn parse_create_window(data: &[u8]) -> Result<Request> {
+        todo_high!(
+            "request_parsing",
+            "CreateWindow parsing is incomplete - using placeholder values"
+        );
+
         if data.len() < 28 {
             return Err(crate::Error::Protocol(
                 "CreateWindow request too short".to_string(),
@@ -210,8 +222,12 @@ impl RequestParser {
         let visual = buf.get_u32();
         let value_mask = WindowAttributesMask::from_bits_truncate(buf.get_u32());
 
-        // Parse value list based on mask
-        let value_list = WindowAttributes::default(); // TODO: Parse based on mask
+        // TODO: Parse value list based on mask - currently using defaults
+        todo_high!(
+            "request_parsing",
+            "CreateWindow value_list parsing not implemented"
+        );
+        let value_list = WindowAttributes::default();
 
         Ok(Request::CreateWindow(CreateWindowRequest {
             depth,
@@ -228,8 +244,12 @@ impl RequestParser {
             value_list,
         }))
     }
-
     fn parse_map_window(data: &[u8]) -> Result<Request> {
+        todo_high!(
+            "request_parsing",
+            "MapWindow parsing is basic - needs validation"
+        );
+
         if data.len() < 4 {
             return Err(crate::Error::Protocol(
                 "MapWindow request too short".to_string(),
@@ -243,6 +263,11 @@ impl RequestParser {
     }
 
     fn parse_unmap_window(data: &[u8]) -> Result<Request> {
+        todo_high!(
+            "request_parsing",
+            "UnmapWindow parsing is basic - needs validation"
+        );
+
         if data.len() < 4 {
             return Err(crate::Error::Protocol(
                 "UnmapWindow request too short".to_string(),
@@ -256,6 +281,11 @@ impl RequestParser {
     }
 
     fn parse_clear_area(data: &[u8]) -> Result<Request> {
+        todo_high!(
+            "request_parsing",
+            "ClearArea parsing is basic - needs validation"
+        );
+
         if data.len() < 12 {
             return Err(crate::Error::Protocol(
                 "ClearArea request too short".to_string(),
@@ -297,51 +327,6 @@ impl fmt::Display for Request {
                 req.window, req.width, req.height, req.x, req.y
             ),
             _ => write!(f, "{:?}", self),
-        }
-    }
-}
-
-/// X11 request parser
-pub struct RequestParser;
-
-impl RequestParser {
-    /// Parse a request from raw bytes
-    pub fn parse(data: &[u8]) -> Result<Request> {
-        if data.len() < 4 {
-            return Err(Error::Protocol("Request too short".to_string()));
-        }
-
-        let header = RequestHeader {
-            opcode: data[0],
-            data: data[1],
-            length: u16::from_ne_bytes([data[2], data[3]]),
-        };
-
-        // TODO: Implement actual request parsing based on opcode
-        match header.opcode {
-            opcodes::CREATE_WINDOW => {
-                // TODO: Parse CreateWindow request
-                Ok(Request::CreateWindow {
-                    depth: header.data,
-                    wid: 0, // TODO: Parse from data
-                    parent: 0,
-                    x: 0,
-                    y: 0,
-                    width: 0,
-                    height: 0,
-                    border_width: 0,
-                    class: WindowClass::InputOutput,
-                    visual: 0,
-                    value_mask: 0,
-                    value_list: Vec::new(),
-                })
-            }
-            opcodes::DESTROY_WINDOW => Ok(Request::DestroyWindow { window: 0 }),
-            opcodes::MAP_WINDOW => Ok(Request::MapWindow { window: 0 }),
-            _ => Ok(Request::Unknown {
-                opcode: header.opcode,
-                data: Bytes::copy_from_slice(data),
-            }),
         }
     }
 }
