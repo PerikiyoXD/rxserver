@@ -269,24 +269,37 @@ impl EventHandler for DefaultEventHandler {
                 log::info!("Client {} disconnected", client_id);
                 Ok(None)
             }
-            ServerEvent::RequestReceived { client_id, request } => {
+            ServerEvent::RequestReceived {
+                client_id,
+                sequence_number,
+                request,
+            } => {
                 todo_medium!(
                     "event_handler",
-                    "Request processing not implemented for client {} request {:?}",
+                    "Request processing not implemented for client {} seq {} request {:?}",
                     client_id,
+                    sequence_number,
                     request
                 );
                 Ok(None)
             }
             ServerEvent::WindowCreated {
-                window_id,
+                window,
+                parent,
+                geometry,
                 client_id,
             } => {
-                log::info!("Window {} created by client {}", window_id, client_id);
+                log::info!(
+                    "Window {} created by client {} (parent: {}, geometry: {:?})",
+                    window,
+                    client_id,
+                    parent,
+                    geometry
+                );
                 Ok(None)
             }
-            ServerEvent::WindowDestroyed { window_id } => {
-                log::info!("Window {} destroyed", window_id);
+            ServerEvent::WindowDestroyed { window, client_id } => {
+                log::info!("Window {} destroyed by client {}", window, client_id);
                 Ok(None)
             }
             ServerEvent::ServerShuttingDown => {
