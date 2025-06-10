@@ -3,7 +3,7 @@
 //! This module manages X11 resources like windows, pixmaps, graphics contexts, etc.
 
 use crate::protocol::types::*;
-use crate::{Error, Result};
+use crate::{todo_critical, todo_high, todo_low, todo_medium, Error, Result};
 use std::collections::HashMap;
 
 /// Manages X11 resources
@@ -56,6 +56,11 @@ impl ResourceManager {
         border_width: u16,
         class: WindowClass,
     ) -> Result<Window> {
+        todo_high!(
+            "resource_manager",
+            "Window creation incomplete - missing visual, attributes, and validation"
+        );
+
         let id = self.allocate_id();
 
         let window = WindowResource {
@@ -153,6 +158,11 @@ impl ResourceManager {
 
     /// Create a graphics context
     pub fn create_graphics_context(&mut self) -> Result<GContext> {
+        todo_medium!(
+            "resource_manager",
+            "Graphics context creation incomplete - missing full GC attributes"
+        );
+
         let id = self.allocate_id();
 
         let gc = GraphicsContextResource {

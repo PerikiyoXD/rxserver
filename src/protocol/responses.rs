@@ -7,6 +7,7 @@ use crate::protocol::types::*;
 use bytes::{BufMut, BytesMut};
 use log::debug;
 use std::fmt;
+use crate::{todo_high, todo_medium};
 
 /// Generic X11 response type
 #[derive(Debug, Clone)]
@@ -247,8 +248,8 @@ impl ResponseSerializer {
                 buf.put_u32(reply.your_event_mask.bits());
                 buf.put_u32(reply.do_not_propagate_mask.bits());
                 buf.put_u32(0); // Padding
-            }
-            _ => {
+            }            _ => {
+                todo_medium!("protocol_responses", "Most reply types not implemented yet");
                 // TODO: Implement other reply types
                 buf.put_u8(0);
                 buf.put_u16(sequence);
@@ -290,9 +291,9 @@ impl ResponseSerializer {
                 buf.put_u8(if event.override_redirect { 1 } else { 0 });
                 buf.put_u8(0); // Padding
                 buf.put_u32(0); // Padding
-            }
-            _ => {
+            }            _ => {
                 debug!("Unhandled event type: {:?}", event);
+                todo_high!("protocol_responses", "Most event types not implemented - only basic events work");
                 // TODO: Implement other event types
                 buf.put_u8(0);
                 for _ in 0..31 {
