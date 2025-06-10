@@ -15,9 +15,7 @@ use crate::{todo_critical, todo_high, todo_medium, Result};
 
 // Import from sibling modules
 use super::{
-    client::{ClientInfo, ClientManager},
-    event_loop::EventLoop,
-    state::ServerState,
+    client::ClientManager, event_loop::EventLoop, events::ServerEvent, state::ServerState,
     ConnectionManager, DisplayManager, RequestHandler, ResourceManager,
 };
 
@@ -46,29 +44,19 @@ pub struct XServer {
     event_sender: broadcast::Sender<ServerEvent>,
 }
 
-/// Server events that can be broadcast to components
-#[derive(Debug, Clone)]
-pub enum ServerEvent {
-    ClientConnected { client_id: u32 },
-    ClientDisconnected { client_id: u32 },
-    WindowCreated { window_id: u32, client_id: u32 },
-    WindowDestroyed { window_id: u32 },
-    ServerShuttingDown,
-}
-
 impl XServer {
     /// Create a new X server instance
     pub async fn new(display_name: String, config: ServerConfig) -> Result<Self> {
         info!("Creating X server for display: {}", display_name);
 
         // Create event channel for server-wide communication
-        let (event_sender, _) = broadcast::channel(1000);
+        // TODO: Use tx and rx for event handling as current implementation
+        // uses a broadcast channel for event broadcasting
+        let (event_tx, event_rx) = broadcast::channel(1000);
 
         // Initialize shared state
-        let state = Arc::new(ServerState::new(display_name.clone()));
-
-        // Initialize managers
-        let client_manager = Arc::new(ClientManager::new(event_sender.clone()));
+        let state = Arc::new(ServerState::new(display_name.clone())); // Initialize managers
+        let client_manager = Arc::new(ClientManager::new(event_tx.clone()));
         let connection_manager = Arc::new(ConnectionManager::new(&config)?);
         let display_manager = Arc::new(DisplayManager::new(&config.display)?);
         let resource_manager = Arc::new(ResourceManager::new());
@@ -82,7 +70,7 @@ impl XServer {
             display_manager,
             resource_manager,
             request_handler,
-            event_sender,
+            event_sender: event_tx,
         })
     }
 
@@ -91,9 +79,7 @@ impl XServer {
         info!("Starting X server on display {}", self.state.display_name());
 
         // Mark server as running
-        self.state.set_running(true).await;
-
-        // Start the main event loop
+        self.state.set_running(true).await; // Start the main event loop
         let event_loop = EventLoop::new(
             self.connection_manager.clone(),
             self.client_manager.clone(),
