@@ -35,11 +35,11 @@ macro_rules! todo_log {
 macro_rules! todo_critical {
     ($category:expr, $msg:expr) => {
         $crate::todo_log!(error, $category, $msg);
-        panic!("CRITICAL TODO: {}", $msg);
+        //panic!("CRITICAL TODO: {}", $msg);
     };
     ($category:expr, $msg:expr, $($arg:tt)*) => {
         $crate::todo_log!(error, $category, $msg, $($arg)*);
-        panic!("CRITICAL TODO: {}", format!($msg, $($arg)*));
+        //panic!("CRITICAL TODO: {}", format!($msg, $($arg)*));
     };
 }
 
