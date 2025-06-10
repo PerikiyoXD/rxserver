@@ -82,20 +82,14 @@ impl ResponseBuilder {
     pub fn build_response(&mut self, response: &Response) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Response building for {:?}", response);
 
+        // Clear the buffer for new response
         self.buffer.clear();
 
+        // Determine the type of response and build accordingly
         match response {
             Response::Reply(reply) => self.build_reply(reply),
             Response::Event(event) => self.build_event(event),
             Response::Error(error) => self.build_error(error),
-            _ => {
-                todo_high!(
-                    "response_builder",
-                    "Unhandled response type: {:?}",
-                    response
-                );
-                Ok(vec![0; 32]) // Placeholder
-            }
         }
     }
 
@@ -118,18 +112,8 @@ impl ResponseBuilder {
     fn build_event(&mut self, event: &ProtocolEvent) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Event building for {:?}", event);
 
-        match event {
-            ProtocolEvent::KeyPress(evt) => self.build_key_press_event(evt),
-            ProtocolEvent::KeyRelease(evt) => self.build_key_release_event(evt),
-            ProtocolEvent::ButtonPress(evt) => self.build_button_press_event(evt),
-            ProtocolEvent::ButtonRelease(evt) => self.build_button_release_event(evt),
-            ProtocolEvent::ConfigureNotify(evt) => self.build_configure_notify_event(evt),
-            ProtocolEvent::Expose(evt) => self.build_expose_event(evt),
-            _ => {
-                todo_medium!("response_builder", "Unhandled event type: {:?}", event);
-                Ok(vec![0; 32]) // Placeholder
-            }
-        }
+        // Use the Event's built-in serialization
+        Ok(event.serialize())
     }
 
     /// Build an error message
