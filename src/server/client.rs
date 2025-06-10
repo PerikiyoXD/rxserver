@@ -176,8 +176,16 @@ impl ClientManager {
 
     /// Estimate memory usage
     pub async fn memory_usage(&self) -> usize {
-        // Rough estimation of memory usage
-        self.clients.len() * std::mem::size_of::<ClientInfo>()
+        // Estimate memory usage of all clients and their windows
+        self.clients
+            .iter()
+            .map(|entry| {
+                let client = entry.value();
+                std::mem::size_of_val(client)
+                    + client.windows.capacity() * std::mem::size_of::<Window>()
+                    + client.name.capacity()
+            })
+            .sum()
     }
 
     /// Get all clients for debugging
