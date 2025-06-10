@@ -2,7 +2,7 @@
 //!
 //! This module handles keyboard events, key mapping, and keyboard state.
 
-use crate::protocol::responses::{Event, KeyPressEvent, KeyReleaseEvent};
+use crate::protocol::responses::Event;
 use crate::protocol::types::*;
 use crate::{todo_high, todo_medium, Result};
 
@@ -41,8 +41,7 @@ impl KeyboardManager {
             "keyboard_input",
             "Cursor position tracking not implemented - using 0,0"
         );
-
-        let event = KeyPressEvent {
+        Ok(Event::KeyPress {
             detail: keycode,
             time: timestamp,
             root: 1,  // Root window
@@ -52,18 +51,15 @@ impl KeyboardManager {
             root_y: 0,
             event_x: 0,
             event_y: 0,
-            state: ModifierMask::from_bits_truncate(self.get_modifier_state()),
+            state: self.get_modifier_state(),
             same_screen: true,
-        };
-
-        Ok(Event::KeyPress(event))
+        })
     }
 
     /// Process a key release event
     pub fn key_release(&mut self, keycode: KeyCode, timestamp: Timestamp) -> Result<Event> {
         self.key_state[keycode as usize] = false;
-
-        let event = KeyReleaseEvent {
+        Ok(Event::KeyRelease {
             detail: keycode,
             time: timestamp,
             root: 1,
@@ -73,11 +69,9 @@ impl KeyboardManager {
             root_y: 0,
             event_x: 0,
             event_y: 0,
-            state: ModifierMask::from_bits_truncate(self.get_modifier_state()),
+            state: self.get_modifier_state(),
             same_screen: true,
-        };
-
-        Ok(Event::KeyRelease(event))
+        })
     }
 
     /// Check if a key is currently pressed
