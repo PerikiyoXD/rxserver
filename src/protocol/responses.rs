@@ -255,35 +255,52 @@ impl ResponseSerializer {
 
     fn serialize_event(event: &Event, buf: &mut BytesMut) {
         match event {
-            Event::Expose(event) => {
+            Event::Expose {
+                window,
+                x,
+                y,
+                width,
+                height,
+                count,
+            } => {
                 buf.put_u8(EventType::Expose as u8);
                 buf.put_u8(0); // Padding
                 buf.put_u16(0); // Sequence number (filled by connection)
-                buf.put_u32(event.window);
-                buf.put_u16(event.x);
-                buf.put_u16(event.y);
-                buf.put_u16(event.width);
-                buf.put_u16(event.height);
-                buf.put_u16(event.count);
+                buf.put_u32(*window);
+                buf.put_u16(*x);
+                buf.put_u16(*y);
+                buf.put_u16(*width);
+                buf.put_u16(*height);
+                buf.put_u16(*count);
                 buf.put_u16(0); // Padding
                                 // Pad to 32 bytes
                 for _ in 0..14 {
                     buf.put_u8(0);
                 }
             }
-            Event::ConfigureNotify(event) => {
+            Event::ConfigureNotify {
+                event,
+                window,
+                above_sibling,
+                x,
+                y,
+                width,
+                height,
+                border_width,
+                override_redirect,
+            } => {
                 buf.put_u8(EventType::ConfigureNotify as u8);
                 buf.put_u8(0); // Padding
                 buf.put_u16(0); // Sequence number
-                buf.put_u32(event.event);
-                buf.put_u32(event.window);
-                buf.put_u32(event.above_sibling);
-                buf.put_i16(event.x);
-                buf.put_i16(event.y);
-                buf.put_u16(event.width);
-                buf.put_u16(event.height);
-                buf.put_u16(event.border_width);
-                buf.put_u8(if event.override_redirect { 1 } else { 0 });
+                buf.put_u32(*event);
+                buf.put_u32(*window);
+                buf.put_u32(*above_sibling);
+                buf.put_i16(*x);
+                buf.put_i16(*y);
+                buf.put_u16(*width);
+                buf.put_u16(*height);
+                buf.put_u16(*border_width);
+                buf.put_u8(if *override_redirect { 1 } else { 0 });
                 buf.put_u8(0); // Padding
                 buf.put_u32(0); // Padding
             }
