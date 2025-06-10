@@ -1,0 +1,59 @@
+[package]
+name = "rxserver"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name <your.email@example.com>"]
+description = "RX - A modern, safe, and efficient Rust implementation of the X11 protocol"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/yourusername/rxserver"
+keywords = ["x11", "window-system", "display-server", "graphics"]
+categories = ["gui", "network-programming"]
+
+[[bin]]
+name = "rxserver"
+path = "src/main.rs"
+
+[lib]
+name = "rxserver"
+path = "src/lib.rs"
+
+[dependencies]
+# Async runtime for handling multiple client connections
+tokio = { version = "1.0", features = ["full"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Command line argument parsing
+clap = { version = "4.0", features = ["derive"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Binary data handling for X11 protocol
+byteorder = "1.4"
+
+# Networking
+bytes = "1.0"
+
+# Date/time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
