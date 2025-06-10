@@ -47,6 +47,8 @@ pub enum ServerEvent {
     },
     /// Input event occurred
     InputEvent { event: InputEventType },
+    /// Server is shutting down
+    ServerShuttingDown,
 }
 
 /// Graphics operations
@@ -208,5 +210,97 @@ impl EventBus {
     /// Get the number of registered handlers
     pub async fn handler_count(&self) -> usize {
         self.handlers.read().await.len()
+    }
+}
+
+/// Default event handler implementation
+pub struct DefaultEventHandler {
+    name: String,
+    event_receiver: broadcast::Receiver<ServerEvent>,
+}
+
+impl DefaultEventHandler {
+    /// Create a new default event handler
+    pub fn new(name: String, event_receiver: broadcast::Receiver<ServerEvent>) -> Self {
+        Self {
+            name,
+            event_receiver,
+        }
+    }
+
+    /// Start the event handler loop
+    pub async fn start(&mut self) -> Result<()> {
+        use crate::todo_high;
+
+        loop {
+            match self.event_receiver.recv().await {
+                Ok(event) => {
+                    if let Some(_response) = self.handle_event(&event).await? {
+                        todo_high!("event_handler", "Event response handling not implemented");
+                    }
+                }
+                Err(broadcast::error::RecvError::Closed) => {
+                    log::info!("Event channel closed, stopping event handler");
+                    break;
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    log::warn!("Event handler lagged, some events may have been missed");
+                    continue;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl EventHandler for DefaultEventHandler {
+    async fn handle_event(&self, event: &ServerEvent) -> Result<Option<EventResponse>> {
+        use crate::todo_medium;
+
+        log::debug!("Handling event: {:?}", event);
+
+        match event {
+            ServerEvent::ClientConnected { client_id, address } => {
+                log::info!("Client {} connected from {}", client_id, address);
+                Ok(None)
+            }
+            ServerEvent::ClientDisconnected { client_id } => {
+                log::info!("Client {} disconnected", client_id);
+                Ok(None)
+            }
+            ServerEvent::RequestReceived { client_id, request } => {
+                todo_medium!(
+                    "event_handler",
+                    "Request processing not implemented for client {} request {:?}",
+                    client_id,
+                    request
+                );
+                Ok(None)
+            }
+            ServerEvent::WindowCreated {
+                window_id,
+                client_id,
+            } => {
+                log::info!("Window {} created by client {}", window_id, client_id);
+                Ok(None)
+            }
+            ServerEvent::WindowDestroyed { window_id } => {
+                log::info!("Window {} destroyed", window_id);
+                Ok(None)
+            }
+            ServerEvent::ServerShuttingDown => {
+                log::info!("Server shutting down");
+                Ok(None)
+            }
+            _ => {
+                todo_medium!("event_handler", "Unhandled event type: {:?}", event);
+                Ok(None)
+            }
+        }
+    }
+
+    fn name(&self) -> &str {
+        &self.name
     }
 }
