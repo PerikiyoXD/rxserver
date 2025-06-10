@@ -2,11 +2,16 @@
 //!
 //! This module provides logging configuration and utilities for the X server.
 
+use crate::{todo_high, todo_low, todo_medium};
 use log::LevelFilter;
 use std::io::Write;
 
 /// Initialize logging for the X server
-pub fn init_logging(level: &str, log_to_file: Option<&str>, log_to_stdout: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn init_logging(
+    level: &str,
+    log_to_file: Option<&str>,
+    log_to_stdout: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let log_level = match level.to_lowercase().as_str() {
         "error" => LevelFilter::Error,
         "warn" => LevelFilter::Warn,
@@ -18,7 +23,7 @@ pub fn init_logging(level: &str, log_to_file: Option<&str>, log_to_stdout: bool)
 
     let mut builder = env_logger::Builder::new();
     builder.filter_level(log_level);
-    
+
     // Custom format for log messages
     builder.format(|buf, record| {
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
@@ -31,10 +36,13 @@ pub fn init_logging(level: &str, log_to_file: Option<&str>, log_to_stdout: bool)
             message = record.args()
         )
     });
-
+    
     if let Some(log_file) = log_to_file {
-        // TODO: Add file logging support
-        // This would require a more complex logging setup
+        todo_high!(
+            "logging",
+            "File logging support not implemented - log_file: {}",
+            log_file
+        );
         log::warn!("File logging not yet implemented, using stdout");
     }
 
@@ -84,7 +92,11 @@ impl Timer {
     pub fn stop(mut self) {
         self.stop = Some(std::time::Instant::now());
         let elapsed = self.start.elapsed();
-        log::debug!("Timer '{}': {:.2}ms", self.name, elapsed.as_secs_f64() * 1000.0);
+        log::debug!(
+            "Timer '{}': {:.2}ms",
+            self.name,
+            elapsed.as_secs_f64() * 1000.0
+        );
     }
 
     /// Stop the timer and return elapsed milliseconds
@@ -99,8 +111,10 @@ impl Timer {
 
 /// Memory usage logging
 pub fn log_memory_usage() {
-    // TODO: Implement memory usage tracking
-    // This could use system APIs to get memory information
+    todo_medium!(
+        "logging",
+        "Memory usage tracking not implemented - need system APIs"
+    );
     log::debug!("Memory usage tracking not yet implemented");
 }
 
