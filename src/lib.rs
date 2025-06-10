@@ -67,4 +67,7 @@ pub enum Error {
 
     #[error("Input error: {0}")]
     Input(String),
+
+    #[error("Not implemented: {0}")]
+    NotImplemented(String),
 }
