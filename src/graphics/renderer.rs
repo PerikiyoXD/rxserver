@@ -2,9 +2,9 @@
 //!
 //! This module provides basic 2D rendering operations for the X server.
 
-use crate::protocol::types::*;
 use crate::graphics::GraphicsContext;
-use crate::{Error, Result};
+use crate::protocol::types::*;
+use crate::{todo_low, todo_medium, Error, Result};
 
 /// Basic software renderer
 pub struct Renderer {
@@ -164,7 +164,7 @@ impl Renderer {
             for x in 0..width {
                 let src_pixel_x = src_x + x as i16;
                 let src_pixel_y = src_y + y as i16;
-                
+
                 if let Some(pixel) = self.get_pixel(src_pixel_x as u32, src_pixel_y as u32) {
                     temp_buffer.push(*pixel);
                 } else {
@@ -178,9 +178,10 @@ impl Renderer {
             for x in 0..width {
                 let dst_pixel_x = dst_x + x as i16;
                 let dst_pixel_y = dst_y + y as i16;
-                
+
                 if gc.point_in_clip_region(dst_pixel_x, dst_pixel_y) {
-                    if let Some(pixel) = self.get_pixel_mut(dst_pixel_x as u32, dst_pixel_y as u32) {
+                    if let Some(pixel) = self.get_pixel_mut(dst_pixel_x as u32, dst_pixel_y as u32)
+                    {
                         let temp_index = (y as usize * width as usize) + x as usize;
                         if temp_index < temp_buffer.len() {
                             *pixel = temp_buffer[temp_index];
