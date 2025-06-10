@@ -23,7 +23,7 @@ pub trait MessageHandler: Send + Sync + Debug {
 #[async_trait]
 pub trait EventDispatcher: Send + Sync + Debug {
     /// Dispatch an event to interested clients
-    async fn dispatch_event(&self, event: &crate::protocol::Event) -> Result<()>;
+    async fn dispatch_event(&self, event: &crate::protocol::responses::Event) -> Result<()>;
 }
 
 /// Trait for X11 resource managers
