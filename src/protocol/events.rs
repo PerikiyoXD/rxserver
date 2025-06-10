@@ -20,7 +20,8 @@ pub enum Event {
         event_y: i16,
         state: u16,
         same_screen: bool,
-    },    KeyRelease {
+    },
+    KeyRelease {
         detail: KeyCode,
         time: Timestamp,
         root: Window,
@@ -169,9 +170,21 @@ impl Event {
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = vec![0u8; 32]; // X11 events are always 32 bytes
         data[0] = self.event_code();
-        todo_medium!("Implement event serialization");
+        todo_medium!("event_serialization", "Implement event serialization");
         match self {
-            Event::KeyPress { detail, time, root, event, child, root_x, root_y, event_x, event_y, state, same_screen } => {
+            Event::KeyPress {
+                detail,
+                time,
+                root,
+                event,
+                child,
+                root_x,
+                root_y,
+                event_x,
+                event_y,
+                state,
+                same_screen,
+            } => {
                 data[1] = *detail;
                 data[2..6].copy_from_slice(&time.to_ne_bytes());
                 data[6..10].copy_from_slice(&root.to_ne_bytes());
@@ -183,9 +196,11 @@ impl Event {
                 data[24..26].copy_from_slice(&event_y.to_ne_bytes());
                 data[26..28].copy_from_slice(&state.to_ne_bytes());
                 data[28] = if *same_screen { 1 } else { 0 };
-            },
-            // Handle other event types similarly...
-            _ => todo_high!("Handle serialization for other event types"),
+            } // Handle other event types similarly...
+            _ => todo_high!(
+                "event_serialization",
+                "Handle serialization for other event types"
+            ),
         }
         data
     }
