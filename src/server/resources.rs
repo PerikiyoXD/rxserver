@@ -2,9 +2,9 @@
 //!
 //! This module manages X11 resources like windows, pixmaps, graphics contexts, etc.
 
-use std::collections::HashMap;
 use crate::protocol::types::*;
 use crate::{Error, Result};
+use std::collections::HashMap;
 
 /// Manages X11 resources
 pub struct ResourceManager {
@@ -57,16 +57,21 @@ impl ResourceManager {
         class: WindowClass,
     ) -> Result<Window> {
         let id = self.allocate_id();
-        
+
         let window = WindowResource {
             id,
             parent,
-            geometry: Rectangle { x, y, width, height },
+            geometry: Rectangle {
+                x,
+                y,
+                width,
+                height,
+            },
             border_width,
             class,
             mapped: false,
             children: Vec::new(),
-            event_mask: EventMask::new(0),
+            event_mask: EventMask::empty(),
         };
 
         // Add to parent's children list
@@ -75,9 +80,16 @@ impl ResourceManager {
         }
 
         self.windows.insert(id, window);
-        log::debug!("Created window {} ({}x{} at {},{}) parent={}", 
-                   id, width, height, x, y, parent);
-        
+        log::debug!(
+            "Created window {} ({}x{} at {},{}) parent={}",
+            id,
+            width,
+            height,
+            x,
+            y,
+            parent
+        );
+
         Ok(id)
     }
 
@@ -97,7 +109,7 @@ impl ResourceManager {
 
             log::debug!("Destroyed window {}", window);
         }
-        
+
         Ok(())
     }
 
@@ -129,10 +141,20 @@ impl ResourceManager {
         Ok(())
     }
 
+    /// Get the window count
+    pub async fn window_count(&self) -> usize {
+        self.windows.len()
+    }
+
+    /// Get the pixmap count
+    pub async fn pixmap_count(&self) -> usize {
+        self.pixmaps.len()
+    }
+
     /// Create a graphics context
     pub fn create_graphics_context(&mut self) -> Result<GContext> {
         let id = self.allocate_id();
-        
+
         let gc = GraphicsContextResource {
             id,
             foreground: 0,
@@ -145,7 +167,7 @@ impl ResourceManager {
 
         self.graphics_contexts.insert(id, gc);
         log::debug!("Created graphics context {}", id);
-        
+
         Ok(id)
     }
 
@@ -162,6 +184,54 @@ impl ResourceManager {
             || self.fonts.contains_key(&id)
             || self.cursors.contains_key(&id)
             || self.colormaps.contains_key(&id)
+    }
+
+    /// Get the memory usage
+    pub async fn memory_usage(&self) -> usize {
+        // Calculate a more accurate memory usage, including heap allocations
+        let window_memory: usize = self
+            .windows
+            .values()
+            .map(|w| {
+                std::mem::size_of_val(w) + w.children.capacity() * std::mem::size_of::<Window>()
+            })
+            .sum();
+
+        let pixmap_memory: usize = self
+            .pixmaps
+            .values()
+            .map(|p| std::mem::size_of_val(p) + p.data.capacity() * std::mem::size_of::<u8>())
+            .sum();
+
+        let gc_memory: usize = self
+            .graphics_contexts
+            .values()
+            .map(|gc| std::mem::size_of_val(gc))
+            .sum();
+
+        let font_memory: usize = self
+            .fonts
+            .values()
+            .map(|f| std::mem::size_of_val(f) + f.name.capacity() * std::mem::size_of::<char>())
+            .sum();
+
+        let cursor_memory: usize = self
+            .cursors
+            .values()
+            .map(|c| std::mem::size_of_val(c))
+            .sum();
+
+        let colormap_memory: usize = self
+            .colormaps
+            .values()
+            .map(|cm| {
+                std::mem::size_of_val(cm)
+                    + cm.colors.capacity()
+                        * (std::mem::size_of::<u32>() + std::mem::size_of::<Color>())
+            })
+            .sum();
+
+        window_memory + pixmap_memory + gc_memory + font_memory + cursor_memory + colormap_memory
     }
 }
 
