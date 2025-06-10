@@ -75,13 +75,12 @@ impl ClientManager {
 
         self.clients.insert(client_id, client_info);
 
-        info!("Client {} registered: {} (PID: {:?})", client_id, name, pid);        // Broadcast client connected event
-        let _ = self
-            .event_sender
-            .send(ServerEvent::ClientConnected { 
-                client_id, 
-                address: "unknown".to_string() // TODO: Get actual client address
-            });
+        info!("Client {} registered: {} (PID: {:?})", client_id, name, pid);
+        // Broadcast client connected event
+        let _ = self.event_sender.send(ServerEvent::ClientConnected {
+            client_id,
+            address: "unknown".to_string(), // TODO: Get actual client address
+        });
 
         Ok(client_id)
     }
