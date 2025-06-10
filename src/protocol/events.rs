@@ -202,8 +202,7 @@ impl Event {
                     "event_serialization",
                     "Handle serialization for other event types"
                 );
-                // Return empty data for now
-                data
+                // Just leave data as-is for unhandled events
             }
         }
         data
