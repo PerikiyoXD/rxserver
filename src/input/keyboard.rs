@@ -2,9 +2,9 @@
 //!
 //! This module handles keyboard events, key mapping, and keyboard state.
 
-use crate::protocol::types::*;
 use crate::protocol::responses::{Event, KeyPressEvent, KeyReleaseEvent};
-use crate::Result;
+use crate::protocol::types::*;
+use crate::{todo_high, todo_medium, Result};
 
 /// Keyboard state manager
 pub struct KeyboardManager {
@@ -22,19 +22,30 @@ impl KeyboardManager {
     /// Create a new keyboard manager
     pub fn new() -> Self {
         Self {
-            key_state: [false; 256],
-            repeat_delay: 500, // 500ms
-            repeat_rate: 30,   // 30 Hz
+            key_state: [false; 256],  // 256 keys
+            repeat_delay: 500,        // 500ms
+            repeat_rate: 30,          // 30 Hz
             auto_repeat: [true; 256], // All keys auto-repeat by default
         }
-    }    /// Process a key press event
+    }
+
+    /// Process a key press event
     pub fn key_press(&mut self, keycode: KeyCode, timestamp: Timestamp) -> Result<Event> {
         self.key_state[keycode as usize] = true;
+
+        todo_high!(
+            "keyboard_input",
+            "Target window determination not implemented - using placeholder"
+        );
+        todo_medium!(
+            "keyboard_input",
+            "Cursor position tracking not implemented - using 0,0"
+        );
 
         let event = KeyPressEvent {
             detail: keycode,
             time: timestamp,
-            root: 1, // Root window
+            root: 1,  // Root window
             event: 1, // TODO: Determine target window
             child: 0,
             root_x: 0, // TODO: Get cursor position
@@ -67,7 +78,9 @@ impl KeyboardManager {
         };
 
         Ok(Event::KeyRelease(event))
-    }    /// Check if a key is currently pressed
+    }
+
+    /// Check if a key is currently pressed
     pub fn is_key_pressed(&self, keycode: KeyCode) -> bool {
         self.key_state[keycode as usize]
     }
@@ -100,9 +113,7 @@ impl KeyboardManager {
     }
 
     /// Enable or disable auto-repeat for a key
-    pub fn set_auto_repeat(&mut self, keycode: KeyCode, enabled: bool) {
-        self.auto_repeat[keycode as usize] = enabled;
-    }
+    pub fn set_auto_repeat(&mut self, keycode: KeyCode, enabled: bool) {}
 
     /// Check if auto-repeat is enabled for a key
     pub fn is_auto_repeat_enabled(&self, keycode: KeyCode) -> bool {
@@ -111,30 +122,23 @@ impl KeyboardManager {
 
     /// Convert keycode to keysym (basic mapping)
     pub fn keycode_to_keysym(&self, keycode: KeyCode) -> KeySym {
-        // TODO: Implement proper keycode to keysym mapping
-        // This is a very basic mapping for demonstration
-        match keycode {
-            KEYCODE_A => KEYSYM_A,
-            KEYCODE_B => KEYSYM_B,
-            KEYCODE_C => KEYSYM_C,
-            KEYCODE_SPACE => KEYSYM_SPACE,
-            KEYCODE_ENTER => KEYSYM_RETURN,
-            KEYCODE_ESC => KEYSYM_ESCAPE,
-            _ => keycode as KeySym,
-        }
+        todo_high!(
+            "keyboard_input",
+            "Keycode to keysym mapping not implemented"
+        );
+        keycode as KeySym
     }
 
     /// Convert keysym to keycode (reverse mapping)
     pub fn keysym_to_keycode(&self, keysym: KeySym) -> Option<KeyCode> {
-        // TODO: Implement proper keysym to keycode mapping
-        match keysym {
-            KEYSYM_A => Some(KEYCODE_A),
-            KEYSYM_B => Some(KEYCODE_B),
-            KEYSYM_C => Some(KEYCODE_C),
-            KEYSYM_SPACE => Some(KEYCODE_SPACE),
-            KEYSYM_RETURN => Some(KEYCODE_ENTER),
-            KEYSYM_ESCAPE => Some(KEYCODE_ESC),
-            _ => None,
+        todo_high!(
+            "keyboard_input",
+            "Keysym to keycode mapping not implemented"
+        );
+        if keysym < 256 {
+            Some(keysym as KeyCode)
+        } else {
+            None
         }
     }
 }
