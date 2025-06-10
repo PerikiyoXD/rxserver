@@ -1,15 +1,14 @@
 /*!
  * Response Builder for X11 Protocol
- * 
+ *
  * Provides utilities for constructing X11 protocol responses in the correct wire format.
  */
 
 use crate::{
-    protocol::{Response, Reply, Event as ProtocolEvent},
-    Result,
-    todo_high, todo_medium,
+    protocol::{responses::Event as ProtocolEvent, Reply, Response},
+    todo_high, todo_medium, Result,
 };
-use bytes::{BytesMut, BufMut};
+use bytes::{BufMut, BytesMut};
 use tracing::{debug, warn};
 
 /// Builder for constructing X11 protocol responses
@@ -24,24 +23,24 @@ impl ResponseBuilder {
             buffer: BytesMut::new(),
         }
     }
-    
+
     /// Build a response into wire format
     pub fn build_response(&mut self, response: &Response) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Response building for {:?}", response);
-        
+
         self.buffer.clear();
-        
+
         match response {
             Response::Reply(reply) => self.build_reply(reply),
             Response::Event(event) => self.build_event(event),
             Response::Error(error) => self.build_error(error),
         }
     }
-    
+
     /// Build a reply message
     fn build_reply(&mut self, reply: &Reply) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Reply building for {:?}", reply);
-        
+
         match reply {
             Reply::GetWindowAttributes(attrs) => self.build_get_window_attributes_reply(attrs),
             Reply::GetGeometry(geom) => self.build_get_geometry_reply(geom),
@@ -52,11 +51,11 @@ impl ResponseBuilder {
             }
         }
     }
-    
+
     /// Build an event message
     fn build_event(&mut self, event: &ProtocolEvent) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Event building for {:?}", event);
-        
+
         match event {
             ProtocolEvent::KeyPress(evt) => self.build_key_press_event(evt),
             ProtocolEvent::KeyRelease(evt) => self.build_key_release_event(evt),
@@ -70,98 +69,122 @@ impl ResponseBuilder {
             }
         }
     }
-    
+
     /// Build an error message
     fn build_error(&mut self, error: &crate::protocol::X11Error) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Error building for {:?}", error);
-        
+
         self.buffer.put_u8(0); // Error packet
         self.buffer.put_u8(*error as u8); // Error code
         self.buffer.put_u16(0); // Sequence number - TODO: get from context
         self.buffer.put_u32(0); // Bad resource ID - TODO: extract from error context
         self.buffer.put_u16(0); // Minor opcode
-        self.buffer.put_u8(0);  // Major opcode
-        
+        self.buffer.put_u8(0); // Major opcode
+
         // Pad to 32 bytes
         while self.buffer.len() < 32 {
             self.buffer.put_u8(0);
         }
-        
+
         Ok(self.buffer.to_vec())
     }
-    
+
     /// Build GetWindowAttributes reply
     fn build_get_window_attributes_reply(
         &mut self,
         _attrs: &crate::protocol::responses::GetWindowAttributesReply,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "GetWindowAttributes reply building not implemented");
+        todo_high!(
+            "response_builder",
+            "GetWindowAttributes reply building not implemented"
+        );
         Ok(vec![0; 44]) // Placeholder - correct size for GetWindowAttributes reply
     }
-    
+
     /// Build GetGeometry reply
     fn build_get_geometry_reply(
         &mut self,
         _geom: &crate::protocol::responses::GetGeometryReply,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "GetGeometry reply building not implemented");
+        todo_high!(
+            "response_builder",
+            "GetGeometry reply building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build GetProperty reply  
     fn build_get_property_reply(
         &mut self,
         _prop: &crate::protocol::responses::GetPropertyReply,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "GetProperty reply building not implemented");
+        todo_high!(
+            "response_builder",
+            "GetProperty reply building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder - size varies with property data
     }
-    
+
     /// Build KeyPress event
     fn build_key_press_event(
         &mut self,
         _evt: &crate::protocol::responses::KeyPressEvent,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "KeyPress event building not implemented");
+        todo_high!(
+            "response_builder",
+            "KeyPress event building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build KeyRelease event
     fn build_key_release_event(
         &mut self,
         _evt: &crate::protocol::responses::KeyReleaseEvent,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "KeyRelease event building not implemented");
+        todo_high!(
+            "response_builder",
+            "KeyRelease event building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build ButtonPress event
     fn build_button_press_event(
         &mut self,
         _evt: &crate::protocol::responses::ButtonPressEvent,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "ButtonPress event building not implemented");
+        todo_high!(
+            "response_builder",
+            "ButtonPress event building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build ButtonRelease event
     fn build_button_release_event(
         &mut self,
         _evt: &crate::protocol::responses::ButtonReleaseEvent,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "ButtonRelease event building not implemented");
+        todo_high!(
+            "response_builder",
+            "ButtonRelease event building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build ConfigureNotify event
     fn build_configure_notify_event(
         &mut self,
         _evt: &crate::protocol::responses::ConfigureNotifyEvent,
     ) -> Result<Vec<u8>> {
-        todo_high!("response_builder", "ConfigureNotify event building not implemented");
+        todo_high!(
+            "response_builder",
+            "ConfigureNotify event building not implemented"
+        );
         Ok(vec![0; 32]) // Placeholder
     }
-    
+
     /// Build Expose event
     fn build_expose_event(
         &mut self,
