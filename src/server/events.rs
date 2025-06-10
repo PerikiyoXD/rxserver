@@ -6,22 +6,17 @@
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
-use crate::protocol::{Request, Response, responses::Event as ProtocolEvent};
 use crate::protocol::types::*;
+use crate::protocol::{responses::Event as ProtocolEvent, Request, Response};
 use crate::{Error, Result};
 
 /// Internal server events
 #[derive(Debug, Clone)]
 pub enum ServerEvent {
     /// Client connected
-    ClientConnected {
-        client_id: u32,
-        address: String,
-    },
+    ClientConnected { client_id: u32, address: String },
     /// Client disconnected
-    ClientDisconnected {
-        client_id: u32,
-    },
+    ClientDisconnected { client_id: u32 },
     /// Request received from client
     RequestReceived {
         client_id: u32,
@@ -36,22 +31,11 @@ pub enum ServerEvent {
         client_id: u32,
     },
     /// Window destroyed
-    WindowDestroyed {
-        window: Window,
-        client_id: u32,
-    },
+    WindowDestroyed { window: Window, client_id: u32 },
     /// Window mapped
-    WindowMapped {
-        window: Window,
-        client_id: u32,
-    },
+    WindowMapped { window: Window, client_id: u32 },
     /// Window unmapped
     WindowUnmapped {
-        window: Window,
-        client_id: u32,
-    },
-    /// Window configured
-    WindowConfigured {
         window: Window,
         geometry: Rectangle,
         client_id: u32,
@@ -62,30 +46,77 @@ pub enum ServerEvent {
         client_id: u32,
     },
     /// Input event occurred
-    InputEvent {
-        event: InputEventType,
-    },
+    InputEvent { event: InputEventType },
 }
 
 /// Graphics operations
 #[derive(Debug, Clone)]
 pub enum GraphicsOp {
-    DrawPoint { window: Window, x: i16, y: i16, gc: GContext },
-    DrawLine { window: Window, x1: i16, y1: i16, x2: i16, y2: i16, gc: GContext },
-    DrawRectangle { window: Window, rect: Rectangle, gc: GContext },
-    FillRectangle { window: Window, rect: Rectangle, gc: GContext },
-    CopyArea { src_window: Window, dst_window: Window, src_rect: Rectangle, dst_point: Point, gc: GContext },
-    ClearArea { window: Window, rect: Rectangle },
+    DrawPoint {
+        window: Window,
+        x: i16,
+        y: i16,
+        gc: GContext,
+    },
+    DrawLine {
+        window: Window,
+        x1: i16,
+        y1: i16,
+        x2: i16,
+        y2: i16,
+        gc: GContext,
+    },
+    DrawRectangle {
+        window: Window,
+        rect: Rectangle,
+        gc: GContext,
+    },
+    FillRectangle {
+        window: Window,
+        rect: Rectangle,
+        gc: GContext,
+    },
+    CopyArea {
+        src_window: Window,
+        dst_window: Window,
+        src_rect: Rectangle,
+        dst_point: Point,
+        gc: GContext,
+    },
+    ClearArea {
+        window: Window,
+        rect: Rectangle,
+    },
 }
 
 /// Input event types
 #[derive(Debug, Clone)]
 pub enum InputEventType {
-    KeyPress { keycode: Keycode, timestamp: Timestamp },
-    KeyRelease { keycode: Keycode, timestamp: Timestamp },
-    ButtonPress { button: u8, x: i16, y: i16, timestamp: Timestamp },
-    ButtonRelease { button: u8, x: i16, y: i16, timestamp: Timestamp },
-    MotionNotify { x: i16, y: i16, timestamp: Timestamp },
+    KeyPress {
+        keycode: KeyCode,
+        timestamp: Timestamp,
+    },
+    KeyRelease {
+        keycode: KeyCode,
+        timestamp: Timestamp,
+    },
+    ButtonPress {
+        button: u8,
+        x: i16,
+        y: i16,
+        timestamp: Timestamp,
+    },
+    ButtonRelease {
+        button: u8,
+        x: i16,
+        y: i16,
+        timestamp: Timestamp,
+    },
+    MotionNotify {
+        x: i16,
+        y: i16,
+        timestamp: Timestamp,
+    },
 }
 
 /// Event handler trait
@@ -93,7 +124,7 @@ pub enum InputEventType {
 pub trait EventHandler: Send + Sync {
     /// Handle a server event
     async fn handle_event(&self, event: &ServerEvent) -> Result<Option<EventResponse>>;
-    
+
     /// Get the handler's name for debugging
     fn name(&self) -> &str;
 }
@@ -124,7 +155,7 @@ impl EventBus {
     /// Create a new event bus
     pub fn new() -> Self {
         let (sender, _) = broadcast::channel(1000);
-        
+
         Self {
             sender,
             handlers: Arc::new(RwLock::new(Vec::new())),
@@ -141,7 +172,7 @@ impl EventBus {
     /// Emit an event
     pub async fn emit(&self, event: ServerEvent) -> Result<Vec<EventResponse>> {
         log::debug!("Emitting event: {:?}", event);
-        
+
         // Send event through broadcast channel
         if let Err(e) = self.sender.send(event.clone()) {
             log::warn!("Failed to broadcast event: {}", e);
@@ -150,7 +181,7 @@ impl EventBus {
         // Process event through handlers
         let mut responses = Vec::new();
         let handlers = self.handlers.read().await;
-        
+
         for handler in handlers.iter() {
             match handler.handle_event(&event).await {
                 Ok(Some(response)) => {
