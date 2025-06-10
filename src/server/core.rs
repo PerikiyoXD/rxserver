@@ -4,18 +4,19 @@
 //! understand and maintain than the original X server.
 
 use std::sync::Arc;
+use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
-use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use crate::config::ServerConfig;
-use crate::{Result, todo_critical, todo_high, todo_medium};
+use crate::{todo_critical, todo_high, todo_medium, Result};
 
 // Import from sibling modules
 use super::{
-    client::{ClientManager, ClientInfo},
+    client::{ClientInfo, ClientManager},
+    event_loop::EventLoop,
     state::ServerState,
     ConnectionManager, DisplayManager, RequestHandler, ResourceManager,
 };
@@ -71,12 +72,7 @@ impl XServer {
         let connection_manager = Arc::new(ConnectionManager::new(&config)?);
         let display_manager = Arc::new(DisplayManager::new(&config.display)?);
         let resource_manager = Arc::new(ResourceManager::new());
-        let request_handler = Arc::new(RequestHandler::new(
-            state.clone(),
-            resource_manager.clone(),
-            display_manager.clone(),
-            event_sender.clone(),
-        ));
+        let request_handler = Arc::new(RequestHandler::new(client_manager.clone(), state.clone()));
 
         Ok(XServer {
             config,
@@ -110,7 +106,7 @@ impl XServer {
 
         // Mark server as stopped
         self.state.set_running(false).await;
-        
+
         // Broadcast shutdown event
         let _ = self.event_sender.send(ServerEvent::ServerShuttingDown);
 
@@ -122,6 +118,12 @@ impl XServer {
         info!("Stopping X server");
         self.state.set_running(false).await;
         Ok(())
+    }
+
+    /// Shutdown the X server gracefully (alias for stop)
+    pub async fn shutdown(&self) -> Result<()> {
+        todo_high!("server_core", "Graceful shutdown sequence not implemented");
+        self.stop().await
     }
 
     /// Get server statistics
