@@ -16,6 +16,7 @@ pub mod core;
 pub mod display;
 pub mod display_manager;
 pub mod event_loop;
+pub mod events;
 pub mod handlers;
 pub mod request_handler;
 pub mod resources;
