@@ -8,8 +8,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::RwLock;
 
-use crate::{Error, Result};
 use crate::protocol::{Request, RequestParser, Response, ResponseBuilder};
+use crate::{todo_critical, Error, Result};
 
 /// Represents a client connection to the X server
 pub struct ClientConnection {
@@ -62,7 +62,7 @@ impl ClientConnection {
             match self.read_request().await {
                 Ok(Some(request)) => {
                     log::debug!("Received request from client {}: {:?}", self.id, request);
-                    
+
                     // TODO: Process request and send response
                     let response = self.handle_request(request).await?;
                     if let Some(resp) = response {
@@ -88,18 +88,18 @@ impl ClientConnection {
     async fn read_request(&mut self) -> Result<Option<Request>> {
         if let Some(ref mut stream) = self.stream {
             let mut header = [0u8; 4];
-            
+
             match stream.read_exact(&mut header).await {
                 Ok(_) => {
                     let length = u16::from_ne_bytes([header[2], header[3]]) as usize * 4;
-                    
+
                     if length < 4 {
                         return Err(Error::Protocol("Invalid request length".to_string()));
                     }
 
                     let mut data = vec![0u8; length];
                     data[..4].copy_from_slice(&header);
-                    
+
                     if length > 4 {
                         stream.read_exact(&mut data[4..]).await?;
                     }
@@ -107,31 +107,21 @@ impl ClientConnection {
                     let request = RequestParser::parse(&data)?;
                     Ok(Some(request))
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                    Ok(None)
-                }
+                Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Ok(None),
                 Err(e) => Err(Error::Io(e)),
             }
         } else {
             Ok(None)
         }
     }
-    
+
     /// Handle a specific request
     async fn handle_request(&mut self, request: Request) -> Result<Option<Response>> {
-        // TODO: Forward to server for processing with event system
-        // This would require access to the server instance
-        // For now, return a basic acknowledgment
-        match request {
-            Request::Unknown { opcode, .. } => {
-                Ok(Some(ResponseBuilder::error(1, 0, opcode as u32, 0, opcode)))
-            }
-            _ => {
-                // Return success for now - in real implementation this would be handled by event system
-                log::debug!("Request handled by event system (placeholder)");
-                Ok(Some(ResponseBuilder::success()))
-            }
-        }
+        todo_critical!(
+            "client_connection",
+            "Request handling not implemented for request: {:?}",
+            request
+        );
     }
 
     /// Send a response to the client
@@ -163,7 +153,7 @@ impl ClientConnection {
     /// Close the connection
     pub async fn close(&mut self) -> Result<()> {
         log::debug!("Closing connection for client {}", self.id);
-        
+
         {
             let mut connected = self.connected.write().await;
             *connected = false;
