@@ -90,6 +90,9 @@ impl RequestHandler {
         _req: crate::protocol::requests::CreateWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "CreateWindow handler not implemented");
+        Err(crate::Error::NotImplemented(
+            "CreateWindow handler not implemented".to_string(),
+        ))
     }
 
     async fn handle_destroy_window(
@@ -98,6 +101,9 @@ impl RequestHandler {
         _req: crate::protocol::requests::DestroyWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "DestroyWindow handler not implemented");
+        Err(crate::Error::NotImplemented(
+            "DestroyWindow handler not implemented".to_string(),
+        ))
     }
 
     async fn handle_map_window(
@@ -106,6 +112,9 @@ impl RequestHandler {
         _req: crate::protocol::requests::MapWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "MapWindow handler not implemented");
+        Err(crate::Error::NotImplemented(
+            "MapWindow handler not implemented".to_string(),
+        ))
     }
 
     async fn handle_unmap_window(
@@ -114,6 +123,9 @@ impl RequestHandler {
         _req: crate::protocol::requests::UnmapWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "UnmapWindow handler not implemented");
+        Err(crate::Error::NotImplemented(
+            "UnmapWindow handler not implemented".to_string(),
+        ))
     }
 
     async fn handle_get_window_attributes(
