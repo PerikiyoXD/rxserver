@@ -317,3 +317,32 @@ impl Default for Color {
         Self { red: 0, green: 0, blue: 0 }
     }
 }
+
+impl From<u8> for X11Error {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => X11Error::Success,
+            1 => X11Error::BadRequest,
+            2 => X11Error::BadValue,
+            3 => X11Error::BadWindow,
+            4 => X11Error::BadPixmap,
+            5 => X11Error::BadAtom,
+            6 => X11Error::BadCursor,
+            7 => X11Error::BadFont,
+            8 => X11Error::BadMatch,
+            9 => X11Error::BadDrawable,
+            10 => X11Error::BadAccess,
+            11 => X11Error::BadAlloc,
+            12 => X11Error::BadColor,
+            13 => X11Error::BadGC,
+            14 => X11Error::BadIdChoice,
+            15 => X11Error::BadName,
+            16 => X11Error::BadLength,
+            17 => X11Error::BadImplementation,
+            _ => {
+                log::warn!("Unknown X11 error code: {}", value);
+                X11Error::BadImplementation // Default to BadImplementation for unknown codes
+            }
+        }
+    }
+}
