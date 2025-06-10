@@ -4,7 +4,7 @@
 
 use crate::protocol::types::*;
 use crate::protocol::responses::{Event, ButtonPressEvent, ButtonReleaseEvent, MotionNotifyEvent};
-use crate::Result;
+use crate::{Result, todo_medium, todo_low};
 
 /// Mouse state manager
 pub struct MouseManager {
