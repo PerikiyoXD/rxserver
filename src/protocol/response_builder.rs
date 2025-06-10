@@ -133,15 +133,18 @@ impl ResponseBuilder {
     }
 
     /// Build an error message
-    fn build_error(&mut self, error: &crate::protocol::X11Error) -> Result<Vec<u8>> {
+    fn build_error(
+        &mut self,
+        error: &crate::protocol::responses::ErrorResponse,
+    ) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Error building for {:?}", error);
 
         self.buffer.put_u8(0); // Error packet
-        self.buffer.put_u8(*error as u8); // Error code
-        self.buffer.put_u16(0); // Sequence number - TODO: get from context
-        self.buffer.put_u32(0); // Bad resource ID - TODO: extract from error context
-        self.buffer.put_u16(0); // Minor opcode
-        self.buffer.put_u8(0); // Major opcode
+        self.buffer.put_u8(error.error_code as u8); // Error code
+        self.buffer.put_u16(error.sequence_number); // Sequence number
+        self.buffer.put_u32(error.bad_value); // Bad resource ID
+        self.buffer.put_u16(error.minor_opcode); // Minor opcode
+        self.buffer.put_u8(error.major_opcode); // Major opcode
 
         // Pad to 32 bytes
         while self.buffer.len() < 32 {
