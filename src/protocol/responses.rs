@@ -4,10 +4,10 @@
 //! All responses are type-safe and follow the X11 protocol specification.
 
 use crate::protocol::types::*;
+use crate::{todo_high, todo_medium};
 use bytes::{BufMut, BytesMut};
 use log::debug;
 use std::fmt;
-use crate::{todo_high, todo_medium};
 
 /// Generic X11 response type
 #[derive(Debug, Clone)]
@@ -22,6 +22,7 @@ pub enum Response {
 pub enum Reply {
     GetWindowAttributes(GetWindowAttributesReply),
     GetGeometry(GetGeometryReply),
+    GetProperty(GetPropertyReply),
     QueryTree(QueryTreeReply),
     InternAtom(InternAtomReply),
     GetAtomName(GetAtomNameReply),
@@ -84,6 +85,15 @@ pub struct GetGeometryReply {
     pub width: u16,
     pub height: u16,
     pub border_width: u16,
+}
+
+/// GetProperty reply
+#[derive(Debug, Clone)]
+pub struct GetPropertyReply {
+    pub format: u8,
+    pub property_type: Atom,
+    pub bytes_after: u32,
+    pub data: Vec<u8>,
 }
 
 /// QueryTree reply
@@ -215,19 +225,26 @@ impl ResponseSerializer {
     /// Serialize a response to bytes
     pub fn serialize(response: &Response, sequence: u16) -> Vec<u8> {
         let mut buf = BytesMut::new();
-        
+
         match response {
             Response::Reply(reply) => Self::serialize_reply(reply, sequence, &mut buf),
             Response::Event(event) => Self::serialize_event(event, &mut buf),
             Response::Error(error) => Self::serialize_error(error, &mut buf),
+            _ => {
+                debug!("Unhandled response type: {:?}", response);
+                todo_high!(
+                    "protocol_responses",
+                    "Most response types not implemented yet"
+                );
+            }
         }
-        
+
         buf.to_vec()
     }
-    
+
     fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
         buf.put_u8(1); // Reply type
-        
+
         match reply {
             Reply::GetWindowAttributes(reply) => {
                 buf.put_u8(reply.backing_store);
@@ -248,7 +265,8 @@ impl ResponseSerializer {
                 buf.put_u32(reply.your_event_mask.bits());
                 buf.put_u32(reply.do_not_propagate_mask.bits());
                 buf.put_u32(0); // Padding
-            }            _ => {
+            }
+            _ => {
                 todo_medium!("protocol_responses", "Most reply types not implemented yet");
                 // TODO: Implement other reply types
                 buf.put_u8(0);
@@ -257,7 +275,7 @@ impl ResponseSerializer {
             }
         }
     }
-    
+
     fn serialize_event(event: &Event, buf: &mut BytesMut) {
         match event {
             Event::Expose(event) => {
@@ -271,7 +289,7 @@ impl ResponseSerializer {
                 buf.put_u16(event.height);
                 buf.put_u16(event.count);
                 buf.put_u16(0); // Padding
-                // Pad to 32 bytes
+                                // Pad to 32 bytes
                 for _ in 0..14 {
                     buf.put_u8(0);
                 }
@@ -291,9 +309,13 @@ impl ResponseSerializer {
                 buf.put_u8(if event.override_redirect { 1 } else { 0 });
                 buf.put_u8(0); // Padding
                 buf.put_u32(0); // Padding
-            }            _ => {
+            }
+            _ => {
                 debug!("Unhandled event type: {:?}", event);
-                todo_high!("protocol_responses", "Most event types not implemented - only basic events work");
+                todo_high!(
+                    "protocol_responses",
+                    "Most event types not implemented - only basic events work"
+                );
                 // TODO: Implement other event types
                 buf.put_u8(0);
                 for _ in 0..31 {
@@ -302,7 +324,7 @@ impl ResponseSerializer {
             }
         }
     }
-    
+
     fn serialize_error(error: &ErrorResponse, buf: &mut BytesMut) {
         buf.put_u8(0); // Error type
         buf.put_u8(error.error_code as u8);
@@ -322,7 +344,16 @@ impl fmt::Display for Response {
         match self {
             Response::Reply(reply) => write!(f, "Reply({:?})", reply),
             Response::Event(event) => write!(f, "Event({:?})", event),
-            Response::Error(error) => write!(f, "Error({:?}: {})", error.error_code, error.bad_value),
+            Response::Error(error) => {
+                write!(f, "Error({:?}: {})", error.error_code, error.bad_value)
+            }
+            _ => {
+                todo_high!(
+                    "protocol_responses",
+                    "Display not implemented for this response type"
+                );
+                write!(f, "Unknown Response")
+            }
         }
     }
 }
