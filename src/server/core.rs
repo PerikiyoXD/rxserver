@@ -11,12 +11,13 @@ use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use crate::config::ServerConfig;
-use crate::{Error, Result};
+use crate::{Result, todo_critical, todo_high, todo_medium};
 
 // Import from sibling modules
 use super::{
     client::{ClientManager, ClientInfo},
     state::ServerState,
+    ConnectionManager, DisplayManager, RequestHandler, ResourceManager,
 };
 
 /// The main X11 server
