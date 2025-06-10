@@ -4,6 +4,17 @@
  * Provides utilities for constructing X11 protocol responses in the correct wire format.
  */
 
+/*!
+ * Issues with implementation:
+ * - Unimplemented methods for building specific response types
+ * - Placeholder responses for unimplemented features
+ * - Lack of error handling in response serialization
+ * - Incomplete event and reply handling
+ * - Mixed usage of both hardcoded responses and dynamic serialization
+ */
+
+// THIS FILE NEEDS MASSIVE REFACTORING TO BE THE UNIQUE SOURCE OF TRUTH FOR ALL RESPONSES
+
 use crate::{
     protocol::{responses::Event as ProtocolEvent, Reply, Response},
     todo_high, todo_medium, Result,
@@ -24,6 +35,49 @@ impl ResponseBuilder {
         }
     }
 
+    /// Create an error response
+    pub fn error(
+        error_code: u8,
+        sequence: u16,
+        bad_value: u32,
+        minor_opcode: u16,
+        major_opcode: u8,
+    ) -> Response {
+        Response::Error(crate::protocol::responses::ErrorResponse {
+            error_code: crate::protocol::types::X11Error::from(error_code),
+            sequence_number: sequence,
+            bad_value,
+            minor_opcode,
+            major_opcode,
+        })
+    }
+
+    /// Create a success response (empty reply)
+    pub fn success() -> Response {
+        todo_high!(
+            "response_builder",
+            "Success response mocked using GetGeometry"
+        );
+        Response::Reply(Reply::GetGeometry(
+            crate::protocol::responses::GetGeometryReply {
+                depth: 0,
+                root: 0,
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+                border_width: 0,
+            },
+        ))
+    }
+
+    /// Serialize a response to wire format
+    pub fn serialize(response: &Response) -> Result<Vec<u8>> {
+        Ok(crate::protocol::responses::ResponseSerializer::serialize(
+            response, 0,
+        ))
+    }
+
     /// Build a response into wire format
     pub fn build_response(&mut self, response: &Response) -> Result<Vec<u8>> {
         todo_high!("response_builder", "Response building for {:?}", response);
@@ -34,6 +88,14 @@ impl ResponseBuilder {
             Response::Reply(reply) => self.build_reply(reply),
             Response::Event(event) => self.build_event(event),
             Response::Error(error) => self.build_error(error),
+            _ => {
+                todo_high!(
+                    "response_builder",
+                    "Unhandled response type: {:?}",
+                    response
+                );
+                Ok(vec![0; 32]) // Placeholder
+            }
         }
     }
 
