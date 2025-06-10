@@ -3,7 +3,7 @@
 //! This module handles the generation of X11 protocol responses, replies, and errors.
 //! All responses are type-safe and follow the X11 protocol specification.
 
-use crate::protocol::events::Event;
+pub use crate::protocol::events::Event;
 use crate::protocol::types::*;
 use crate::{todo_high, todo_medium};
 use bytes::{BufMut, BytesMut};
