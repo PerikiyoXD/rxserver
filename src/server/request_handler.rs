@@ -1,17 +1,16 @@
 /*!
  * Request Handler for X11 Server
- * 
+ *
  * Processes incoming X11 protocol requests and generates appropriate responses.
  */
 
 use crate::{
     protocol::{Request, Response},
     server::{ClientManager, ServerState},
-    Result, 
-    todo_critical, todo_high, todo_medium,
+    todo_critical, todo_high, todo_medium, Result,
 };
 use std::sync::Arc;
-use tracing::{info, debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 /// Handles processing of X11 requests
 pub struct RequestHandler {
@@ -21,18 +20,15 @@ pub struct RequestHandler {
 
 impl RequestHandler {
     /// Create a new request handler
-    pub fn new(
-        client_manager: Arc<ClientManager>,
-        server_state: Arc<ServerState>,
-    ) -> Self {
+    pub fn new(client_manager: Arc<ClientManager>, server_state: Arc<ServerState>) -> Self {
         info!("Initializing RequestHandler");
-        
+
         RequestHandler {
             client_manager,
             server_state,
         }
     }
-    
+
     /// Process an incoming request
     pub async fn handle_request(
         &self,
@@ -40,29 +36,44 @@ impl RequestHandler {
         request: Request,
     ) -> Result<Option<Response>> {
         todo_high!("request_handler", "Request handling for {:?}", request);
-        
+
         debug!("Processing request from client {}: {}", client_id, request);
-        
+
         match request {
             Request::CreateWindow(req) => {
-                todo_high!("request_handler", "CreateWindow request handling not implemented");
+                todo_high!(
+                    "request_handler",
+                    "CreateWindow request handling not implemented"
+                );
                 self.handle_create_window(client_id, req).await
             }
             Request::MapWindow(req) => {
-                todo_high!("request_handler", "MapWindow request handling not implemented");
+                todo_high!(
+                    "request_handler",
+                    "MapWindow request handling not implemented"
+                );
                 self.handle_map_window(client_id, req).await
             }
             Request::UnmapWindow(req) => {
-                todo_high!("request_handler", "UnmapWindow request handling not implemented");
+                todo_high!(
+                    "request_handler",
+                    "UnmapWindow request handling not implemented"
+                );
                 self.handle_unmap_window(client_id, req).await
             }
             Request::ClearArea(req) => {
-                todo_high!("request_handler", "ClearArea request handling not implemented");
+                todo_high!(
+                    "request_handler",
+                    "ClearArea request handling not implemented"
+                );
                 self.handle_clear_area(client_id, req).await
             }
             Request::Unknown { opcode, data } => {
                 todo_medium!("request_handler", "Unknown request opcode {}", opcode);
-                warn!("Unknown request opcode {} from client {}", opcode, client_id);
+                warn!(
+                    "Unknown request opcode {} from client {}",
+                    opcode, client_id
+                );
                 Ok(None)
             }
             _ => {
@@ -71,7 +82,7 @@ impl RequestHandler {
             }
         }
     }
-    
+
     /// Handle CreateWindow request
     async fn handle_create_window(
         &self,
@@ -79,8 +90,10 @@ impl RequestHandler {
         _req: crate::protocol::requests::CreateWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "CreateWindow implementation missing");
+        // Placeholder for actual implementation
+        Ok(None)
     }
-    
+
     /// Handle MapWindow request
     async fn handle_map_window(
         &self,
@@ -88,8 +101,10 @@ impl RequestHandler {
         _req: crate::protocol::requests::MapWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "MapWindow implementation missing");
+        // Placeholder for actual implementation
+        Ok(None)
     }
-    
+
     /// Handle UnmapWindow request
     async fn handle_unmap_window(
         &self,
@@ -97,8 +112,10 @@ impl RequestHandler {
         _req: crate::protocol::requests::UnmapWindowRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "UnmapWindow implementation missing");
+        // Placeholder for actual implementation
+        Ok(None)
     }
-    
+
     /// Handle ClearArea request
     async fn handle_clear_area(
         &self,
@@ -106,18 +123,19 @@ impl RequestHandler {
         _req: crate::protocol::requests::ClearAreaRequest,
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "ClearArea implementation missing");
+        // Placeholder for actual implementation
+        Ok(None)
     }
-    
+
     /// Validate request permissions
-    fn validate_request_permissions(
-        &self,
-        _client_id: u32,
-        _request: &Request,
-    ) -> Result<()> {
-        todo_medium!("request_handler", "Request permission validation not implemented");
+    fn validate_request_permissions(&self, _client_id: u32, _request: &Request) -> Result<()> {
+        todo_critical!(
+            "request_handler",
+            "Request permission validation not implemented"
+        );
         Ok(())
     }
-    
+
     /// Log request for debugging
     fn log_request(&self, client_id: u32, request: &Request) {
         debug!("Client {} -> {}", client_id, request);
