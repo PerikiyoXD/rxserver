@@ -26,6 +26,8 @@ pub struct ServerConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerSettings {
+    /// Display number (e.g., 0 for :0)
+    pub display_num: u8,
     /// Maximum number of client connections
     pub max_clients: usize,
     /// TCP port for X11 connections (6000 + display number)
