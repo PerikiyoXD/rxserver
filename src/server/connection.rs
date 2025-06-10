@@ -116,23 +116,21 @@ impl ClientConnection {
             Ok(None)
         }
     }
-
+    
     /// Handle a specific request
     async fn handle_request(&mut self, request: Request) -> Result<Option<Response>> {
-        // TODO: Forward to server for processing
-        // For now, just return a basic success response
+        // TODO: Forward to server for processing with event system
+        // This would require access to the server instance
+        // For now, return a basic acknowledgment
         match request {
-            Request::CreateWindow { .. } => Ok(Some(ResponseBuilder::success())),
-            Request::DestroyWindow { .. } => Ok(Some(ResponseBuilder::success())),
-            Request::MapWindow { .. } => Ok(Some(ResponseBuilder::success())),
-            Request::UnmapWindow { .. } => Ok(Some(ResponseBuilder::success())),
-            Request::GetWindowAttributes { .. } => {
-                Ok(Some(ResponseBuilder::reply(0, 0, vec![0; 44])))
-            }
             Request::Unknown { opcode, .. } => {
                 Ok(Some(ResponseBuilder::error(1, 0, opcode as u32, 0, opcode)))
             }
-            _ => Ok(None),
+            _ => {
+                // Return success for now - in real implementation this would be handled by event system
+                log::debug!("Request handled by event system (placeholder)");
+                Ok(Some(ResponseBuilder::success()))
+            }
         }
     }
 

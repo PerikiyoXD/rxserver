@@ -306,11 +306,10 @@ impl EventHandler for GraphicsHandler {
                     _ => {
                         log::debug!("Graphics operation not yet implemented: {:?}", operation);
                         return Ok(Some(EventResponse::Response(Response::Success)));
-                    }
-                }
+                    }                }
             }
 
-            ServerEvent::RequestReceived { client_id, sequence_number, request } => {
+            ServerEvent::RequestReceived { client_id, sequence_number: _, request } => {
                 match request {
                     crate::protocol::Request::ClearArea { window, x, y, width, height, .. } => {
                         log::info!("Clear area request for window {}", window);

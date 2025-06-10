@@ -6,6 +6,8 @@
 pub mod connection;
 pub mod display;
 pub mod resources;
+pub mod events;
+pub mod handlers;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,6 +19,8 @@ use crate::protocol::{Event, Request, Response};
 use connection::ClientConnection;
 use display::Display;
 use resources::ResourceManager;
+use events::{EventBus, ServerEvent, EventResponse};
+use handlers::{WindowHandler, GraphicsHandler};
 
 /// Main X11 server structure
 pub struct XServer {
@@ -34,10 +38,11 @@ pub struct XServer {
     next_client_id: Arc<RwLock<u32>>,
     /// Server running state
     running: Arc<RwLock<bool>>,
+    /// Event bus
+    event_bus: Arc<EventBus>,
 }
 
-impl XServer {
-    /// Create a new X server instance
+impl XServer {    /// Create a new X server instance
     pub async fn new(display_name: String, config: ServerConfig) -> Result<Self> {
         log::info!("Initializing X server for display {}", display_name);
 
@@ -46,6 +51,14 @@ impl XServer {
         let clients = Arc::new(RwLock::new(HashMap::new()));
         let next_client_id = Arc::new(RwLock::new(1));
         let running = Arc::new(RwLock::new(false));
+        let event_bus = Arc::new(EventBus::new());        // Register event handlers
+        let window_handler = Arc::new(WindowHandler::new(Arc::clone(&resources)));
+        event_bus.register_handler(window_handler).await;
+        
+        let graphics_handler = Arc::new(GraphicsHandler::new(Arc::clone(&resources)));
+        event_bus.register_handler(graphics_handler).await;
+
+        log::info!("Registered {} event handlers", event_bus.handler_count().await);
 
         Ok(Self {
             display_name,
@@ -55,6 +68,7 @@ impl XServer {
             clients,
             next_client_id,
             running,
+            event_bus,
         })
     }
 
@@ -116,18 +130,16 @@ impl XServer {
         let addr = format!("0.0.0.0:{}", port);
         
         log::info!("Starting TCP listener on {}", addr);
-        
-        let listener = TcpListener::bind(&addr).await
+          let listener = TcpListener::bind(&addr).await
             .map_err(|e| Error::Server(format!("Failed to bind TCP socket: {}", e)))?;
 
-        let clients = Arc::clone(&self.clients);
+        let _clients = Arc::clone(&self.clients);
         let next_client_id = Arc::clone(&self.next_client_id);
         let running = Arc::clone(&self.running);
 
         tokio::spawn(async move {
             while *running.read().await {
-                match listener.accept().await {
-                    Ok((socket, addr)) => {
+                match listener.accept().await {                    Ok((socket, addr)) => {
                         log::info!("New TCP client connection from {}", addr);
                         let client_id = {
                             let mut next_id = next_client_id.write().await;
@@ -139,6 +151,10 @@ impl XServer {
                         // TODO: Create and manage client connection
                         // let client = ClientConnection::new(client_id, socket);
                         // clients.write().await.insert(client_id, client);
+                        
+                        // For now, just close the socket to avoid resource leaks
+                        drop(socket);
+                        log::debug!("Client {} connection handling not yet implemented", client_id);
                     }
                     Err(e) => {
                         log::error!("Failed to accept TCP connection: {}", e);
@@ -156,52 +172,31 @@ impl XServer {
         // This is more complex on Windows, might need named pipes
         log::info!("Unix socket listener not yet implemented");
         Ok(())
-    }
-
-    /// Process a client request
-    pub async fn process_request(&self, client_id: u32, request: Request) -> Result<Option<Response>> {
+    }    /// Process a client request
+    pub async fn process_request(&self, client_id: u32, sequence_number: u16, request: Request) -> Result<Vec<EventResponse>> {
         log::debug!("Processing request from client {}: {:?}", client_id, request);
 
-        match request {
-            Request::CreateWindow { .. } => {
-                // TODO: Implement window creation
-                Ok(Some(Response::Success))
-            }
-            Request::DestroyWindow { .. } => {
-                // TODO: Implement window destruction
-                Ok(Some(Response::Success))
-            }
-            Request::MapWindow { .. } => {
-                // TODO: Implement window mapping
-                Ok(Some(Response::Success))
-            }
-            Request::UnmapWindow { .. } => {
-                // TODO: Implement window unmapping
-                Ok(Some(Response::Success))
-            }
-            Request::GetWindowAttributes { .. } => {
-                // TODO: Implement get window attributes
-                Ok(Some(Response::Reply {
-                    data: 0,
-                    sequence_number: 0,
-                    body: vec![0; 44], // Placeholder
-                }))
-            }
-            Request::Unknown { opcode, .. } => {
-                log::warn!("Unknown request opcode: {}", opcode);
-                Ok(Some(Response::Error {
-                    error_code: 1, // BadRequest
-                    sequence_number: 0,
-                    bad_value: opcode as u32,
-                    minor_opcode: 0,
-                    major_opcode: opcode,
-                }))
-            }
-            _ => {
-                log::warn!("Unhandled request type");
-                Ok(None)
-            }
+        // Emit RequestReceived event
+        let event = ServerEvent::RequestReceived {
+            client_id,
+            sequence_number,
+            request,
+        };
+
+        let responses = self.event_bus.emit(event).await?;
+          if responses.is_empty() {
+            // No handler processed this request, return a generic error
+            log::warn!("No handler processed request from client {}", client_id);
+            return Ok(vec![EventResponse::Response(Response::Error {
+                error_code: 1, // BadRequest
+                sequence_number,
+                bad_value: 0,
+                minor_opcode: 0,
+                major_opcode: 0,
+            })]);
         }
+
+        Ok(responses)
     }
 
     /// Send an event to all interested clients
@@ -210,6 +205,74 @@ impl XServer {
         
         // TODO: Determine which clients should receive this event
         // and send it to them
+        
+        Ok(())
+    }
+
+    /// Emit a server event
+    pub async fn emit_event(&self, event: ServerEvent) -> Result<Vec<EventResponse>> {
+        self.event_bus.emit(event).await
+    }
+
+    /// Get the event bus (for external components)
+    pub fn get_event_bus(&self) -> Arc<EventBus> {
+        Arc::clone(&self.event_bus)
+    }
+
+    /// Handle event responses (send responses to clients, emit protocol events, etc.)
+    pub async fn handle_event_responses(&self, responses: Vec<EventResponse>) -> Result<()> {
+        for response in responses {
+            match response {
+                EventResponse::Response(resp) => {
+                    // TODO: Send response to the appropriate client
+                    log::debug!("Generated response: {:?}", resp);
+                }
+                EventResponse::ProtocolEvent { event, target_clients } => {
+                    if target_clients.is_empty() {
+                        // Broadcast to all clients
+                        log::debug!("Broadcasting protocol event: {:?}", event);
+                        self.broadcast_event(event).await?;
+                    } else {
+                        // Send to specific clients
+                        for client_id in target_clients {
+                            log::debug!("Sending protocol event to client {}: {:?}", client_id, event);
+                            self.send_event_to_client(client_id, &event).await?;
+                        }
+                    }
+                }                EventResponse::ServerEvent(server_event) => {
+                    // Chain another server event
+                    log::debug!("Chaining server event: {:?}", server_event);
+                    // TODO: Emit chained event (requires careful handling to avoid infinite recursion)
+                    // let chained_responses = self.event_bus.emit(server_event).await?;
+                    // self.handle_event_responses(chained_responses).await?;
+                    log::warn!("Chained server events not yet implemented to avoid recursion");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Send an event to a specific client
+    async fn send_event_to_client(&self, client_id: u32, event: &Event) -> Result<()> {        let clients = self.clients.read().await;
+        if let Some(_client) = clients.get(&client_id) {
+            let event_data = event.serialize();
+            // TODO: Send event_data to client
+            log::debug!("Would send {} bytes to client {}", event_data.len(), client_id);
+        } else {
+            log::warn!("Client {} not found when trying to send event", client_id);
+        }
+        Ok(())
+    }
+
+    /// Broadcast an event to all clients
+    async fn broadcast_event(&self, event: Event) -> Result<()> {
+        let clients = self.clients.read().await;
+        let event_data = event.serialize();
+        
+        for (client_id, _client) in clients.iter() {
+            // TODO: Send event_data to each client
+            log::debug!("Would broadcast {} bytes to client {}", event_data.len(), client_id);
+        }
         
         Ok(())
     }

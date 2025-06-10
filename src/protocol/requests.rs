@@ -44,9 +44,16 @@ pub enum Request {
         window: Window,
         value_mask: u16,
         value_list: Vec<u32>,
-    },
-    GetWindowAttributes {
+    },    GetWindowAttributes {
         window: Window,
+    },
+    ClearArea {
+        exposures: bool,
+        window: Window,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
     },
     // TODO: Add more request types as needed
     Unknown {
