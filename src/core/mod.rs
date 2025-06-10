@@ -4,10 +4,10 @@
 //! the X server implementation. It establishes the base architecture and
 //! provides type-safe abstractions over X11 concepts.
 
+pub mod errors;
 pub mod ids;
 pub mod traits;
-pub mod errors;
 
+pub use errors::*;
 pub use ids::*;
 pub use traits::*;
-pub use errors::*;
