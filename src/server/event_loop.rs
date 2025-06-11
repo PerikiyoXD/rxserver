@@ -58,7 +58,6 @@ impl EventLoop {
                             let connection_manager = self.connection_manager.clone();
                             let client_manager = self.client_manager.clone();
                             let request_handler = self.request_handler.clone();
-
                             tokio::spawn(async move {
                                 if let Err(e) = Self::handle_client_connection(
                                     stream,
@@ -66,12 +65,11 @@ impl EventLoop {
                                     client_manager,
                                     request_handler,
                                 ).await {
-                                    eprintln!("Client connection error: {}", e);
+                                    warn!("Client connection error: {}", e);
                                 }
-                            });
-                        }
+                            });                        }
                         Err(e) => {
-                            eprintln!("Failed to accept connection: {}", e);
+                            warn!("Failed to accept connection: {}", e);
                         }
                     }
                 }
@@ -87,21 +85,28 @@ impl EventLoop {
         info!("Event loop shutting down");
         Ok(())
     }
-
     /// Handle a single client connection
     async fn handle_client_connection(
         mut stream: tokio::net::TcpStream,
         _connection_manager: Arc<ConnectionManager>,
-        _client_manager: Arc<ClientManager>,
-        _request_handler: Arc<RequestHandler>,
+        client_manager: Arc<ClientManager>,
+        request_handler: Arc<RequestHandler>,
     ) -> Result<()> {
-        use crate::protocol::requests::Request;
+        use crate::protocol::{RequestParser, ResponseBuilder};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tracing::{debug, error, info, warn};
 
         info!("Handling new client connection");
 
-        // Simple connection handling - read some data and respond
-        let mut buffer = [0u8; 1024];
+        // Register the client
+        let client_id = client_manager
+            .register_client("unknown".to_string(), None)
+            .await?;
+
+        debug!("Registered client with ID: {}", client_id);
+
+        let mut buffer = [0u8; 4096];
+        let mut connection_buffer = Vec::new();
 
         loop {
             tokio::select! {
@@ -109,35 +114,91 @@ impl EventLoop {
                 result = stream.read(&mut buffer) => {
                     match result {
                         Ok(0) => {
-                            info!("Client disconnected");
+                            info!("Client {} disconnected", client_id);
                             break;
                         }
                         Ok(n) => {
-                            info!("Received {} bytes from client", n);
+                            debug!("Received {} bytes from client {}", n, client_id);
 
-                            // TODO: Parse X11 protocol requests
-                            // For now, just echo back
-                            if let Err(e) = stream.write_all(&buffer[..n]).await {
-                                eprintln!("Failed to write to client: {}", e);
-                                break;
+                            // Add to connection buffer
+                            connection_buffer.extend_from_slice(&buffer[..n]);
+
+                            // Try to parse complete requests from buffer
+                            while let Some(request_data) = Self::extract_complete_request(&mut connection_buffer)? {
+                                // Parse the X11 request using existing parser
+                                match RequestParser::parse(&request_data) {
+                                    Ok(request) => {
+                                        debug!("Parsed request from client {}: {:?}", client_id, request);
+
+                                        // Handle the request using existing handler
+                                        match request_handler.handle_request(client_id, request).await {
+                                            Ok(Some(response)) => {
+                                                // Serialize response using existing serializer
+                                                let response_bytes = ResponseBuilder::serialize(&response)?;
+
+                                                if let Err(e) = stream.write_all(&response_bytes).await {
+                                                    error!("Failed to write response to client {}: {}", client_id, e);
+                                                    break;
+                                                }
+                                                debug!("Sent {} byte response to client {}", response_bytes.len(), client_id);
+                                            }
+                                            Ok(None) => {
+                                                debug!("No response needed for request from client {}", client_id);
+                                            }
+                                            Err(e) => {
+                                                error!("Failed to handle request from client {}: {}", client_id, e);
+                                                // Continue processing other requests
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to parse request from client {}: {}", client_id, e);
+                                        // Send error response or continue
+                                    }
+                                }
                             }
                         }
                         Err(e) => {
-                            eprintln!("Failed to read from client: {}", e);
+                            error!("Failed to read from client {}: {}", client_id, e);
                             break;
                         }
                     }
                 }
 
-                // Handle timeout or other events
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(60)) => {
-                    info!("Client connection timeout");
+                // Handle timeout
+                _ = tokio::time::sleep(tokio::time::Duration::from_secs(300)) => {
+                    info!("Client {} connection timeout", client_id);
                     break;
                 }
             }
         }
 
-        info!("Client connection handler terminating");
+        // Unregister client on disconnect
+        let _ = client_manager.unregister_client(client_id).await;
+        info!("Client {} connection handler terminating", client_id);
         Ok(())
+    }
+
+    /// Extract a complete X11 request from the buffer
+    fn extract_complete_request(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>> {
+        if buffer.len() < 4 {
+            return Ok(None); // Not enough data for header
+        }
+
+        // Read the length field from the request header
+        let length = u16::from_ne_bytes([buffer[2], buffer[3]]) as usize * 4;
+
+        if length < 4 {
+            return Err(crate::Error::Protocol("Invalid request length".to_string()));
+        }
+
+        if buffer.len() >= length {
+            // We have a complete request
+            let request_data = buffer.drain(..length).collect();
+            Ok(Some(request_data))
+        } else {
+            // Need more data
+            Ok(None)
+        }
     }
 }
