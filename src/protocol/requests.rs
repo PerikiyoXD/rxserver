@@ -5,10 +5,10 @@
 
 use crate::protocol::opcodes;
 use crate::protocol::types::*;
-use crate::{todo_high, todo_medium, Result};
+use crate::{todo_high, Result};
 use bytes::{Buf, Bytes};
-use tracing::debug;
 use std::fmt;
+use tracing::debug;
 
 /// X11 protocol request header
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -31,6 +31,7 @@ pub enum Request {
     CreateGC(CreateGCRequest),
     ClearArea(ClearAreaRequest),
     CopyArea(CopyAreaRequest),
+    InternAtom(InternAtomRequest),
     // Unknown request for unimplemented opcodes
     Unknown { opcode: u8, data: bytes::Bytes },
 }
@@ -152,6 +153,13 @@ pub struct CopyAreaRequest {
     pub height: u16,
 }
 
+/// InternAtom request
+#[derive(Debug, Clone)]
+pub struct InternAtomRequest {
+    pub only_if_exists: bool,
+    pub name: String,
+}
+
 /// Request parser for incoming X11 protocol data
 pub struct RequestParser;
 
@@ -181,6 +189,7 @@ impl RequestParser {
             opcodes::window::MAP_WINDOW => Self::parse_map_window(&data[4..]),
             opcodes::window::UNMAP_WINDOW => Self::parse_unmap_window(&data[4..]),
             opcodes::graphics::CLEAR_AREA => Self::parse_clear_area(&data[4..]),
+            opcodes::atom::INTERN_ATOM => Self::parse_intern_atom(data),
             _ => {
                 todo_high!(
                     "request_parsing",
@@ -301,7 +310,6 @@ impl RequestParser {
         let y = buf.get_i16();
         let width = buf.get_u16();
         let height = buf.get_u16();
-
         Ok(Request::ClearArea(ClearAreaRequest {
             exposures,
             window,
@@ -309,6 +317,46 @@ impl RequestParser {
             y,
             width,
             height,
+        }))
+    }
+
+    fn parse_intern_atom(data: &[u8]) -> Result<Request> {
+        // InternAtom request format:
+        // 1     16                   opcode
+        // 1     BOOL                 only-if-exists
+        // 2     2+(n+p)/4           request length
+        // 2     n                   length of name
+        // 2                         unused
+        // n     STRING8             name
+        // p                         unused, p=pad(n)
+
+        if data.len() < 8 {
+            return Err(crate::Error::Protocol(
+                "InternAtom request too short".to_string(),
+            ));
+        }
+
+        let mut buf = data;
+        let _opcode = buf.get_u8(); // opcode (16)
+        let only_if_exists = buf.get_u8() != 0; // only-if-exists flag
+        let _length = buf.get_u16(); // request length
+        let name_length = buf.get_u16() as usize; // name length
+        let _unused = buf.get_u16(); // unused padding
+
+        if buf.len() < name_length {
+            return Err(crate::Error::Protocol(
+                "InternAtom request name truncated".to_string(),
+            ));
+        }
+
+        // Extract the name string
+        let name_bytes = &buf[..name_length];
+        let name = String::from_utf8(name_bytes.to_vec())
+            .map_err(|_| crate::Error::Protocol("Invalid UTF-8 in atom name".to_string()))?;
+
+        Ok(Request::InternAtom(InternAtomRequest {
+            only_if_exists,
+            name,
         }))
     }
 }
@@ -327,6 +375,11 @@ impl fmt::Display for Request {
                 f,
                 "ClearArea(window={}, {}x{}+{}+{})",
                 req.window, req.width, req.height, req.x, req.y
+            ),
+            Request::InternAtom(req) => write!(
+                f,
+                "InternAtom(name='{}', only_if_exists={})",
+                req.name, req.only_if_exists
             ),
             _ => write!(f, "{:?}", self),
         }

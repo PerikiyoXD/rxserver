@@ -2,6 +2,7 @@
 //!
 //! This module manages the global state of the X server in a thread-safe manner.
 
+use crate::core::AtomManager;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -9,13 +10,15 @@ use uuid::Uuid;
 
 /// Shared server state
 pub struct ServerState {
+    /// Display name (e.g., ":0") - immutable after creation
+    display_name: String,
     inner: RwLock<ServerStateInner>,
+    /// Atom manager for X11 atoms
+    atom_manager: AtomManager,
 }
 
 #[derive(Debug)]
 struct ServerStateInner {
-    /// Display name (e.g., ":0")
-    display_name: String,
     /// Server instance ID
     instance_id: Uuid,
     /// When the server was started
@@ -32,7 +35,6 @@ impl ServerState {
     /// Create new server state
     pub fn new(display_name: String) -> Self {
         let inner = ServerStateInner {
-            display_name,
             instance_id: Uuid::new_v4(),
             start_time: Instant::now(),
             running: false,
@@ -41,15 +43,15 @@ impl ServerState {
         };
 
         Self {
+            display_name,
             inner: RwLock::new(inner),
+            atom_manager: AtomManager::new(),
         }
     }
 
     /// Get display name
     pub fn display_name(&self) -> &str {
-        // This is safe since display_name is immutable after creation
-        // In practice, you'd want to handle this more carefully
-        &""  // TODO: Fix this properly
+        &self.display_name
     }
 
     /// Get server instance ID
@@ -93,12 +95,22 @@ impl ServerState {
     pub async fn start_time(&self) -> Instant {
         self.inner.read().await.start_time
     }
+
+    /// Get atom manager
+    pub fn atom_manager(&self) -> &AtomManager {
+        &self.atom_manager
+    }
 }
 
 impl std::fmt::Debug for ServerState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServerState")
-            .field("display_name", &"...")  // We can't easily access the inner state here
+            .field("display_name", &self.display_name)
+            .field(
+                "atom_manager",
+                &format!("AtomManager({} atoms)", self.atom_manager.atom_count()),
+            )
+            .field("inner", &"<ServerStateInner>")
             .finish()
     }
 }

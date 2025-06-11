@@ -243,6 +243,16 @@ impl ResponseSerializer {
                 buf.put_u32(reply.do_not_propagate_mask.bits());
                 buf.put_u32(0); // Padding
             }
+            Reply::InternAtom(reply) => {
+                buf.put_u8(0); // Unused byte
+                buf.put_u16(sequence);
+                buf.put_u32(0); // Reply length (0 for fixed-length replies)
+                buf.put_u32(reply.atom);
+                // Pad to 32 bytes total (20 bytes of padding needed)
+                for _ in 0..20 {
+                    buf.put_u8(0);
+                }
+            }
             _ => {
                 todo_medium!("protocol_responses", "Most reply types not implemented yet");
                 // TODO: Implement other reply types

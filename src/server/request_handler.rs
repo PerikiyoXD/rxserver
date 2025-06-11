@@ -10,7 +10,7 @@ use crate::{
     todo_critical, todo_high, todo_medium, Result,
 };
 use std::sync::Arc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Handles processing of X11 requests
 pub struct RequestHandler {
@@ -68,11 +68,17 @@ impl RequestHandler {
                 );
                 self.handle_clear_area(client_id, req).await
             }
+            Request::InternAtom(req) => {
+                info!("Processing InternAtom request: {}", req.name);
+                self.handle_intern_atom(client_id, req).await
+            }
             Request::Unknown { opcode, data } => {
                 todo_medium!("request_handler", "Unknown request opcode {}", opcode);
                 warn!(
-                    "Unknown request opcode {} from client {}",
-                    opcode, client_id
+                    "Unknown request opcode {} from client {} (data length: {})",
+                    opcode,
+                    client_id,
+                    data.len()
                 );
                 Ok(None)
             }
@@ -115,7 +121,6 @@ impl RequestHandler {
         // Placeholder for actual implementation
         Ok(None)
     }
-
     /// Handle ClearArea request
     async fn handle_clear_area(
         &self,
@@ -125,6 +130,44 @@ impl RequestHandler {
         todo_critical!("request_handler", "ClearArea implementation missing");
         // Placeholder for actual implementation
         Ok(None)
+    }
+
+    /// Handle InternAtom request
+    async fn handle_intern_atom(
+        &self,
+        _client_id: u32,
+        req: crate::protocol::requests::InternAtomRequest,
+    ) -> Result<Option<Response>> {
+        use crate::protocol::responses::InternAtomReply;
+
+        debug!(
+            "InternAtom request: name='{}', only_if_exists={}",
+            req.name, req.only_if_exists
+        );
+
+        // Use the proper atom manager from server state
+        let atom = match self
+            .server_state
+            .atom_manager()
+            .intern_atom(&req.name, req.only_if_exists)
+        {
+            Some(atom_id) => {
+                debug!("InternAtom result: '{}' -> {}", req.name, atom_id.0);
+                atom_id.0
+            }
+            None => {
+                debug!(
+                    "InternAtom result: '{}' -> None (only_if_exists=true)",
+                    req.name
+                );
+                0 // Return 0 for None
+            }
+        };
+
+        let reply = InternAtomReply { atom };
+        Ok(Some(Response::Reply(
+            crate::protocol::responses::Reply::InternAtom(reply),
+        )))
     }
 
     /// Validate request permissions
