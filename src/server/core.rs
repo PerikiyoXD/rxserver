@@ -4,14 +4,13 @@
 //! understand and maintain than the original X server.
 
 use std::sync::Arc;
-use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
 use tokio::sync::broadcast;
-use tracing::{debug, error, info, warn};
+use tracing::info;
 
 use crate::config::ServerConfig;
-use crate::{todo_critical, todo_high, todo_medium, Result};
+use crate::{todo_high, Result};
 
 // Import from sibling modules
 use super::{
