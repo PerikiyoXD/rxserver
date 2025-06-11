@@ -107,7 +107,7 @@ impl KeyboardManager {
     }
 
     /// Enable or disable auto-repeat for a key
-    pub fn set_auto_repeat(&mut self, keycode: KeyCode, enabled: bool) {}
+    pub fn set_auto_repeat(&mut self, _keycode: KeyCode, _enabled: bool) {}
 
     /// Check if auto-repeat is enabled for a key
     pub fn is_auto_repeat_enabled(&self, keycode: KeyCode) -> bool {
