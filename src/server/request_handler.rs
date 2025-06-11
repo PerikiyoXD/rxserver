@@ -204,14 +204,15 @@ impl RequestHandler {
                     "OpenFont failed: fid={}, name='{}', error: {}",
                     req.fid, req.name, error
                 );
+
                 // Return a BadFont error
-                use crate::protocol::responses::ErrorReply;
+                use crate::protocol::responses::ErrorResponse;
                 use crate::protocol::types::X11Error;
 
-                let error_reply = ErrorReply {
-                    error_code: X11Error::BadFont as u8,
+                let error_reply = ErrorResponse {
+                    error_code: X11Error::BadFont,
                     sequence_number: 0, // Will be set by the response builder
-                    bad_resource_id: req.fid,
+                    bad_value: req.fid,
                     minor_opcode: 0,
                     major_opcode: crate::protocol::opcodes::text::OPEN_FONT,
                 };
