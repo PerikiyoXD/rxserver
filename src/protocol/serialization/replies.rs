@@ -41,16 +41,14 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
             buf.put_u16(reply.width);
             buf.put_u16(reply.height);
             buf.put_u16(reply.border_width);
-            // Pad to 32 bytes total (10 bytes of padding needed)
-            buf.put_padding(22); // Current position is 22 bytes, pad to 32
+            buf.put_padding(22); // Pad to 32 bytes total
         }
         Reply::InternAtom(reply) => {
             buf.put_u8(0); // Unused byte
             buf.put_u16(sequence);
             buf.put_u32(0); // Reply length (0 for fixed-length replies)
             buf.put_u32(reply.atom);
-            // Pad to 32 bytes total (20 bytes of padding needed)
-            buf.put_padding(12); // Current position is 12 bytes, pad to 32
+            buf.put_padding(12); // Pad to 32 bytes total
         }
         Reply::GetAtomName(reply) => {
             buf.put_u8(0); // Unused byte
@@ -62,9 +60,9 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
             buf.put_u8(reply.status); // Status byte
             buf.put_u16(sequence);
             buf.put_u32(0); // Reply length (0 for fixed-length replies)
-                            // Pad to 32 bytes total (24 bytes of padding needed)
-            buf.put_padding(8); // Current position is 8 bytes, pad to 32
-        }        Reply::QueryTree(reply) => {
+            buf.put_padding(8); // Pad to 32 bytes total
+        }
+        Reply::QueryTree(reply) => {
             buf.put_u8(0); // Unused byte
             buf.put_u16(sequence);
             let children_len = reply.children.len();
@@ -73,13 +71,12 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
             buf.put_u32(reply.parent);
             buf.put_u16(children_len as u16);
             buf.put_u16(0); // Padding
-                            // Add padding to reach 32 bytes for header
-            buf.put_padding(18); // Current position is 18 bytes, pad to 32
-            // Add children
+            buf.put_padding(18); // Pad to 32 bytes for header
             for child in &reply.children {
                 buf.put_u32(*child);
             }
-        }        Reply::GetProperty(reply) => {
+        }
+        Reply::GetProperty(reply) => {
             buf.put_u8(reply.format);
             buf.put_u16(sequence);
             let data_len = reply.data.len();
@@ -88,23 +85,19 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
             buf.put_u32(reply.property_type);
             buf.put_u32(reply.bytes_after);
             buf.put_u32(data_len as u32); // Value length
-                                          // Pad header to 32 bytes (12 bytes padding needed)
-            buf.put_padding(20); // Current position is 20 bytes, pad to 32
-            // Add property data
+            buf.put_padding(20); // Pad header to 32 bytes
             buf.extend_from_slice(&reply.data);
-            // Add padding to 4-byte boundary using wire utility
-            buf.put_padding(data_len);
-        }        _ => {
+            buf.put_padding(data_len); // Pad to 4-byte boundary
+        }
+        _ => {
             todo_medium!(
                 "reply_serialization",
                 "Most reply types not implemented yet"
             );
-            // Default reply structure
             buf.put_u8(0);
             buf.put_u16(sequence);
             buf.put_u32(0);
-            // Pad to 32 bytes
-            buf.put_padding(8); // Current position is 8 bytes, pad to 32
+            buf.put_padding(8); // Pad to 32 bytes
         }
     }
 }
