@@ -3,7 +3,6 @@
 //! This module manages the global state of the X server in a thread-safe manner.
 
 use crate::core::{AtomManager, CursorManager, FontManager, PointerManager};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
