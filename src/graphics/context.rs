@@ -3,7 +3,6 @@
 //! This module manages graphics contexts used for drawing operations.
 
 use crate::protocol::types::*;
-use crate::{Error, Result};
 
 /// Graphics context state
 #[derive(Debug, Clone)]
