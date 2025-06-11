@@ -1,6 +1,7 @@
 //! Event Loop
 //!
-//! This module contains the main server event loop.
+//! This module contains the main server event loop that coordinates between
+//! connection management, client management, and request handling.
 
 use crate::server::ServerEvent;
 use crate::server::{ClientManager, ConnectionManager, RequestHandler};
@@ -11,63 +12,43 @@ use tracing::{info, warn};
 
 /// Main server event loop
 pub struct EventLoop {
-    connection_manager: Arc<ConnectionManager>,
     client_manager: Arc<ClientManager>,
     request_handler: Arc<RequestHandler>,
-    event_sender: broadcast::Sender<ServerEvent>,
 }
 
-impl EventLoop {
-    pub fn new(
-        connection_manager: Arc<ConnectionManager>,
+impl EventLoop {    pub fn new(
         client_manager: Arc<ClientManager>,
         request_handler: Arc<RequestHandler>,
-        event_sender: broadcast::Sender<ServerEvent>,
+        _event_sender: broadcast::Sender<ServerEvent>,
     ) -> Self {
         Self {
-            connection_manager,
             client_manager,
             request_handler,
-            event_sender,
         }
-    }
-
-    pub async fn run(&self) -> Result<()> {
+    }pub async fn run(&self, connection_manager: Arc<ConnectionManager>) -> Result<()> {
         info!("Starting main server event loop");
 
-        // Set up Unix domain socket for X11 connections
-        let socket_path = format!("/tmp/.X11-unix/X0"); // TODO: Make configurable
-
-        // For now, create a simple TCP listener as a placeholder
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:6000")
-            .await
-            .map_err(|e| crate::Error::Io(e))?;
-
-        info!("X server listening on 127.0.0.1:6000 (TCP fallback)");
-        info!("X server would normally listen on {}", socket_path);
-
         loop {
-            tokio::select! {
-                // Accept new connections
-                result = listener.accept() => {
+            tokio::select! {                // Accept new connections through the connection manager
+                result = connection_manager.accept_connection() => {
                     match result {
-                        Ok((stream, addr)) => {
-                            info!("New client connection from: {}", addr);
+                        Ok(new_connection) => {
+                            info!("New client connection from: {}", new_connection.addr);
 
-                            // Handle connection in background task
-                            let connection_manager = self.connection_manager.clone();
+                            // Handle connection in background task using dedicated handler
                             let client_manager = self.client_manager.clone();
                             let request_handler = self.request_handler.clone();
                             tokio::spawn(async move {
-                                if let Err(e) = Self::handle_client_connection(
-                                    stream,
-                                    connection_manager,
+                                let connection_handler = crate::server::X11ConnectionHandler::new(
                                     client_manager,
                                     request_handler,
-                                ).await {
+                                );
+                                
+                                if let Err(e) = connection_handler.handle_connection(new_connection.stream).await {
                                     warn!("Client connection error: {}", e);
                                 }
-                            });                        }
+                            });
+                        }
                         Err(e) => {
                             warn!("Failed to accept connection: {}", e);
                         }
@@ -80,220 +61,7 @@ impl EventLoop {
                     break;
                 }
             }
-        }
-
-        info!("Event loop shutting down");
+        }        info!("Event loop shutting down");
         Ok(())
-    }   
-    
-     /// Handle a single client connection
-    async fn handle_client_connection(
-        mut stream: tokio::net::TcpStream,
-        _connection_manager: Arc<ConnectionManager>,
-        client_manager: Arc<ClientManager>,
-        request_handler: Arc<RequestHandler>,
-    ) -> Result<()> {
-        use crate::protocol::{ConnectionHandler, RequestParser, ResponseBuilder};
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tracing::{debug, error, info, warn};
-
-        info!("Handling new client connection");
-
-        // Create connection handler for X11 handshake
-        let connection_handler = ConnectionHandler::new();
-        
-        // Step 1: Handle X11 connection setup handshake
-        let mut setup_buffer = Vec::new();
-        let mut handshake_complete = false;
-        let mut client_id = 0;
-
-        // First, read and process the X11 connection setup request
-        while !handshake_complete {
-            let mut buffer = [0u8; 1024];
-            
-            match stream.read(&mut buffer).await {
-                Ok(0) => {
-                    warn!("Client disconnected during handshake");
-                    return Ok(());
-                }
-                Ok(n) => {
-                    setup_buffer.extend_from_slice(&buffer[..n]);
-                    
-                    // Try to parse connection setup request (minimum 12 bytes)
-                    if setup_buffer.len() >= 12 {
-                        // Calculate expected total size based on auth lengths
-                        if setup_buffer.len() >= 8 {
-                            let auth_name_len = u16::from_le_bytes([setup_buffer[6], setup_buffer[7]]) as usize;
-                            let auth_data_len = u16::from_le_bytes([setup_buffer[8], setup_buffer[9]]) as usize;
-                            
-                            // Calculate padded lengths (X11 protocol pads to 4-byte boundaries)
-                            let padded_name_len = (auth_name_len + 3) & !3;
-                            let padded_data_len = (auth_data_len + 3) & !3;
-                            let total_expected = 12 + padded_name_len + padded_data_len;
-                            
-                            if setup_buffer.len() >= total_expected {
-                                // We have complete setup request, parse it
-                                match ConnectionHandler::parse_setup_request(&setup_buffer) {
-                                    Ok(setup_request) => {
-                                        info!("Processing X11 connection setup from client");
-                                        debug!("Client requests protocol {}.{}", 
-                                               setup_request.protocol_major_version,
-                                               setup_request.protocol_minor_version);
-                                        
-                                        // Handle the connection setup
-                                        match connection_handler.handle_connection_setup(setup_request).await {
-                                            Ok(setup_response) => {
-                                                // Serialize and send response
-                                                match connection_handler.serialize_setup_response(&setup_response) {
-                                                    Ok(response_bytes) => {
-                                                        if let Err(e) = stream.write_all(&response_bytes).await {
-                                                            error!("Failed to send connection setup response: {}", e);
-                                                            return Ok(());
-                                                        }
-                                                        
-                                                        if setup_response.status == crate::protocol::ConnectionSetupStatus::Success {
-                                                            info!("X11 connection setup successful");
-                                                            handshake_complete = true;
-                                                            
-                                                            // Register the client after successful handshake
-                                                            client_id = client_manager
-                                                                .register_client("authenticated".to_string(), None)
-                                                                .await?;
-                                                            debug!("Registered authenticated client with ID: {}", client_id);
-                                                        } else {
-                                                            warn!("X11 connection setup failed: {:?}", setup_response.status);
-                                                            return Ok(());
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        error!("Failed to serialize connection setup response: {}", e);
-                                                        return Ok(());
-                                                    }
-                                                }
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to handle connection setup: {}", e);
-                                                return Ok(());
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to parse connection setup request: {}", e);
-                                        return Ok(());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    error!("Failed to read during handshake: {}", e);
-                    return Ok(());
-                }
-            }
-        }
-
-        // Step 2: Handle regular X11 requests after successful handshake
-        info!("Starting X11 request processing for client {}", client_id);
-        
-        let mut buffer = [0u8; 4096];
-        let mut connection_buffer = Vec::new();
-
-        loop {
-            tokio::select! {
-                // Read from client
-                result = stream.read(&mut buffer) => {
-                    match result {
-                        Ok(0) => {
-                            info!("Client {} disconnected", client_id);
-                            break;
-                        }
-                        Ok(n) => {
-                            debug!("Received {} bytes from client {}", n, client_id);
-
-                            // Add to connection buffer
-                            connection_buffer.extend_from_slice(&buffer[..n]);
-
-                            // Try to parse complete requests from buffer
-                            while let Some(request_data) = Self::extract_complete_request(&mut connection_buffer)? {
-                                // Parse the X11 request using existing parser
-                                match RequestParser::parse(&request_data) {
-                                    Ok(request) => {
-                                        debug!("Parsed request from client {:?}: {:?}",
-                                                client_id, request
-                                            );
-
-                                        // Handle the request using existing handler
-                                        match request_handler.handle_request(client_id, request).await {
-                                            Ok(Some(response)) => {
-                                                // Serialize response using existing serializer
-                                                let response_bytes = ResponseBuilder::serialize(&response)?;
-
-                                                if let Err(e) = stream.write_all(&response_bytes).await {
-                                                    error!("Failed to write response to client {}: {}", client_id, e);
-                                                    break;
-                                                }
-                                                debug!("Sent {} byte response to client {}", response_bytes.len(), client_id);
-                                            }
-                                            Ok(None) => {
-                                                debug!("No response needed for request from client {}", client_id);
-                                            }
-                                            Err(e) => {
-                                                error!("Failed to handle request from client {}: {}", client_id, e);
-                                                // Continue processing other requests
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to parse request from client {}: {}", client_id, e);
-                                        // Send error response or continue
-                                    }
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to read from client {}: {}", client_id, e);
-                            break;
-                        }
-                    }
-                }
-
-                // Handle timeout
-                _ = tokio::time::sleep(tokio::time::Duration::from_secs(300)) => {
-                    info!("Client {} connection timeout", client_id);
-                    break;
-                }
-            }
-        }
-
-        // Unregister client on disconnect
-        if client_id != 0 {
-            let _ = client_manager.unregister_client(client_id).await;
-        }
-        info!("Client {} connection handler terminating", client_id);
-        Ok(())
-    }
-
-    /// Extract a complete X11 request from the buffer
-    fn extract_complete_request(buffer: &mut Vec<u8>) -> Result<Option<Vec<u8>>> {
-        if buffer.len() < 4 {
-            return Ok(None); // Not enough data for header
-        }
-
-        // Read the length field from the request header
-        let length = u16::from_ne_bytes([buffer[2], buffer[3]]) as usize * 4;
-
-        if length < 4 {
-            return Err(crate::Error::Protocol("Invalid request length".to_string()));
-        }
-
-        if buffer.len() >= length {
-            // We have a complete request
-            let request_data = buffer.drain(..length).collect();
-            Ok(Some(request_data))
-        } else {
-            // Need more data
-            Ok(None)
-        }
     }
 }

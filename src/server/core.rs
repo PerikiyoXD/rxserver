@@ -1,7 +1,8 @@
 //! Core X11 Server Implementation
 //!
 //! This module provides a clean, modular X11 server architecture that is easier to
-//! understand and maintain than the original X server.
+//! understand and maintain than the original X server. Includes comprehensive
+//! logging, monitoring, and performance tracking.
 
 use std::sync::Arc;
 #[cfg(unix)]
@@ -10,6 +11,7 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 use crate::config::ServerConfig;
+use crate::logging::ConnectionStats;
 use crate::{todo_high, Result};
 
 // Import from sibling modules
@@ -18,83 +20,100 @@ use super::{
     ConnectionManager, DisplayManager, RequestHandler, ResourceManager,
 };
 
-/// The main X11 server
+/// The main X11 server with comprehensive logging and monitoring
 ///
 /// This is the central component that coordinates all X11 functionality.
 /// Unlike the original X server, this is designed to be modular, testable,
-/// and memory-safe.
+/// memory-safe, and provides detailed logging for debugging and monitoring.
 #[derive(Clone)]
 pub struct XServer {
-    /// Server configuration
-    config: ServerConfig,
     /// Shared server state
     state: Arc<ServerState>,
     /// Client manager for handling multiple clients
     client_manager: Arc<ClientManager>,
     /// Connection manager for network handling
     connection_manager: Arc<ConnectionManager>,
-    /// Display manager for screen/visual management
-    display_manager: Arc<DisplayManager>,
     /// Resource manager for X11 resources
     resource_manager: Arc<ResourceManager>,
     /// Request handler for processing X11 requests
     request_handler: Arc<RequestHandler>,
     /// Event broadcaster for server events
     event_sender: broadcast::Sender<ServerEvent>,
+    /// Connection statistics for monitoring
+    stats: Arc<tokio::sync::Mutex<ConnectionStats>>,
 }
 
 impl XServer {
     /// Create a new X server instance
     pub async fn new(display_name: String, config: ServerConfig) -> Result<Self> {
         info!("Creating X server for display: {}", display_name);
-
+        
         // Create event channel for server-wide communication
         // TODO: Use tx and rx for event handling as current implementation
         // uses a broadcast channel for event broadcasting
-        let (event_tx, event_rx) = broadcast::channel(1000);
+        let (event_tx, _event_rx) = broadcast::channel(1000);
 
         // Initialize shared state
-        let state = Arc::new(ServerState::new(display_name.clone())); // Initialize managers
+        let state = Arc::new(ServerState::new(display_name.clone()));
+        
+        // Initialize connection statistics
+        let stats = Arc::new(tokio::sync::Mutex::new(ConnectionStats::default()));
+        
+        // Initialize managers
         let client_manager = Arc::new(ClientManager::new(event_tx.clone()));
-        let connection_manager = Arc::new(ConnectionManager::new(&config)?);
-        let display_manager = Arc::new(DisplayManager::new(&config.display)?);
+        let mut connection_manager = ConnectionManager::new(&config).await?;
+        let _display_manager = Arc::new(DisplayManager::new(&config.display)?);
         let resource_manager = Arc::new(ResourceManager::new());
         let request_handler = Arc::new(RequestHandler::new(client_manager.clone(), state.clone()));
 
+        // Start the connection manager listening
+        connection_manager.start_listening().await?;
+        let connection_manager = Arc::new(connection_manager);
+        
+        info!("X server initialization completed successfully");
+        
         Ok(XServer {
-            config,
             state,
             client_manager,
             connection_manager,
-            display_manager,
             resource_manager,
             request_handler,
             event_sender: event_tx,
+            stats,
         })
-    }
-
-    /// Start the X server
+    }    /// Start the X server
     pub async fn run(&self) -> Result<()> {
         info!("Starting X server on display {}", self.state.display_name());
 
         // Mark server as running
-        self.state.set_running(true).await; // Start the main event loop
+        self.state.set_running(true).await;
+        
+        // Log server startup statistics
+        info!("Server running with {} initial clients", 
+              self.client_manager.client_count().await);
+        
+        // Start the main event loop
         let event_loop = EventLoop::new(
-            self.connection_manager.clone(),
             self.client_manager.clone(),
             self.request_handler.clone(),
             self.event_sender.clone(),
         );
 
         // Handle shutdown gracefully
-        let result = event_loop.run().await;
+        let result = event_loop.run(self.connection_manager.clone()).await;
 
         // Mark server as stopped
         self.state.set_running(false).await;
+        
+        // Log final statistics
+        let stats = self.stats.lock().await;
+        stats.log_summary();
+        drop(stats);
 
         // Broadcast shutdown event
         let _ = self.event_sender.send(ServerEvent::ServerShuttingDown);
-
+        
+        info!("X server shutdown completed");
         result
     }
 

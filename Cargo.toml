@@ -27,6 +27,7 @@ env_logger = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.1"
+tracing-appender = "0.2"  # For file logging with rotation
 
 # Command line argument parsing
 clap = { version = "4.0", features = ["derive"] }
@@ -46,6 +47,7 @@ nom = "7.1"  # For parsing binary X11 protocol data
 # Networking
 bytes = "1.0"
 tokio-util = { version = "0.7", features = ["codec"] }
+futures-util = "0.3"
 
 # Date/time handling
 chrono = { version = "0.4", features = ["serde"] }

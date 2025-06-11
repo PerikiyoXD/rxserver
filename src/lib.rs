@@ -31,6 +31,7 @@
 
 pub mod config;
 pub mod core;
+pub mod display;
 pub mod graphics;
 pub mod input;
 pub mod logging;
@@ -58,6 +59,9 @@ pub enum Error {
     #[error("Configuration error: {0}")]
     Config(String),
 
+    #[error("Configuration error: {0}")]
+    ConfigurationError(String),
+
     #[error("Server error: {0}")]
     Server(String),
 
@@ -70,6 +74,18 @@ pub enum Error {
     #[error("Input error: {0}")]
     Input(String),
 
+    #[error("Display error: {0}")]
+    Display(String),
+
+    #[error("Display error: {0}")]
+    DisplayError(String),
+
+    #[error("Invalid parameter: {0}")]
+    InvalidParameter(String),
+
     #[error("Not implemented: {0}")]
     NotImplemented(String),
 }
+
+/// Server-specific error type (alias for main Error type)
+pub type ServerError = Error;

@@ -1,0 +1,49 @@
+# RXServer Configuration with Advanced Logging
+# This example shows how to configure comprehensive logging
+
+[server]
+display_number = 0
+max_clients = 128
+enable_tcp = true
+tcp_port_base = 6000
+unix_socket_path = "/tmp/.X11-unix/X{display}"
+
+[logging]
+# Log level: error, warn, info, debug, trace
+level = "info"
+
+# Enable console output (stdout/stderr)
+stdout = true
+
+# Optional log file with rotation
+file = "logs/rxserver.log"
+max_file_size = 50  # MB before rotation
+rotation_count = 10  # Keep 10 rotated files
+
+[transport]
+max_buffer_size = 65536
+connection_timeout = 30
+enable_compression = false
+
+[network]
+bind_addresses = ["127.0.0.1", "::1"]
+enable_unix_sockets = true
+tcp_port = 6000
+
+[display]
+width = 1920
+height = 1080
+depth = 24
+dpi = 96
+refresh_rate = 60
+
+[graphics]
+backend = "software"
+hardware_acceleration = false
+enable_vsync = true
+max_texture_size = 4096
+
+[input]
+enable_mouse = true
+enable_keyboard = true
+enable_touchscreen = false

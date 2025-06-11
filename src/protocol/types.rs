@@ -74,8 +74,8 @@ pub enum EventType {
     GenericEvent = 35,
 }
 
-/// Input event masks (using bitflags for type safety)
 bitflags! {
+    /// Input event masks (using bitflags for type safety)
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct EventMask: u32 {
         const NO_EVENT = 0;
@@ -107,8 +107,8 @@ bitflags! {
     }
 }
 
-/// Modifier masks (type-safe modifiers)
 bitflags! {
+    /// Modifier masks (type-safe modifiers)
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct ModifierMask: u16 {
         const SHIFT = 1 << 0;
@@ -123,8 +123,8 @@ bitflags! {
     }
 }
 
-/// Button masks
 bitflags! {
+    /// Button masks
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct ButtonMask: u16 {
         const BUTTON1 = 1 << 8;
@@ -203,8 +203,8 @@ pub enum X11Error {
     BadImplementation = 17,
 }
 
-/// Window attributes for CreateWindow and ChangeWindowAttributes
 bitflags! {
+    /// Window attributes for CreateWindow and ChangeWindowAttributes
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct WindowAttributesMask: u32 {
         const BACK_PIXMAP = 1 << 0;

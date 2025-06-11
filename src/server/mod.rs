@@ -11,6 +11,7 @@
 
 pub mod client;
 pub mod connection;
+pub mod connection_handler;
 pub mod connection_manager;
 pub mod core;
 pub mod display;
@@ -23,9 +24,11 @@ pub mod state;
 
 // Re-export the main types for easy access
 pub use client::{ClientInfo, ClientManager};
+pub use connection_handler::X11ConnectionHandler;
 pub use connection_manager::ConnectionManager;
 pub use core::{ServerStats, XServer, XServerBuilder};
-pub use display_manager::{DisplayManager, ScreenInfo, VisualInfo};
+pub use display_manager::DisplayManager;
+pub use crate::display::{ScreenInfo, VisualInfo};
 pub use events::ServerEvent;
 pub use request_handler::RequestHandler;
 pub use resources::ResourceManager;

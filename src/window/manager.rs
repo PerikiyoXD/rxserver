@@ -4,7 +4,8 @@
 //! window stacking, focus management, and window tree operations.
 
 use crate::protocol::types::*;
-use crate::{todo_high, todo_medium, Result};
+use crate::{todo_high, Result};
+use core::panic;
 use std::collections::HashMap;
 
 /// Window manager state
@@ -135,24 +136,9 @@ impl WindowManager {
     /// Get the window stacking order (bottom to top)
     pub fn get_stacking_order(&self) -> &[Window] {
         &self.stacking_order
-    }
-
-    /// Find the topmost window at a given point
-    pub fn window_at_point(&self, x: i16, y: i16) -> Option<Window> {
-        todo_medium!(
-            "window_manager",
-            "Point-in-window hit testing not implemented - need window geometry access"
-        );
-        // Search from top to bottom
-        for &window in self.stacking_order.iter().rev() {
-            // TODO: Check if point is within window bounds
-            // This would require access to window geometry
-            // For now, just return the root window
-            if window == self.root_window {
-                return Some(window);
-            }
-        }
-        None
+    }    /// Find the topmost window at a given point
+    pub fn window_at_point(&self, _x: i16, _y: i16) -> Option<Window> {
+        panic!("window_at_point not implemented - this requires window geometry management");
     }
 
     /// Get all windows in the tree (depth-first traversal)
