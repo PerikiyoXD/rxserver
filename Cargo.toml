@@ -27,7 +27,7 @@ env_logger = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.1"
-tracing-appender = "0.2"                                            # For file logging with rotation
+tracing-appender = "0.2"  # For file logging with rotation
 
 # Command line argument parsing
 clap = { version = "4.0", features = ["derive"] }
@@ -42,7 +42,7 @@ toml = "0.8"
 
 # Binary data handling for X11 protocol
 byteorder = "1.4"
-nom = "7.1"       # For parsing binary X11 protocol data
+nom = "7.1"  # For parsing binary X11 protocol data
 
 # Networking
 bytes = "1.0"
@@ -56,18 +56,12 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 
 # Memory management
-dashmap = "5.5"      # Concurrent hash maps
-parking_lot = "0.12" # Fast mutexes
+dashmap = "5.5"  # Concurrent hash maps
+parking_lot = "0.12"  # Fast mutexes
 
 # Utilities
 uuid = { version = "1.0", features = ["v4"] }
 bitflags = { version = "2", features = ["serde"] }
-dirs = "5.0"         # For home directory detection
-
-# Window rendering
-winit = "0.29"
-softbuffer = "0.4"
-raw-window-handle = "0.6"
 
 # For X11 constants (optional, we'll define our own clean ones)
 # x11 = { version = "2.19", optional = true }
