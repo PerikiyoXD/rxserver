@@ -219,7 +219,9 @@ impl EventLoop {
                                 // Parse the X11 request using existing parser
                                 match RequestParser::parse(&request_data) {
                                     Ok(request) => {
-                                        debug!("Parsed request from client {}: {:?}", client_id, request);
+                                        debug!("Parsed request from client {:?}: {:?}",
+                                                client_id, request
+                                            );
 
                                         // Handle the request using existing handler
                                         match request_handler.handle_request(client_id, request).await {
