@@ -2,7 +2,7 @@
 //!
 //! This module manages the global state of the X server in a thread-safe manner.
 
-use crate::core::AtomManager;
+use crate::core::{AtomManager, FontManager};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -15,6 +15,8 @@ pub struct ServerState {
     inner: RwLock<ServerStateInner>,
     /// Atom manager for X11 atoms
     atom_manager: AtomManager,
+    /// Font manager for X11 fonts
+    font_manager: FontManager,
 }
 
 #[derive(Debug)]
@@ -46,6 +48,7 @@ impl ServerState {
             display_name,
             inner: RwLock::new(inner),
             atom_manager: AtomManager::new(),
+            font_manager: FontManager::new(),
         }
     }
 
@@ -100,6 +103,11 @@ impl ServerState {
     pub fn atom_manager(&self) -> &AtomManager {
         &self.atom_manager
     }
+
+    /// Get font manager
+    pub fn font_manager(&self) -> &FontManager {
+        &self.font_manager
+    }
 }
 
 impl std::fmt::Debug for ServerState {
@@ -109,6 +117,10 @@ impl std::fmt::Debug for ServerState {
             .field(
                 "atom_manager",
                 &format!("AtomManager({} atoms)", self.atom_manager.atom_count()),
+            )
+            .field(
+                "font_manager",
+                &format!("FontManager({} fonts)", self.font_manager.font_count()),
             )
             .field("inner", &"<ServerStateInner>")
             .finish()
