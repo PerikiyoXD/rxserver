@@ -9,7 +9,7 @@
 use crate::graphics::renderer::types::Renderer;
 use crate::graphics::GraphicsContext;
 use crate::protocol::types::*;
-use crate::{Error, Result};
+use crate::Result;
 
 impl Renderer {
     /// Create a new renderer with specified dimensions and color depth
@@ -73,6 +73,7 @@ impl Renderer {
                 *pixel = gc.foreground;
             }
         }
+        
         Ok(())
     }
 
