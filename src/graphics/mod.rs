@@ -5,6 +5,8 @@
 
 pub mod context;
 pub mod renderer;
+pub mod types;
 
 pub use context::*;
 pub use renderer::*;
+pub use types::*;

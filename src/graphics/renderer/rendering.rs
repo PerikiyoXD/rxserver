@@ -1,25 +1,26 @@
-//! Basic rendering operations
-//!
-//! This module provides basic 2D rendering operations for the X server.
+// SPDX-License-Identifier: Apache-2.0
+// RX-Completion-Status: Complete
 
+//! Core rendering implementations
+//!
+//! This module contains the actual rendering algorithms and drawing operations
+//! for the software renderer, including line drawing, rectangles, and pixel operations.
+
+use crate::graphics::renderer::types::Renderer;
 use crate::graphics::GraphicsContext;
 use crate::protocol::types::*;
-use crate::{todo_low, todo_medium, Error, Result};
-
-/// Basic software renderer
-pub struct Renderer {
-    /// Framebuffer data
-    framebuffer: Vec<u32>,
-    /// Screen width
-    width: u32,
-    /// Screen height
-    height: u32,
-    /// Bits per pixel
-    depth: u8,
-}
+use crate::{Error, Result};
 
 impl Renderer {
-    /// Create a new renderer
+    /// Create a new renderer with specified dimensions and color depth
+    ///
+    /// # Arguments
+    /// * `width` - Screen width in pixels
+    /// * `height` - Screen height in pixels  
+    /// * `depth` - Color depth in bits per pixel
+    ///
+    /// # Returns
+    /// A new Renderer instance with allocated framebuffer
     pub fn new(width: u32, height: u32, depth: u8) -> Self {
         let pixel_count = (width * height) as usize;
         let framebuffer = vec![0; pixel_count];
@@ -32,14 +33,21 @@ impl Renderer {
         }
     }
 
-    /// Clear the entire screen with a color
+    /// Clear the entire screen with a solid color
+    ///
+    /// # Arguments
+    /// * `color` - 32-bit color value to fill the screen with
     pub fn clear(&mut self, color: u32) {
         for pixel in &mut self.framebuffer {
             *pixel = color;
         }
     }
 
-    /// Clear a rectangular area
+    /// Clear a rectangular area with a solid color
+    ///
+    /// # Arguments
+    /// * `rect` - Rectangle defining the area to clear
+    /// * `color` - 32-bit color value to fill the area with
     pub fn clear_area(&mut self, rect: &Rectangle, color: u32) {
         let x_end = (rect.x + rect.width as i16).min(self.width as i16);
         let y_end = (rect.y + rect.height as i16).min(self.height as i16);
@@ -53,7 +61,12 @@ impl Renderer {
         }
     }
 
-    /// Draw a point
+    /// Draw a single point at the specified coordinates
+    ///
+    /// # Arguments
+    /// * `x` - X coordinate
+    /// * `y` - Y coordinate
+    /// * `gc` - Graphics context containing drawing parameters
     pub fn draw_point(&mut self, x: i16, y: i16, gc: &GraphicsContext) -> Result<()> {
         if gc.point_in_clip_region(x, y) {
             if let Some(pixel) = self.get_pixel_mut(x as u32, y as u32) {
@@ -63,7 +76,12 @@ impl Renderer {
         Ok(())
     }
 
-    /// Draw a line using Bresenham's algorithm
+    /// Draw a line between two points using Bresenham's algorithm
+    ///
+    /// # Arguments
+    /// * `x1`, `y1` - Starting point coordinates
+    /// * `x2`, `y2` - Ending point coordinates
+    /// * `gc` - Graphics context containing drawing parameters
     pub fn draw_line(
         &mut self,
         x1: i16,
@@ -106,6 +124,10 @@ impl Renderer {
     }
 
     /// Draw a rectangle outline
+    ///
+    /// # Arguments
+    /// * `rect` - Rectangle to draw
+    /// * `gc` - Graphics context containing drawing parameters
     pub fn draw_rectangle(&mut self, rect: &Rectangle, gc: &GraphicsContext) -> Result<()> {
         if !gc.rect_in_clip_region(rect) {
             return Ok(());
@@ -123,7 +145,11 @@ impl Renderer {
         Ok(())
     }
 
-    /// Fill a rectangle
+    /// Fill a rectangle with a solid color
+    ///
+    /// # Arguments
+    /// * `rect` - Rectangle to fill
+    /// * `gc` - Graphics context containing drawing parameters
     pub fn fill_rectangle(&mut self, rect: &Rectangle, gc: &GraphicsContext) -> Result<()> {
         if !gc.rect_in_clip_region(rect) {
             return Ok(());
@@ -145,7 +171,13 @@ impl Renderer {
         Ok(())
     }
 
-    /// Copy area from one location to another
+    /// Copy a rectangular area from one location to another
+    ///
+    /// # Arguments
+    /// * `src_x`, `src_y` - Source area top-left coordinates
+    /// * `dst_x`, `dst_y` - Destination area top-left coordinates
+    /// * `width`, `height` - Dimensions of area to copy
+    /// * `gc` - Graphics context containing drawing parameters
     pub fn copy_area(
         &mut self,
         src_x: i16,
@@ -192,40 +224,5 @@ impl Renderer {
         }
 
         Ok(())
-    }
-
-    /// Get a pixel reference (read-only)
-    fn get_pixel(&self, x: u32, y: u32) -> Option<&u32> {
-        if x < self.width && y < self.height {
-            let index = (y * self.width + x) as usize;
-            self.framebuffer.get(index)
-        } else {
-            None
-        }
-    }
-
-    /// Get a mutable pixel reference
-    fn get_pixel_mut(&mut self, x: u32, y: u32) -> Option<&mut u32> {
-        if x < self.width && y < self.height {
-            let index = (y * self.width + x) as usize;
-            self.framebuffer.get_mut(index)
-        } else {
-            None
-        }
-    }
-
-    /// Get the framebuffer data
-    pub fn get_framebuffer(&self) -> &[u32] {
-        &self.framebuffer
-    }
-
-    /// Get screen dimensions
-    pub fn get_dimensions(&self) -> (u32, u32) {
-        (self.width, self.height)
-    }
-
-    /// Get color depth
-    pub fn get_depth(&self) -> u8 {
-        self.depth
     }
 }
