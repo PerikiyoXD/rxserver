@@ -34,6 +34,7 @@ pub enum Request {
     InternAtom(InternAtomRequest),
     OpenFont(OpenFontRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
+    GrabPointer(GrabPointerRequest),
     // Unknown request for unimplemented opcodes
     Unknown { opcode: u8, data: bytes::Bytes },
 }
@@ -185,6 +186,19 @@ pub struct CreateGlyphCursorRequest {
     pub back_blue: u16,
 }
 
+/// GrabPointer request
+#[derive(Debug, Clone)]
+pub struct GrabPointerRequest {
+    pub owner_events: bool,
+    pub grab_window: Window,
+    pub event_mask: u16,
+    pub pointer_mode: u8,
+    pub keyboard_mode: u8,
+    pub confine_to: Window,
+    pub cursor: Cursor,
+    pub time: u32,
+}
+
 /// Request parser for incoming X11 protocol data
 pub struct RequestParser;
 
@@ -217,6 +231,7 @@ impl RequestParser {
             opcodes::atom::INTERN_ATOM => Self::parse_intern_atom(data),
             opcodes::text::OPEN_FONT => Self::parse_open_font(data),
             opcodes::cursor::CREATE_GLYPH_CURSOR => Self::parse_create_glyph_cursor(data),
+            opcodes::input::GRAB_POINTER => Self::parse_grab_pointer(data),
             _ => {
                 todo_high!(
                     "request_parsing",
@@ -301,17 +316,16 @@ impl RequestParser {
     }
 
     fn parse_unmap_window(data: &[u8]) -> Result<Request> {
-        todo_high!(
-            "request_parsing",
-            "UnmapWindow parsing is basic - needs validation"
-        );
-
-        if data.len() < 4 {
+        // UnmapWindow request format:
+        // 1     3                    opcode
+        // 1                         unused
+        // 2     1                   request length
+        // 4     WINDOW              window
+        if data.len() < 8 {
             return Err(crate::Error::Protocol(
                 "UnmapWindow request too short".to_string(),
             ));
         }
-
         let mut buf = data;
         let window = buf.get_u32();
 
@@ -319,24 +333,32 @@ impl RequestParser {
     }
 
     fn parse_clear_area(data: &[u8]) -> Result<Request> {
-        todo_high!(
-            "request_parsing",
-            "ClearArea parsing is basic - needs validation"
-        );
+        // ClearArea request format:
+        // 1     14                   opcode
+        // 1     BOOL                 exposures
+        // 2     4                   request length
+        // 4     WINDOW              window
+        // 2     CARD16              x
+        // 2     CARD16              y
+        // 2     CARD16              width
+        // 2     CARD16              height
 
-        if data.len() < 12 {
+        if data.len() < 20 {
             return Err(crate::Error::Protocol(
                 "ClearArea request too short".to_string(),
             ));
         }
 
         let mut buf = data;
-        let exposures = buf.get_u8() != 0;
-        let window = buf.get_u32();
-        let x = buf.get_i16();
-        let y = buf.get_i16();
-        let width = buf.get_u16();
-        let height = buf.get_u16();
+        let _opcode = buf.get_u8(); // opcode (14)
+        let exposures = buf.get_u8() != 0; // exposures flag
+        let _length = buf.get_u16(); // request length (not used here)
+        let window = buf.get_u32(); // window ID
+        let x = buf.get_i16(); // x coordinate
+        let y = buf.get_i16(); // y coordinate
+        let width = buf.get_u16(); // width
+        let height = buf.get_u16(); // height
+
         Ok(Request::ClearArea(ClearAreaRequest {
             exposures,
             window,
@@ -495,6 +517,54 @@ impl RequestParser {
             back_red,
             back_green,
             back_blue,
+        }))
+    }
+
+    fn parse_grab_pointer(data: &[u8]) -> Result<Request> {
+        // GrabPointer request format:
+        // 1     26                   opcode
+        // 1     BOOL                 owner-events
+        // 2     6                   request length
+        // 4     WINDOW              grab-window
+        // 2     SETofPOINTEREVENT   event-mask
+        // 1                        pointer-mode (0=Synchronous, 1=Asynchronous)
+        // 1                        keyboard-mode (0=Synchronous, 1=Asynchronous)
+        // 4     WINDOW              confine-to (0=None)
+        // 4     CURSOR              cursor (0=None)
+        // 4     TIMESTAMP           time (0=CurrentTime)
+
+        if data.len() < 24 {
+            return Err(crate::Error::Protocol(
+                "GrabPointer request too short".to_string(),
+            ));
+        }
+
+        // Use byte array indexing for proper parsing
+        let _opcode = data[0]; // opcode (26)
+        let owner_events = data[1] != 0; // owner-events flag
+        let _length = u16::from_le_bytes([data[2], data[3]]); // request length
+        let grab_window = u32::from_le_bytes([data[4], data[5], data[6], data[7]]); // grab window
+        let event_mask = u16::from_le_bytes([data[8], data[9]]); // event mask
+        let pointer_mode = data[10]; // pointer mode
+        let keyboard_mode = data[11]; // keyboard mode
+        let confine_to = u32::from_le_bytes([data[12], data[13], data[14], data[15]]); // confine-to window
+        let cursor = u32::from_le_bytes([data[16], data[17], data[18], data[19]]); // cursor
+        let time = u32::from_le_bytes([data[20], data[21], data[22], data[23]]); // timestamp
+
+        debug!(
+            "Parsed GrabPointer: grab_window={}, owner_events={}, event_mask={}, pointer_mode={}, keyboard_mode={}",
+            grab_window, owner_events, event_mask, pointer_mode, keyboard_mode
+        );
+
+        Ok(Request::GrabPointer(GrabPointerRequest {
+            owner_events,
+            grab_window,
+            event_mask,
+            pointer_mode,
+            keyboard_mode,
+            confine_to,
+            cursor,
+            time,
         }))
     }
 }
