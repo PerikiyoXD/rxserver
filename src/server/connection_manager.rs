@@ -6,7 +6,6 @@
  */
 
 use crate::{config::ServerConfig, todo_critical, todo_high, Result};
-use std::sync::Arc;
 use tokio::net::TcpListener;
 #[cfg(unix)]
 use tokio::net::UnixListener;
