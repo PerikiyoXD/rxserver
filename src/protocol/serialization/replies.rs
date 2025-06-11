@@ -2,9 +2,14 @@
 //!
 //! This module handles serialization of X11 replies to wire format.
 
-use crate::protocol::{message::Reply, X11BufMutExt};
-use crate::todo_medium;
+
+
 use bytes::{BufMut, BytesMut};
+
+use crate::{
+    protocol::{serialization::wire::X11BufMutExt, Reply},
+    todo_medium,
+};
 
 /// Serialize a reply to wire format
 pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
@@ -91,8 +96,9 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
         }
         _ => {
             todo_medium!(
-                "reply_serialization",
-                "Most reply types not implemented yet"
+                "serialize_reply",
+                "Serialization for reply type {:?} not implemented",
+                reply
             );
             buf.put_u8(0);
             buf.put_u16(sequence);

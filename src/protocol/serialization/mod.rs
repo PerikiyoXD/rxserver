@@ -7,6 +7,7 @@
 pub mod events;
 pub mod replies;
 pub mod errors;
+pub mod wire;
 
 use crate::protocol::message::Response;
 use bytes::BytesMut;
