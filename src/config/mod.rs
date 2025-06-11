@@ -12,4 +12,3 @@ pub mod types;
 
 // Re-export main types for convenience
 pub use types::*;
-pub use config::*;
