@@ -3,12 +3,9 @@
 //! This module handles framebuffer initialization, pixel format management,
 //! and low-level drawing operations for the display system.
 
-use crate::{
-    display::types::{FramebufferSettings},
-    Result,
-};
+use crate::{display::types::FramebufferSettings, Result};
 use std::sync::{Arc, Mutex};
-use tracing::{info, debug};
+use tracing::{debug, info};
 
 /// Framebuffer configuration
 #[derive(Debug, Clone)]
@@ -71,7 +68,10 @@ impl std::fmt::Debug for Framebuffer {
         f.debug_struct("Framebuffer")
             .field("config", &self.config)
             .field("buffer_len", &self.buffer.lock().unwrap().len())
-            .field("damage_regions_count", &self.damage_regions.lock().unwrap().len())
+            .field(
+                "damage_regions_count",
+                &self.damage_regions.lock().unwrap().len(),
+            )
             .field("state", &self.state)
             .finish()
     }
@@ -104,7 +104,10 @@ pub enum FramebufferState {
 impl Framebuffer {
     /// Create a new framebuffer
     pub fn new(config: FramebufferConfig) -> Result<Self> {
-        info!("Creating framebuffer: {}x{} @ {} bpp", config.width, config.height, config.bpp);
+        info!(
+            "Creating framebuffer: {}x{} @ {} bpp",
+            config.width, config.height, config.bpp
+        );
 
         // Validate configuration
         Self::validate_config(&config)?;
@@ -133,9 +136,12 @@ impl Framebuffer {
             8 => PixelFormat::Indexed8,
             4 => PixelFormat::Indexed4,
             1 => PixelFormat::Monochrome,
-            _ => return Err(crate::ServerError::ConfigurationError(
-                format!("Unsupported bits per pixel: {}", settings.bpp)
-            )),
+            _ => {
+                return Err(crate::ServerError::ConfigurationError(format!(
+                    "Unsupported bits per pixel: {}",
+                    settings.bpp
+                )))
+            }
         };
 
         let stride = Self::calculate_stride(width, settings.bpp, settings.scanline_pad);
@@ -172,7 +178,7 @@ impl Framebuffer {
     /// Clear the framebuffer
     pub fn clear(&self, color: u32) -> Result<()> {
         let mut buffer = self.buffer.lock().unwrap();
-        
+
         match self.config.format {
             PixelFormat::RGBA32 | PixelFormat::BGRA32 => {
                 let pixel_bytes = color.to_le_bytes();
@@ -223,9 +229,10 @@ impl Framebuffer {
     /// Set a pixel at the given coordinates
     pub fn set_pixel(&self, x: u32, y: u32, color: u32) -> Result<()> {
         if x >= self.config.width || y >= self.config.height {
-            return Err(crate::ServerError::InvalidParameter(
-                format!("Pixel coordinates ({}, {}) out of bounds", x, y)
-            ));
+            return Err(crate::ServerError::InvalidParameter(format!(
+                "Pixel coordinates ({}, {}) out of bounds",
+                x, y
+            )));
         }
 
         let mut buffer = self.buffer.lock().unwrap();
@@ -241,8 +248,8 @@ impl Framebuffer {
             PixelFormat::BGRA32 => {
                 if offset + 4 <= buffer.len() {
                     let pixel_bytes = [
-                        (color & 0xFF) as u8,       // B
-                        ((color >> 8) & 0xFF) as u8, // G
+                        (color & 0xFF) as u8,         // B
+                        ((color >> 8) & 0xFF) as u8,  // G
                         ((color >> 16) & 0xFF) as u8, // R
                         ((color >> 24) & 0xFF) as u8, // A
                     ];
@@ -265,14 +272,16 @@ impl Framebuffer {
             }
             PixelFormat::RGB565 => {
                 if offset + 2 <= buffer.len() {
-                    let pixel = ((color >> 8) & 0xF800) | ((color >> 5) & 0x07E0) | ((color >> 3) & 0x001F);
+                    let pixel =
+                        ((color >> 8) & 0xF800) | ((color >> 5) & 0x07E0) | ((color >> 3) & 0x001F);
                     let pixel_bytes = (pixel as u16).to_le_bytes();
                     buffer[offset..offset + 2].copy_from_slice(&pixel_bytes);
                 }
             }
             PixelFormat::RGB555 => {
                 if offset + 2 <= buffer.len() {
-                    let pixel = ((color >> 9) & 0x7C00) | ((color >> 6) & 0x03E0) | ((color >> 3) & 0x001F);
+                    let pixel =
+                        ((color >> 9) & 0x7C00) | ((color >> 6) & 0x03E0) | ((color >> 3) & 0x001F);
                     let pixel_bytes = (pixel as u16).to_le_bytes();
                     buffer[offset..offset + 2].copy_from_slice(&pixel_bytes);
                 }
@@ -288,9 +297,11 @@ impl Framebuffer {
                     let nibble_offset = offset % 2;
                     if byte_offset < buffer.len() {
                         if nibble_offset == 0 {
-                            buffer[byte_offset] = (buffer[byte_offset] & 0xF0) | ((color as u8) & 0x0F);
+                            buffer[byte_offset] =
+                                (buffer[byte_offset] & 0xF0) | ((color as u8) & 0x0F);
                         } else {
-                            buffer[byte_offset] = (buffer[byte_offset] & 0x0F) | (((color as u8) & 0x0F) << 4);
+                            buffer[byte_offset] =
+                                (buffer[byte_offset] & 0x0F) | (((color as u8) & 0x0F) << 4);
                         }
                     }
                 }
@@ -309,38 +320,212 @@ impl Framebuffer {
         }
 
         // Add damage region for this pixel
-        self.add_damage_region(DamageRegion { x, y, width: 1, height: 1 });
+        self.add_damage_region(DamageRegion {
+            x,
+            y,
+            width: 1,
+            height: 1,
+        });
 
         Ok(())
     }
 
-    /// Fill a rectangle with a color
-    pub fn fill_rect(&self, x: u32, y: u32, width: u32, height: u32, color: u32) -> Result<()> {
+    /// Get a pixel value at the given coordinates
+    pub fn get_pixel(&self, x: u32, y: u32) -> Result<u32> {
         if x >= self.config.width || y >= self.config.height {
-            return Err(crate::ServerError::InvalidParameter(
-                "Rectangle coordinates out of bounds".to_string()
-            ));
+            return Err(crate::ServerError::InvalidParameter(format!(
+                "Pixel coordinates ({}, {}) out of bounds",
+                x, y
+            )));
         }
 
-        let actual_width = width.min(self.config.width - x);
-        let actual_height = height.min(self.config.height - y);
+        let buffer = self.buffer.lock().unwrap();
+        let offset = (y * self.config.stride + x * (self.config.bpp as u32 / 8)) as usize;
 
-        for row in y..y + actual_height {
-            for col in x..x + actual_width {
-                self.set_pixel(col, row, color)?;
+        let color = match self.config.format {
+            PixelFormat::RGBA32 => {
+                if offset + 4 <= buffer.len() {
+                    u32::from_le_bytes([
+                        buffer[offset],
+                        buffer[offset + 1],
+                        buffer[offset + 2],
+                        buffer[offset + 3],
+                    ])
+                } else {
+                    0
+                }
+            }
+            PixelFormat::BGRA32 => {
+                if offset + 4 <= buffer.len() {
+                    // Convert BGRA to RGBA
+                    let b = buffer[offset] as u32;
+                    let g = buffer[offset + 1] as u32;
+                    let r = buffer[offset + 2] as u32;
+                    let a = buffer[offset + 3] as u32;
+                    (a << 24) | (r << 16) | (g << 8) | b
+                } else {
+                    0
+                }
+            }
+            PixelFormat::RGB24 => {
+                if offset + 3 <= buffer.len() {
+                    let r = buffer[offset] as u32;
+                    let g = buffer[offset + 1] as u32;
+                    let b = buffer[offset + 2] as u32;
+                    0xFF000000 | (r << 16) | (g << 8) | b
+                } else {
+                    0
+                }
+            }
+            PixelFormat::BGR24 => {
+                if offset + 3 <= buffer.len() {
+                    let b = buffer[offset] as u32;
+                    let g = buffer[offset + 1] as u32;
+                    let r = buffer[offset + 2] as u32;
+                    0xFF000000 | (r << 16) | (g << 8) | b
+                } else {
+                    0
+                }
+            }
+            PixelFormat::RGB565 => {
+                if offset + 2 <= buffer.len() {
+                    let pixel = u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as u32;
+                    let r = ((pixel & 0xF800) >> 8) as u32;
+                    let g = ((pixel & 0x07E0) >> 3) as u32;
+                    let b = ((pixel & 0x001F) << 3) as u32;
+                    0xFF000000 | (r << 16) | (g << 8) | b
+                } else {
+                    0
+                }
+            }
+            PixelFormat::RGB555 => {
+                if offset + 2 <= buffer.len() {
+                    let pixel = u16::from_le_bytes([buffer[offset], buffer[offset + 1]]) as u32;
+                    let r = ((pixel & 0x7C00) >> 7) as u32;
+                    let g = ((pixel & 0x03E0) >> 2) as u32;
+                    let b = ((pixel & 0x001F) << 3) as u32;
+                    0xFF000000 | (r << 16) | (g << 8) | b
+                } else {
+                    0
+                }
+            }
+            PixelFormat::Indexed8 => {
+                if offset < buffer.len() {
+                    // For indexed color, we'd need a color palette
+                    // For now, treat as grayscale
+                    let gray = buffer[offset] as u32;
+                    0xFF000000 | (gray << 16) | (gray << 8) | gray
+                } else {
+                    0
+                }
+            }
+            PixelFormat::Indexed4 => {
+                if offset < buffer.len() {
+                    let byte_offset = offset / 2;
+                    let nibble_offset = offset % 2;
+                    if byte_offset < buffer.len() {
+                        let nibble = if nibble_offset == 0 {
+                            buffer[byte_offset] & 0x0F
+                        } else {
+                            (buffer[byte_offset] & 0xF0) >> 4
+                        };
+                        let gray = (nibble * 17) as u32; // Scale 4-bit to 8-bit
+                        0xFF000000 | (gray << 16) | (gray << 8) | gray
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                }
+            }
+            PixelFormat::Monochrome => {
+                let byte_offset = offset / 8;
+                let bit_offset = offset % 8;
+                if byte_offset < buffer.len() {
+                    let bit = (buffer[byte_offset] >> bit_offset) & 1;
+                    if bit != 0 {
+                        0xFFFFFFFF // White
+                    } else {
+                        0xFF000000 // Black
+                    }
+                } else {
+                    0
+                }
+            }
+        };
+
+        Ok(color)
+    }
+
+    /// Get access to the raw buffer for reading (unsafe but efficient)
+    /// Returns a copy of the buffer data in RGBA32 format for rendering
+    pub fn get_rgba32_buffer(&self) -> Vec<u32> {
+        let buffer = self.buffer.lock().unwrap();
+        let mut rgba_buffer = Vec::with_capacity((self.config.width * self.config.height) as usize);
+
+        for y in 0..self.config.height {
+            for x in 0..self.config.width {
+                match self.get_pixel(x, y) {
+                    Ok(pixel) => rgba_buffer.push(pixel),
+                    Err(_) => rgba_buffer.push(0xFF000000), // Black on error
+                }
             }
         }
 
-        // Add damage region for the filled rectangle
-        self.add_damage_region(DamageRegion {
-            x,
-            y,
-            width: actual_width,
-            height: actual_height,
-        });
+        rgba_buffer
+    }
 
-        debug!("Filled rectangle ({}, {}, {}, {}) with color 0x{:08X}", 
-               x, y, actual_width, actual_height, color);
+    /// Copy framebuffer content to an RGBA32 buffer (more efficient than pixel-by-pixel)
+    pub fn copy_to_rgba32_buffer(&self, dest_buffer: &mut [u32]) -> Result<()> {
+        let expected_size = (self.config.width * self.config.height) as usize;
+        if dest_buffer.len() < expected_size {
+            return Err(crate::ServerError::InvalidParameter(format!(
+                "Destination buffer too small: {} < {}",
+                dest_buffer.len(),
+                expected_size
+            )));
+        }
+
+        let buffer = self.buffer.lock().unwrap();
+
+        match self.config.format {
+            PixelFormat::RGBA32 => {
+                // Direct copy for RGBA32 format
+                for y in 0..self.config.height {
+                    let src_row_start = (y * self.config.stride) as usize;
+                    let dest_row_start = (y * self.config.width) as usize;
+
+                    for x in 0..self.config.width {
+                        let src_offset = src_row_start + (x * 4) as usize;
+                        let dest_offset = dest_row_start + x as usize;
+
+                        if src_offset + 4 <= buffer.len() && dest_offset < dest_buffer.len() {
+                            dest_buffer[dest_offset] = u32::from_le_bytes([
+                                buffer[src_offset],
+                                buffer[src_offset + 1],
+                                buffer[src_offset + 2],
+                                buffer[src_offset + 3],
+                            ]);
+                        }
+                    }
+                }
+            }
+            _ => {
+                // Convert pixel by pixel for other formats
+                for y in 0..self.config.height {
+                    for x in 0..self.config.width {
+                        let dest_offset = (y * self.config.width + x) as usize;
+                        if dest_offset < dest_buffer.len() {
+                            match self.get_pixel(x, y) {
+                                Ok(pixel) => dest_buffer[dest_offset] = pixel,
+                                Err(_) => dest_buffer[dest_offset] = 0xFF000000,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -370,29 +555,31 @@ impl Framebuffer {
     fn validate_config(config: &FramebufferConfig) -> Result<()> {
         if config.width == 0 || config.height == 0 {
             return Err(crate::ServerError::ConfigurationError(
-                "Framebuffer dimensions must be greater than 0".to_string()
+                "Framebuffer dimensions must be greater than 0".to_string(),
             ));
         }
 
         if ![1, 4, 8, 16, 24, 32].contains(&config.bpp) {
-            return Err(crate::ServerError::ConfigurationError(
-                format!("Unsupported bits per pixel: {}", config.bpp)
-            ));
+            return Err(crate::ServerError::ConfigurationError(format!(
+                "Unsupported bits per pixel: {}",
+                config.bpp
+            )));
         }
 
         if ![1, 2, 4, 8, 16, 32].contains(&config.scanline_pad) {
-            return Err(crate::ServerError::ConfigurationError(
-                format!("Invalid scanline padding: {}", config.scanline_pad)
-            ));
+            return Err(crate::ServerError::ConfigurationError(format!(
+                "Invalid scanline padding: {}",
+                config.scanline_pad
+            )));
         }
 
         // Validate stride
         let min_stride = (config.width * config.bpp as u32 + 7) / 8;
         if config.stride < min_stride {
-            return Err(crate::ServerError::ConfigurationError(
-                format!("Stride {} too small for width {} and bpp {}", 
-                       config.stride, config.width, config.bpp)
-            ));
+            return Err(crate::ServerError::ConfigurationError(format!(
+                "Stride {} too small for width {} and bpp {}",
+                config.stride, config.width, config.bpp
+            )));
         }
 
         Ok(())
@@ -400,13 +587,16 @@ impl Framebuffer {
 
     /// Resize the framebuffer
     pub fn resize(&mut self, new_width: u32, new_height: u32) -> Result<()> {
-        info!("Resizing framebuffer from {}x{} to {}x{}", 
-              self.config.width, self.config.height, new_width, new_height);
+        info!(
+            "Resizing framebuffer from {}x{} to {}x{}",
+            self.config.width, self.config.height, new_width, new_height
+        );
 
         // Update configuration
         self.config.width = new_width;
         self.config.height = new_height;
-        self.config.stride = Self::calculate_stride(new_width, self.config.bpp, self.config.scanline_pad);
+        self.config.stride =
+            Self::calculate_stride(new_width, self.config.bpp, self.config.scanline_pad);
 
         // Recreate buffer
         let buffer_size = (self.config.stride * self.config.height) as usize;
