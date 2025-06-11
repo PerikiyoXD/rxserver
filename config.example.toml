@@ -13,6 +13,9 @@ enable_tcp = false
 # Unix socket path template ({display} will be replaced with display number)
 unix_socket_path = "/tmp/.X11-unix/X{display}"
 
+# Display number for the server (default is 0)
+display_number = 1
+
 [display]
 # Screen resolution
 width = 1920
