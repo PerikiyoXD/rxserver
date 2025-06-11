@@ -75,6 +75,13 @@ impl RequestHandler {
                 info!("Processing InternAtom request: {}", req.name);
                 self.handle_intern_atom(client_id, req).await
             }
+            Request::OpenFont(req) => {
+                info!(
+                    "Processing OpenFont request: fid={}, name='{}'",
+                    req.fid, req.name
+                );
+                self.handle_open_font(client_id, req).await
+            }
             Request::Unknown { opcode, data } => {
                 todo_medium!("request_handler", "Unknown request opcode {}", opcode);
                 warn!(
@@ -171,6 +178,47 @@ impl RequestHandler {
         Ok(Some(Response::Reply(
             crate::protocol::responses::Reply::InternAtom(reply),
         )))
+    }
+
+    /// Handle OpenFont request
+    async fn handle_open_font(
+        &self,
+        _client_id: u32,
+        req: crate::protocol::requests::OpenFontRequest,
+    ) -> Result<Option<Response>> {
+        debug!("OpenFont request: fid={}, name='{}'", req.fid, req.name);
+
+        // Use the font manager from server state
+        match self
+            .server_state
+            .font_manager()
+            .open_font(req.fid, &req.name)
+        {
+            Ok(()) => {
+                debug!("OpenFont success: fid={}, name='{}'", req.fid, req.name);
+                // OpenFont doesn't send a reply - it's a void request
+                Ok(None)
+            }
+            Err(error) => {
+                warn!(
+                    "OpenFont failed: fid={}, name='{}', error: {}",
+                    req.fid, req.name, error
+                );
+                // Return a BadFont error
+                use crate::protocol::responses::ErrorReply;
+                use crate::protocol::types::X11Error;
+
+                let error_reply = ErrorReply {
+                    error_code: X11Error::BadFont as u8,
+                    sequence_number: 0, // Will be set by the response builder
+                    bad_resource_id: req.fid,
+                    minor_opcode: 0,
+                    major_opcode: crate::protocol::opcodes::text::OPEN_FONT,
+                };
+
+                Ok(Some(Response::Error(error_reply)))
+            }
+        }
     }
 
     /// Validate request permissions
