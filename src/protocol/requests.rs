@@ -33,6 +33,7 @@ pub enum Request {
     CopyArea(CopyAreaRequest),
     InternAtom(InternAtomRequest),
     OpenFont(OpenFontRequest),
+    CreateGlyphCursor(CreateGlyphCursorRequest),
     // Unknown request for unimplemented opcodes
     Unknown { opcode: u8, data: bytes::Bytes },
 }
@@ -168,6 +169,22 @@ pub struct OpenFontRequest {
     pub name: String,
 }
 
+/// CreateGlyphCursor request
+#[derive(Debug, Clone)]
+pub struct CreateGlyphCursorRequest {
+    pub cid: Cursor,
+    pub source_font: Font,
+    pub mask_font: Font,
+    pub source_char: u16,
+    pub mask_char: u16,
+    pub fore_red: u16,
+    pub fore_green: u16,
+    pub fore_blue: u16,
+    pub back_red: u16,
+    pub back_green: u16,
+    pub back_blue: u16,
+}
+
 /// Request parser for incoming X11 protocol data
 pub struct RequestParser;
 
@@ -199,6 +216,7 @@ impl RequestParser {
             opcodes::graphics::CLEAR_AREA => Self::parse_clear_area(&data[4..]),
             opcodes::atom::INTERN_ATOM => Self::parse_intern_atom(data),
             opcodes::text::OPEN_FONT => Self::parse_open_font(data),
+            opcodes::cursor::CREATE_GLYPH_CURSOR => Self::parse_create_glyph_cursor(data),
             _ => {
                 todo_high!(
                     "request_parsing",
@@ -420,6 +438,65 @@ impl RequestParser {
 
         Ok(Request::OpenFont(OpenFontRequest { fid, name }))
     }
+
+    fn parse_create_glyph_cursor(data: &[u8]) -> Result<Request> {
+        // CreateGlyphCursor request format:
+        // 1     94                   opcode
+        // 1                         unused
+        // 2     8                   request length
+        // 4     CURSOR              cid
+        // 4     FONT                source-font
+        // 4     FONT                mask-font or None
+        // 2     CARD16              source-char
+        // 2     CARD16              mask-char
+        // 2     CARD16              fore-red
+        // 2     CARD16              fore-green
+        // 2     CARD16              fore-blue
+        // 2     CARD16              back-red
+        // 2     CARD16              back-green
+        // 2     CARD16              back-blue
+
+        if data.len() < 32 {
+            return Err(crate::Error::Protocol(
+                "CreateGlyphCursor request too short".to_string(),
+            ));
+        }
+
+        // Use byte array indexing for proper parsing
+        let _opcode = data[0]; // opcode (94)
+        let _unused = data[1]; // unused
+        let _length = u16::from_le_bytes([data[2], data[3]]); // request length
+        let cid = u32::from_le_bytes([data[4], data[5], data[6], data[7]]); // cursor ID
+        let source_font = u32::from_le_bytes([data[8], data[9], data[10], data[11]]); // source font
+        let mask_font = u32::from_le_bytes([data[12], data[13], data[14], data[15]]); // mask font
+        let source_char = u16::from_le_bytes([data[16], data[17]]); // source character
+        let mask_char = u16::from_le_bytes([data[18], data[19]]); // mask character
+        let fore_red = u16::from_le_bytes([data[20], data[21]]); // foreground red
+        let fore_green = u16::from_le_bytes([data[22], data[23]]); // foreground green
+        let fore_blue = u16::from_le_bytes([data[24], data[25]]); // foreground blue
+        let back_red = u16::from_le_bytes([data[26], data[27]]); // background red
+        let back_green = u16::from_le_bytes([data[28], data[29]]); // background green
+        let back_blue = u16::from_le_bytes([data[30], data[31]]); // background blue
+
+        debug!(
+            "Parsed CreateGlyphCursor: cid={}, source_font={}, mask_font={}, source_char={}, mask_char={}",
+            cid, source_font, mask_font, source_char, mask_char
+        );
+
+        Ok(Request::CreateGlyphCursor(CreateGlyphCursorRequest {
+            cid,
+            source_font,
+            mask_font,
+            source_char,
+            mask_char,
+            fore_red,
+            fore_green,
+            fore_blue,
+            back_red,
+            back_green,
+            back_blue,
+        }))
+    }
 }
 
 impl fmt::Display for Request {
@@ -443,6 +520,11 @@ impl fmt::Display for Request {
                 req.name, req.only_if_exists
             ),
             Request::OpenFont(req) => write!(f, "OpenFont(fid={}, name='{}')", req.fid, req.name),
+            Request::CreateGlyphCursor(req) => write!(
+                f,
+                "CreateGlyphCursor(cid={}, source_font={}, mask_font={}, source_char={}, mask_char={})",
+                req.cid, req.source_font, req.mask_font, req.source_char, req.mask_char
+            ),
             _ => write!(f, "{:?}", self),
         }
     }
