@@ -336,23 +336,31 @@ impl RequestParser {
             ));
         }
 
-        let mut buf = data;
-        let _opcode = buf.get_u8(); // opcode (16)
-        let only_if_exists = buf.get_u8() != 0; // only-if-exists flag
-        let _length = buf.get_u16(); // request length
-        let name_length = buf.get_u16() as usize; // name length
-        let _unused = buf.get_u16(); // unused padding
+        // Use byte array indexing instead of Buf trait to avoid buffer consumption issues
+        let _opcode = data[0]; // opcode (16)
+        let only_if_exists = data[1] != 0; // only-if-exists flag
+        let _length = u16::from_le_bytes([data[2], data[3]]); // request length
+        let name_length = u16::from_le_bytes([data[4], data[5]]) as usize; // name length
+        let _unused = u16::from_le_bytes([data[6], data[7]]); // unused padding
 
-        if buf.len() < name_length {
-            return Err(crate::Error::Protocol(
-                "InternAtom request name truncated".to_string(),
-            ));
+        // Check if we have enough data for the name
+        if data.len() < 8 + name_length {
+            return Err(crate::Error::Protocol(format!(
+                "InternAtom request name truncated: need {} bytes, have {}",
+                8 + name_length,
+                data.len()
+            )));
         }
 
-        // Extract the name string
-        let name_bytes = &buf[..name_length];
+        // Extract the name string starting at byte 8
+        let name_bytes = &data[8..8 + name_length];
         let name = String::from_utf8(name_bytes.to_vec())
             .map_err(|_| crate::Error::Protocol("Invalid UTF-8 in atom name".to_string()))?;
+
+        debug!(
+            "Parsed InternAtom: name='{}', only_if_exists={}",
+            name, only_if_exists
+        );
 
         Ok(Request::InternAtom(InternAtomRequest {
             only_if_exists,
