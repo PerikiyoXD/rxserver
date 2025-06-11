@@ -35,6 +35,7 @@ pub enum Request {
     OpenFont(OpenFontRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     GrabPointer(GrabPointerRequest),
+    QueryExtension(QueryExtensionRequest),
     // Unknown request for unimplemented opcodes
     Unknown { opcode: u8, data: bytes::Bytes },
 }
@@ -199,6 +200,12 @@ pub struct GrabPointerRequest {
     pub time: u32,
 }
 
+/// QueryExtension request
+#[derive(Debug, Clone)]
+pub struct QueryExtensionRequest {
+    pub name: String,
+}
+
 /// Request parser for incoming X11 protocol data
 pub struct RequestParser;
 
@@ -213,6 +220,13 @@ impl RequestParser {
         let opcode = data[0];
         let _minor_opcode = data[1];
         let length = u16::from_ne_bytes([data[2], data[3]]);
+
+        debug!(
+            "Request: opcode={}, length={}, data={:?}",
+            opcode,
+            length,
+            &data[..std::cmp::min(data.len(), 16)]
+        );
 
         // Ensure we have enough data for the full request
         let expected_bytes = (length as usize) * 4;
@@ -232,6 +246,7 @@ impl RequestParser {
             opcodes::text::OPEN_FONT => Self::parse_open_font(data),
             opcodes::cursor::CREATE_GLYPH_CURSOR => Self::parse_create_glyph_cursor(data),
             opcodes::input::GRAB_POINTER => Self::parse_grab_pointer(data),
+            opcodes::server::QUERY_EXTENSION => Self::parse_query_extension(data),
             _ => {
                 todo_high!(
                     "request_parsing",
@@ -567,6 +582,50 @@ impl RequestParser {
             time,
         }))
     }
+
+    fn parse_query_extension(data: &[u8]) -> Result<Request> {
+        debug!("Parsing QueryExtension request from {} bytes", data.len());
+
+        // QueryExtension request format:
+        // 1     98                  opcode
+        // 1     0                   unused
+        // 2     n                   request length
+        // 2     n                   name length
+        // 2     0                   unused
+        // n     LISTofCARD8         name
+        // p     0                   unused, p=pad(n)
+
+        if data.len() < 8 {
+            return Err(crate::Error::Protocol(
+                "QueryExtension request too short".to_string(),
+            ));
+        }
+
+        let _opcode = data[0]; // opcode (98)
+        let _unused1 = data[1]; // unused
+        let _length = u16::from_le_bytes([data[2], data[3]]); // request length
+        let name_length = u16::from_le_bytes([data[4], data[5]]) as usize; // name length
+        let _unused2 = u16::from_le_bytes([data[6], data[7]]); // unused
+
+        // Check we have enough data for the name
+        if data.len() < 8 + name_length {
+            return Err(crate::Error::Protocol(format!(
+                "QueryExtension request too short for name: expected {} bytes, got {}",
+                8 + name_length,
+                data.len()
+            )));
+        }
+
+        // Extract the name string
+        let name_bytes = &data[8..8 + name_length];
+        let name = String::from_utf8(name_bytes.to_vec()).map_err(|e| {
+            crate::Error::Protocol(format!("Invalid UTF-8 in extension name: {}", e))
+        })?;
+
+        debug!("Parsed QueryExtension: name='{}'", name);
+
+        Ok(Request::QueryExtension(QueryExtensionRequest { name }))
+    }
 }
 
 impl fmt::Display for Request {
@@ -599,6 +658,7 @@ impl fmt::Display for Request {
                 "GrabPointer(grab_window={}, owner_events={}, event_mask=0x{:04x}, pointer_mode={}, keyboard_mode={})",
                 req.grab_window, req.owner_events, req.event_mask, req.pointer_mode, req.keyboard_mode
             ),
+            Request::QueryExtension(req) => write!(f, "QueryExtension(name='{}')", req.name),
             _ => write!(f, "{:?}", self),
         }
     }

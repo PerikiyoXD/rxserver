@@ -10,7 +10,6 @@ use crate::{
         screen::{ScreenConfig, ScreenManager},
         types::{DisplaySettings, DisplayState, ScreenInfo, VisualInfo},
         visual::VisualManager,
-        window_renderer::WindowRenderer,
     },
     logging::ServerLogger,
     Result,
@@ -26,8 +25,6 @@ pub struct DisplayManager {
     visual_manager: VisualManager,
     /// Framebuffers by screen ID
     framebuffers: HashMap<u32, Framebuffer>,
-    /// Window renderer for displaying screens to actual windows
-    window_renderer: Option<WindowRenderer>,
     /// Current display settings
     settings: DisplaySettings,
     /// Display state
@@ -45,12 +42,10 @@ impl DisplayManager {
             "Initializing DisplayManager with configuration: {:?}",
             config
         );
-
         let mut display_manager = Self {
             screen_manager: ScreenManager::new(),
             visual_manager: VisualManager::new(),
             framebuffers: HashMap::new(),
-            window_renderer: None,
             settings: config.clone(),
             state: DisplayState::Uninitialized,
             logger,
@@ -143,8 +138,8 @@ impl DisplayManager {
             let framebuffer =
                 Framebuffer::from_settings(config.width, config.height, &config.framebuffer)?;
 
-            // Clear framebuffer with black color
-            framebuffer.clear(0x000000)?;
+            // Clear framebuffer with custom color
+            framebuffer.clear(0xFACADE)?;
 
             self.framebuffers.insert(screen_id, framebuffer);
             debug!("Initialized framebuffer for screen {}", screen_id);
@@ -358,10 +353,9 @@ impl DisplayManager {
 
         Ok(())
     }
-
     /// Resize all framebuffers
     fn resize_framebuffers(&mut self, new_width: u32, new_height: u32) -> Result<()> {
-        for framebuffer in self.framebuffers.values_mut() {
+        for _framebuffer in self.framebuffers.values_mut() {
             // Note: This would require making Framebuffer methods mutable
             // For now, we'll recreate the framebuffers
         }
@@ -393,91 +387,18 @@ impl DisplayManager {
     /// Check if display manager is ready
     pub fn is_ready(&self) -> bool {
         matches!(self.state, DisplayState::Active)
-    }    /// Shutdown display manager
+    }
+
+    /// Shutdown display manager
     pub fn shutdown(&mut self) -> Result<()> {
         info!("Shutting down display manager");
-
-        // Stop window rendering first
-        self.stop_window_rendering()?;
 
         self.state = DisplayState::Uninitialized;
         self.framebuffers.clear();
 
         self.logger
             .log_shutdown("Display manager shutdown completed");
+
         Ok(())
-    }
-
-    /// Start window rendering for visual output
-    pub fn start_window_rendering(&mut self) -> Result<()> {
-        if self.window_renderer.is_some() {
-            warn!("Window renderer already started");
-            return Ok(());
-        }
-
-        info!("Starting window renderer");
-        let mut renderer = WindowRenderer::new()?;
-        renderer.start(&self.settings)?;
-        self.window_renderer = Some(renderer);
-
-        info!("Window renderer started successfully");
-        Ok(())
-    }
-
-    /// Stop window rendering
-    pub fn stop_window_rendering(&mut self) -> Result<()> {
-        if let Some(mut renderer) = self.window_renderer.take() {
-            info!("Stopping window renderer");
-            renderer.stop()?;
-            info!("Window renderer stopped");
-        } else {
-            debug!("Window renderer not running");
-        }
-        Ok(())
-    }
-
-    /// Render all screens to their respective windows
-    pub fn render_to_windows(&self) -> Result<()> {
-        if let Some(renderer) = &self.window_renderer {
-            if !renderer.is_running() {
-                return Ok(());
-            }
-
-            // Render each screen's framebuffer to its window
-            for (&screen_id, framebuffer) in &self.framebuffers {
-                renderer.render_screen(screen_id, framebuffer)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Render a specific screen to its window
-    pub fn render_screen_to_window(&self, screen_id: u32) -> Result<()> {
-        if let Some(renderer) = &self.window_renderer {
-            if !renderer.is_running() {
-                return Ok(());
-            }
-
-            if let Some(framebuffer) = self.framebuffers.get(&screen_id) {
-                renderer.render_screen(screen_id, framebuffer)?;
-            } else {
-                warn!("No framebuffer found for screen {}", screen_id);
-            }
-        }
-        Ok(())
-    }
-
-    /// Check if window rendering is active
-    pub fn is_window_rendering_active(&self) -> bool {
-        self.window_renderer
-            .as_ref()
-            .map_or(false, |r| r.is_running())
-    }
-
-    /// Get the number of active window renderers
-    pub fn window_renderer_count(&self) -> usize {
-        self.window_renderer
-            .as_ref()
-            .map_or(0, |r| r.screen_count())
     }
 }

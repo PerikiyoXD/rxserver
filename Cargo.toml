@@ -62,6 +62,7 @@ parking_lot = "0.12" # Fast mutexes
 # Utilities
 uuid = { version = "1.0", features = ["v4"] }
 bitflags = { version = "2", features = ["serde"] }
+dirs = "5.0"         # For home directory detection
 
 # Window rendering
 winit = "0.29"

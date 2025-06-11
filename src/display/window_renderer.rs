@@ -10,12 +10,13 @@ use crate::{
 use std::{
     collections::HashMap,
     num::NonZeroU32,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 use tracing::{debug, info, warn};
 use winit::{
-    event_loop::EventLoop,
+    event::{Event, WindowEvent},
+    event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
 
@@ -175,14 +176,7 @@ impl ScreenWindowRenderer {
         }
 
         Ok(())
-    }
-
-    /// Get a pixel from the framebuffer (fallback implementation)
-    fn get_framebuffer_pixel(&self, framebuffer: &Framebuffer, x: u32, y: u32) -> Result<u32> {
-        framebuffer.get_pixel(x, y)
-    }
-
-    /// Get the window for this renderer
+    }    /// Get the window for this renderer
     pub fn window(&self) -> &Arc<Window> {
         &self.window
     }
@@ -195,14 +189,10 @@ impl ScreenWindowRenderer {
 
 /// Main window renderer managing all screen windows
 pub struct WindowRenderer {
-    /// Event loop for window management
-    event_loop: Option<EventLoop<()>>,
     /// Screen renderers by screen ID
-    screen_renderers: Arc<Mutex<HashMap<u32, ScreenWindowRenderer>>>,
-    /// Running state
-    running: Arc<AtomicBool>,
-    /// Renderer thread handle
-    renderer_thread: Option<thread::JoinHandle<()>>,
+    screen_renderers: HashMap<u32, ScreenWindowRenderer>,
+    /// Indicates if the renderer has been initialized
+    initialized: bool,
 }
 
 impl WindowRenderer {
@@ -210,41 +200,28 @@ impl WindowRenderer {
     pub fn new() -> Result<Self> {
         info!("Creating window renderer");
 
-        let event_loop = EventLoop::new()
-            .map_err(|e| crate::Error::Display(format!("Failed to create event loop: {}", e)))?;
-
         Ok(Self {
-            event_loop: Some(event_loop),
-            screen_renderers: Arc::new(Mutex::new(HashMap::new())),
-            running: Arc::new(AtomicBool::new(false)),
-            renderer_thread: None,
+            screen_renderers: HashMap::new(),
+            initialized: false,
         })
     }
 
-    /// Start the window renderer
-    pub fn start(&mut self, display_settings: &DisplaySettings) -> Result<()> {
+    /// Create windows for screens (to be called from main thread)
+    pub fn create_windows(&mut self, display_settings: &DisplaySettings) -> Result<()> {
         info!(
-            "Starting window renderer with {} screen(s)",
+            "Creating windows for {} screen(s)",
             display_settings.screens
         );
 
-        if self.running.load(Ordering::Relaxed) {
-            warn!("Window renderer already running");
+        if self.initialized {
+            warn!("Windows already created");
             return Ok(());
         }
 
-        self.running.store(true, Ordering::Relaxed);
+        let event_loop = EventLoop::new()
+            .map_err(|e| crate::Error::Display(format!("Failed to create event loop: {}", e)))?;
 
         // Create windows for each screen
-        let event_loop = self
-            .event_loop
-            .take()
-            .ok_or_else(|| crate::Error::Display("Event loop already taken".to_string()))?;
-
-        let screen_renderers = self.screen_renderers.clone();
-        let running = self.running.clone();
-
-        // Create initial windows
         for screen_id in 0..display_settings.screens {
             let config = WindowRendererConfig {
                 title: format!("RX Server - Screen {}", screen_id),
@@ -265,93 +242,106 @@ impl WindowRenderer {
             );
 
             let renderer = ScreenWindowRenderer::new(window, config, screen_id)?;
-            screen_renderers.lock().unwrap().insert(screen_id, renderer);
+            self.screen_renderers.insert(screen_id, renderer);
         }
 
-        // Start the event loop in a separate thread
-        let renderer_thread = thread::spawn(move || {
-            info!("Window renderer thread started");
-
-            let mut last_render_time = std::time::Instant::now();
-            let render_interval = Duration::from_millis(16); // ~60 FPS
-
-            event_loop
-                .run(move |event, elwt| {
-                    elwt.set_control_flow(ControlFlow::Poll);
-
-                    if !running.load(Ordering::Relaxed) {
-                        elwt.exit();
-                        return;
-                    }
-
-                    match event {
-                        Event::WindowEvent {
-                            event: WindowEvent::CloseRequested,
-                            ..
-                        } => {
-                            info!("Window close requested, shutting down renderer");
-                            running.store(false, Ordering::Relaxed);
-                            elwt.exit();
-                        }
-                        Event::WindowEvent {
-                            event: WindowEvent::Resized(size),
-                            window_id,
-                        } => {
-                            debug!("Window {:?} resized to {:?}", window_id, size);
-                            // Handle window resize if needed
-                        }
-                        Event::AboutToWait => {
-                            // Render at regular intervals
-                            let now = std::time::Instant::now();
-                            if now.duration_since(last_render_time) >= render_interval {
-                                // Request redraw for all windows
-                                let renderers = screen_renderers.lock().unwrap();
-                                for renderer in renderers.values() {
-                                    renderer.window().request_redraw();
-                                }
-                                last_render_time = now;
-                            }
-                        }
-                        Event::WindowEvent {
-                            event: WindowEvent::RedrawRequested,
-                            window_id,
-                        } => {
-                            // Find the renderer for this window and render
-                            let renderers = screen_renderers.lock().unwrap();
-                            for renderer in renderers.values() {
-                                if renderer.window().id() == window_id {
-                                    // TODO: Get the actual framebuffer for this screen
-                                    // For now, we'll just trigger a render with dummy data
-                                    debug!("Redraw requested for screen {}", renderer.screen_id());
-                                    break;
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                })
-                .map_err(|e| {
-                    error!("Event loop error: {}", e);
-                })
-                .ok();
-
-            info!("Window renderer thread finished");
-        });
-
-        self.renderer_thread = Some(renderer_thread);
-        info!("Window renderer started successfully");
+        self.initialized = true;
+        info!("Windows created successfully");
 
         Ok(())
     }
 
-    /// Render a framebuffer to the appropriate screen window
-    pub fn render_screen(&self, screen_id: u32, framebuffer: &Framebuffer) -> Result<()> {
-        if !self.running.load(Ordering::Relaxed) {
-            return Ok(());
+    /// Run the window event loop (blocks current thread)
+    pub fn run_event_loop(self, display_settings: &DisplaySettings) -> Result<()> {
+        info!("Starting window event loop");
+
+        let event_loop = EventLoop::new()
+            .map_err(|e| crate::Error::Display(format!("Failed to create event loop: {}", e)))?;
+
+        let mut screen_renderers = HashMap::new();
+
+        // Create windows for each screen
+        for screen_id in 0..display_settings.screens {
+            let config = WindowRendererConfig {
+                title: format!("RX Server - Screen {}", screen_id),
+                width: display_settings.width,
+                height: display_settings.height,
+                ..Default::default()
+            };
+
+            let window = Arc::new(
+                WindowBuilder::new()
+                    .with_title(&config.title)
+                    .with_inner_size(winit::dpi::LogicalSize::new(config.width, config.height))
+                    .with_resizable(true)
+                    .build(&event_loop)
+                    .map_err(|e| {
+                        crate::Error::Display(format!("Failed to create window: {}", e))
+                    })?,
+            );
+
+            let renderer = ScreenWindowRenderer::new(window, config, screen_id)?;
+            screen_renderers.insert(screen_id, renderer);
         }
 
-        let mut renderers = self.screen_renderers.lock().unwrap();
-        if let Some(renderer) = renderers.get_mut(&screen_id) {
+        let mut last_render_time = std::time::Instant::now();
+        let render_interval = Duration::from_millis(16); // ~60 FPS
+
+        event_loop
+            .run(move |event, elwt| {
+                elwt.set_control_flow(ControlFlow::Poll);
+
+                match event {
+                    Event::WindowEvent {
+                        event: WindowEvent::CloseRequested,
+                        ..
+                    } => {
+                        info!("Window close requested, shutting down renderer");
+                        elwt.exit();
+                    }
+                    Event::WindowEvent {
+                        event: WindowEvent::Resized(size),
+                        window_id,
+                    } => {
+                        debug!("Window {:?} resized to {:?}", window_id, size);
+                        // Handle window resize if needed
+                    }
+                    Event::AboutToWait => {
+                        // Render at regular intervals
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_render_time) >= render_interval {
+                            // Request redraw for all windows
+                            for renderer in screen_renderers.values() {
+                                renderer.window().request_redraw();
+                            }
+                            last_render_time = now;
+                        }
+                    }
+                    Event::WindowEvent {
+                        event: WindowEvent::RedrawRequested,
+                        window_id,
+                    } => {
+                        // Find the renderer for this window and render
+                        for renderer in screen_renderers.values() {
+                            if renderer.window().id() == window_id {
+                                debug!("Redraw requested for screen {}", renderer.screen_id());
+                                // TODO: Render actual framebuffer data
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .map_err(|e| crate::Error::Display(format!("Event loop error: {}", e)))?;
+
+        info!("Window event loop finished");
+        Ok(())
+    }
+
+    /// Render a framebuffer to the appropriate screen window
+    pub fn render_screen(&mut self, screen_id: u32, framebuffer: &Framebuffer) -> Result<()> {
+        if let Some(renderer) = self.screen_renderers.get_mut(&screen_id) {
             renderer.render_framebuffer(framebuffer)?;
         } else {
             warn!("No renderer found for screen {}", screen_id);
@@ -360,47 +350,14 @@ impl WindowRenderer {
         Ok(())
     }
 
-    /// Stop the window renderer
-    pub fn stop(&mut self) -> Result<()> {
-        info!("Stopping window renderer");
-
-        if !self.running.load(Ordering::Relaxed) {
-            debug!("Window renderer already stopped");
-            return Ok(());
-        }
-
-        self.running.store(false, Ordering::Relaxed);
-
-        // Wait for renderer thread to finish
-        if let Some(thread) = self.renderer_thread.take() {
-            thread
-                .join()
-                .map_err(|_| crate::Error::Display("Failed to join renderer thread".to_string()))?;
-        }
-
-        // Clear screen renderers
-        self.screen_renderers.lock().unwrap().clear();
-
-        info!("Window renderer stopped successfully");
-        Ok(())
-    }
-
-    /// Check if the renderer is running
-    pub fn is_running(&self) -> bool {
-        self.running.load(Ordering::Relaxed)
+    /// Check if the renderer is initialized
+    pub fn is_initialized(&self) -> bool {
+        self.initialized
     }
 
     /// Get the number of active screen renderers
     pub fn screen_count(&self) -> usize {
-        self.screen_renderers.lock().unwrap().len()
-    }
-}
-
-impl Drop for WindowRenderer {
-    fn drop(&mut self) {
-        if self.is_running() {
-            let _ = self.stop();
-        }
+        self.screen_renderers.len()
     }
 }
 

@@ -2,8 +2,6 @@
 //!
 //! This module handles serialization of X11 replies to wire format.
 
-
-
 use bytes::{BufMut, BytesMut};
 
 use crate::{
@@ -93,6 +91,15 @@ pub fn serialize_reply(reply: &Reply, sequence: u16, buf: &mut BytesMut) {
             buf.put_padding(20); // Pad header to 32 bytes
             buf.extend_from_slice(&reply.data);
             buf.put_padding(data_len); // Pad to 4-byte boundary
+        }
+        Reply::QueryExtension(reply) => {
+            buf.put_u8(if reply.present { 1 } else { 0 }); // Present flag
+            buf.put_u16(sequence);
+            buf.put_u32(0); // Reply length (0 for fixed-length replies)
+            buf.put_u8(reply.major_opcode);
+            buf.put_u8(reply.first_event);
+            buf.put_u8(reply.first_error);
+            buf.put_padding(21); // Pad to 32 bytes total
         }
         _ => {
             todo_medium!(

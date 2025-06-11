@@ -14,6 +14,7 @@ pub mod framebuffer;
 pub mod init;
 pub mod manager;
 pub mod screen;
+pub mod shared_framebuffers;
 pub mod types;
 pub mod visual;
 pub mod window_renderer;
@@ -26,3 +27,6 @@ pub use screen::{ScreenConfig, ScreenManager};
 pub use types::{DisplaySettings, ScreenInfo, VisualInfo};
 pub use visual::{VisualConfig, VisualManager};
 pub use window_renderer::{WindowRenderer, WindowRendererConfig};
+
+// Re-export SharedFramebuffers
+pub use crate::display::shared_framebuffers::SharedFramebuffers;

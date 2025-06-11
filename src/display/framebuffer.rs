@@ -457,10 +457,9 @@ impl Framebuffer {
         Ok(color)
     }
 
-    /// Get access to the raw buffer for reading (unsafe but efficient)
-    /// Returns a copy of the buffer data in RGBA32 format for rendering
+    /// Get framebuffer content as an RGBA32 buffer
+    /// This method retrieves the framebuffer content as a vector of u32 values,
     pub fn get_rgba32_buffer(&self) -> Vec<u32> {
-        let buffer = self.buffer.lock().unwrap();
         let mut rgba_buffer = Vec::with_capacity((self.config.width * self.config.height) as usize);
 
         for y in 0..self.config.height {

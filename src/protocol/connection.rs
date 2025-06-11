@@ -487,6 +487,12 @@ impl ConnectionHandler {
 
         // Server info (if successful)
         if let Some(ref server_info) = response.server_info {
+            let server_info_start_len = data.len();
+            debug!(
+                "Starting server info serialization at byte {}",
+                server_info_start_len
+            );
+
             // Serialize the complete server info structure according to X11 protocol
 
             // Release number (4 bytes)
@@ -639,8 +645,23 @@ impl ConnectionHandler {
                     }
                 }
             }
+
+            let server_info_end_len = data.len();
+            let actual_server_info_len = server_info_end_len - server_info_start_len;
+            let calculated_len = self.calculate_server_info_length() as usize * 4;
+            debug!("Server info serialization complete:");
+            debug!(
+                "  Actual serialized length: {} bytes",
+                actual_server_info_len
+            );
+            debug!("  Calculated length: {} bytes", calculated_len);
+            debug!(
+                "  Length match: {}",
+                actual_server_info_len == calculated_len
+            );
         }
 
+        debug!("Total handshake response length: {} bytes", data.len());
         Ok(data)
     }
 }
@@ -682,20 +703,202 @@ struct MitMagicCookieProtocol {
 
 impl MitMagicCookieProtocol {
     fn new() -> Self {
-        todo_medium!(
-            "connection_setup",
-            "MIT-MAGIC-COOKIE-1 protocol needs proper cookie management"
-        );
+        Self::new_with_cookies(Self::load_cookies())
+    }
 
-        // For development, allow a simple test cookie
-        let test_cookie = vec![
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e,
-            0x0f, 0x10,
-        ];
-
+    /// Create a new MIT-MAGIC-COOKIE-1 protocol with specific cookies
+    fn new_with_cookies(cookies: Vec<Vec<u8>>) -> Self {
         Self {
-            valid_cookies: vec![test_cookie],
+            valid_cookies: cookies,
         }
+    }
+
+    /// Load cookies from various sources
+    fn load_cookies() -> Vec<Vec<u8>> {
+        let mut cookies = Vec::new();
+
+        // Try to load from XAUTHORITY environment variable
+        if let Some(xauth_cookies) = Self::load_from_xauthority() {
+            cookies.extend(xauth_cookies);
+        }
+
+        // Try to load from .Xauthority file in home directory
+        if let Some(home_cookies) = Self::load_from_home_xauthority() {
+            cookies.extend(home_cookies);
+        }
+
+        // If no cookies found, generate a temporary one for development
+        if cookies.is_empty() {
+            warn!("No X11 auth cookies found, generating temporary development cookie");
+            cookies.push(Self::generate_temporary_cookie());
+        }
+
+        info!(
+            "Loaded {} MIT-MAGIC-COOKIE-1 authentication cookies",
+            cookies.len()
+        );
+        cookies
+    }
+
+    /// Try to load cookies from XAUTHORITY environment variable
+    fn load_from_xauthority() -> Option<Vec<Vec<u8>>> {
+        if let Ok(xauth_path) = std::env::var("XAUTHORITY") {
+            debug!(
+                "Attempting to load X11 auth from XAUTHORITY: {}",
+                xauth_path
+            );
+            Self::parse_xauthority_file(&xauth_path)
+        } else {
+            debug!("XAUTHORITY environment variable not set");
+            None
+        }
+    }
+
+    /// Try to load cookies from ~/.Xauthority
+    fn load_from_home_xauthority() -> Option<Vec<Vec<u8>>> {
+        if let Some(home_dir) = dirs::home_dir() {
+            let xauth_path = home_dir.join(".Xauthority");
+            if xauth_path.exists() {
+                debug!("Attempting to load X11 auth from ~/.Xauthority");
+                return Self::parse_xauthority_file(xauth_path.to_str()?);
+            }
+        }
+        debug!("~/.Xauthority file not found");
+        None
+    }
+
+    /// Parse .Xauthority file format
+    fn parse_xauthority_file(path: &str) -> Option<Vec<Vec<u8>>> {
+        use std::fs::File;
+        use std::io::{BufReader, Read};
+
+        let file = File::open(path).ok()?;
+        let mut reader = BufReader::new(file);
+        let mut buffer = Vec::new();
+
+        if reader.read_to_end(&mut buffer).is_err() {
+            warn!("Failed to read .Xauthority file: {}", path);
+            return None;
+        }
+
+        Self::parse_xauthority_data(&buffer)
+    }
+
+    /// Parse .Xauthority binary data format
+    fn parse_xauthority_data(data: &[u8]) -> Option<Vec<Vec<u8>>> {
+        let mut cookies = Vec::new();
+        let mut offset = 0;
+
+        while offset + 10 < data.len() {
+            // Read family (2 bytes, big-endian)
+            let family = u16::from_be_bytes([data[offset], data[offset + 1]]);
+            offset += 2;
+
+            // Read address length (2 bytes, big-endian)
+            let addr_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+            offset += 2;
+
+            // Skip address
+            if offset + addr_len >= data.len() {
+                break;
+            }
+            offset += addr_len;
+
+            // Read display length (2 bytes, big-endian)
+            if offset + 2 >= data.len() {
+                break;
+            }
+            let display_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+            offset += 2;
+
+            // Skip display
+            if offset + display_len >= data.len() {
+                break;
+            }
+            offset += display_len;
+
+            // Read protocol name length (2 bytes, big-endian)
+            if offset + 2 >= data.len() {
+                break;
+            }
+            let proto_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+            offset += 2;
+
+            // Read protocol name
+            if offset + proto_len >= data.len() {
+                break;
+            }
+            let protocol_name = &data[offset..offset + proto_len];
+            offset += proto_len;
+
+            // Read cookie length (2 bytes, big-endian)
+            if offset + 2 >= data.len() {
+                break;
+            }
+            let cookie_len = u16::from_be_bytes([data[offset], data[offset + 1]]) as usize;
+            offset += 2;
+
+            // Read cookie data
+            if offset + cookie_len > data.len() {
+                break;
+            }
+            let cookie_data = &data[offset..offset + cookie_len];
+            offset += cookie_len;
+
+            // Check if this is a MIT-MAGIC-COOKIE-1 entry
+            if protocol_name == b"MIT-MAGIC-COOKIE-1" && cookie_len == 16 {
+                cookies.push(cookie_data.to_vec());
+                debug!("Found MIT-MAGIC-COOKIE-1 cookie in .Xauthority");
+            }
+        }
+
+        if cookies.is_empty() {
+            None
+        } else {
+            Some(cookies)
+        }
+    }
+
+    /// Generate a temporary cookie for development purposes
+    fn generate_temporary_cookie() -> Vec<u8> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        // Generate a pseudo-random cookie based on current time
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64;
+
+        let mut cookie = Vec::with_capacity(16);
+
+        // Mix timestamp with some constants to create a 16-byte cookie
+        cookie.extend_from_slice(&timestamp.to_le_bytes());
+        cookie.extend_from_slice(&0x42525853u32.to_le_bytes()); // "RXSB" in little endian
+        cookie.extend_from_slice(&0xDEADBEEFu32.to_le_bytes());
+
+        debug!("Generated temporary development cookie");
+        cookie
+    }
+
+    /// Add a new valid cookie
+    pub fn add_cookie(&mut self, cookie: Vec<u8>) -> Result<()> {
+        if cookie.len() != 16 {
+            return Err(crate::Error::Protocol(
+                "MIT-MAGIC-COOKIE-1 requires 16-byte cookie".to_string(),
+            ));
+        }
+        self.valid_cookies.push(cookie);
+        Ok(())
+    }
+
+    /// Remove all cookies
+    pub fn clear_cookies(&mut self) {
+        self.valid_cookies.clear();
+    }
+
+    /// Get the number of valid cookies
+    pub fn cookie_count(&self) -> usize {
+        self.valid_cookies.len()
     }
 }
 
