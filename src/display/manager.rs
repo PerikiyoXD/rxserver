@@ -15,7 +15,7 @@ use crate::{
     Result,
 };
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Main display manager coordinating all display components
 pub struct DisplayManager {
@@ -42,6 +42,7 @@ impl DisplayManager {
             "Initializing DisplayManager with configuration: {:?}",
             config
         );
+
         let mut display_manager = Self {
             screen_manager: ScreenManager::new(),
             visual_manager: VisualManager::new(),
@@ -138,14 +139,48 @@ impl DisplayManager {
             let framebuffer =
                 Framebuffer::from_settings(config.width, config.height, &config.framebuffer)?;
 
-            // Clear framebuffer with custom color
-            framebuffer.clear(0xFACADE)?;
+            // Clear framebuffer with black color
+            framebuffer.clear(0x000000)?;
 
             self.framebuffers.insert(screen_id, framebuffer);
             debug!("Initialized framebuffer for screen {}", screen_id);
         }
 
         Ok(())
+    }
+
+    /// Create default screen configuration
+    fn create_default_screen(config: &DisplaySettings) -> Result<ScreenInfo> {
+        info!("Creating default screen with configuration: {:?}", config);
+
+        let screen_info = ScreenInfo::new(0, config);
+        debug!("Created default screen: {:?}", screen_info);
+
+        Ok(screen_info)
+    }
+
+    /// Create default visual configuration
+    fn create_default_visual(config: &DisplaySettings) -> Result<VisualInfo> {
+        info!(
+            "Creating default visual with depth {} and class {:?}",
+            config.depth, config.visual_class
+        );
+
+        let visual_info = match config.visual_class {
+            crate::display::types::VisualClass::TrueColor => {
+                VisualInfo::new_truecolor(1, config.depth)
+            }
+            crate::display::types::VisualClass::PseudoColor => {
+                VisualInfo::new_pseudocolor(1, config.depth)
+            }
+            _ => {
+                // Default to TrueColor for other visual classes
+                VisualInfo::new_truecolor(1, config.depth)
+            }
+        };
+
+        debug!("Created default visual: {:?}", visual_info);
+        Ok(visual_info)
     }
 
     /// Get screen information
@@ -353,9 +388,10 @@ impl DisplayManager {
 
         Ok(())
     }
+
     /// Resize all framebuffers
     fn resize_framebuffers(&mut self, new_width: u32, new_height: u32) -> Result<()> {
-        for _framebuffer in self.framebuffers.values_mut() {
+        for framebuffer in self.framebuffers.values_mut() {
             // Note: This would require making Framebuffer methods mutable
             // For now, we'll recreate the framebuffers
         }
@@ -398,7 +434,6 @@ impl DisplayManager {
 
         self.logger
             .log_shutdown("Display manager shutdown completed");
-
         Ok(())
     }
 }
