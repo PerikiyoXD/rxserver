@@ -80,6 +80,13 @@ impl RequestHandler {
                 );
                 self.handle_open_font(client_id, req).await
             }
+            Request::CreateGlyphCursor(req) => {
+                info!(
+                    "Processing CreateGlyphCursor request: cid={}, source_font={}, mask_font={}",
+                    req.cid, req.source_font, req.mask_font
+                );
+                self.handle_create_glyph_cursor(client_id, req).await
+            }
             Request::Unknown { opcode, data } => {
                 todo_medium!("request_handler", "Unknown request opcode {}", opcode);
                 warn!(
@@ -213,6 +220,59 @@ impl RequestHandler {
                     bad_value: req.fid,
                     minor_opcode: 0,
                     major_opcode: crate::protocol::opcodes::text::OPEN_FONT,
+                };
+
+                Ok(Some(Response::Error(error_reply)))
+            }
+        }
+    }
+
+    /// Handle CreateGlyphCursor request
+    async fn handle_create_glyph_cursor(
+        &self,
+        _client_id: u32,
+        req: crate::protocol::requests::CreateGlyphCursorRequest,
+    ) -> Result<Option<Response>> {
+        debug!(
+            "CreateGlyphCursor request: cid={}, source_font={}, mask_font={}, source_char={}, mask_char={}",
+            req.cid, req.source_font, req.mask_font, req.source_char, req.mask_char
+        );
+
+        // Use the cursor manager from server state
+        match self.server_state.cursor_manager().create_glyph_cursor(
+            req.cid,
+            req.source_font,
+            req.mask_font,
+            req.source_char,
+            req.mask_char,
+            req.fore_red,
+            req.fore_green,
+            req.fore_blue,
+            req.back_red,
+            req.back_green,
+            req.back_blue,
+        ) {
+            Ok(()) => {
+                debug!("CreateGlyphCursor success: cid={}", req.cid);
+                // CreateGlyphCursor doesn't send a reply - it's a void request
+                Ok(None)
+            }
+            Err(error) => {
+                warn!(
+                    "CreateGlyphCursor failed: cid={}, error: {}",
+                    req.cid, error
+                );
+
+                // Return a BadCursor error
+                use crate::protocol::responses::ErrorResponse;
+                use crate::protocol::types::X11Error;
+
+                let error_reply = ErrorResponse {
+                    error_code: X11Error::BadCursor,
+                    sequence_number: 0, // Will be set by the response builder
+                    bad_value: req.cid,
+                    minor_opcode: 0,
+                    major_opcode: crate::protocol::opcodes::cursor::CREATE_GLYPH_CURSOR,
                 };
 
                 Ok(Some(Response::Error(error_reply)))
