@@ -3,7 +3,7 @@
 //! This module handles the low-level binary format of the X11 protocol,
 //! providing safe serialization and deserialization of messages.
 
-use crate::{Result, core::ProtocolError};
+use crate::Result;
 use bytes::{BufMut, BytesMut, Buf};
 
 /// Trait for types that can be serialized to the X11 wire format
