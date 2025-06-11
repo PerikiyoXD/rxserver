@@ -4,10 +4,9 @@
  * Manages display configuration, screens, visuals, and display-specific resources.
  */
 
-use crate::{config::DisplaySettings, todo_high, todo_medium, todo_placeholder, Result};
+use crate::{config::DisplaySettings, todo_high, todo_medium, Result};
 use core::panic;
-use std::sync::Arc;
-use tracing::{debug, error, info};
+use tracing::info;
 
 /// Information about a screen
 #[derive(Debug, Clone)]
