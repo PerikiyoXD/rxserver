@@ -84,27 +84,118 @@ impl EventLoop {
 
         info!("Event loop shutting down");
         Ok(())
-    }
-    /// Handle a single client connection
+    }   
+    
+     /// Handle a single client connection
     async fn handle_client_connection(
         mut stream: tokio::net::TcpStream,
         _connection_manager: Arc<ConnectionManager>,
         client_manager: Arc<ClientManager>,
         request_handler: Arc<RequestHandler>,
     ) -> Result<()> {
-        use crate::protocol::{RequestParser, ResponseBuilder};
+        use crate::protocol::{ConnectionHandler, RequestParser, ResponseBuilder};
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tracing::{debug, error, info, warn};
 
         info!("Handling new client connection");
 
-        // Register the client
-        let client_id = client_manager
-            .register_client("unknown".to_string(), None)
-            .await?;
+        // Create connection handler for X11 handshake
+        let connection_handler = ConnectionHandler::new();
+        
+        // Step 1: Handle X11 connection setup handshake
+        let mut setup_buffer = Vec::new();
+        let mut handshake_complete = false;
+        let mut client_id = 0;
 
-        debug!("Registered client with ID: {}", client_id);
+        // First, read and process the X11 connection setup request
+        while !handshake_complete {
+            let mut buffer = [0u8; 1024];
+            
+            match stream.read(&mut buffer).await {
+                Ok(0) => {
+                    warn!("Client disconnected during handshake");
+                    return Ok(());
+                }
+                Ok(n) => {
+                    setup_buffer.extend_from_slice(&buffer[..n]);
+                    
+                    // Try to parse connection setup request (minimum 12 bytes)
+                    if setup_buffer.len() >= 12 {
+                        // Calculate expected total size based on auth lengths
+                        if setup_buffer.len() >= 8 {
+                            let auth_name_len = u16::from_le_bytes([setup_buffer[6], setup_buffer[7]]) as usize;
+                            let auth_data_len = u16::from_le_bytes([setup_buffer[8], setup_buffer[9]]) as usize;
+                            
+                            // Calculate padded lengths (X11 protocol pads to 4-byte boundaries)
+                            let padded_name_len = (auth_name_len + 3) & !3;
+                            let padded_data_len = (auth_data_len + 3) & !3;
+                            let total_expected = 12 + padded_name_len + padded_data_len;
+                            
+                            if setup_buffer.len() >= total_expected {
+                                // We have complete setup request, parse it
+                                match ConnectionHandler::parse_setup_request(&setup_buffer) {
+                                    Ok(setup_request) => {
+                                        info!("Processing X11 connection setup from client");
+                                        debug!("Client requests protocol {}.{}", 
+                                               setup_request.protocol_major_version,
+                                               setup_request.protocol_minor_version);
+                                        
+                                        // Handle the connection setup
+                                        match connection_handler.handle_connection_setup(setup_request).await {
+                                            Ok(setup_response) => {
+                                                // Serialize and send response
+                                                match connection_handler.serialize_setup_response(&setup_response) {
+                                                    Ok(response_bytes) => {
+                                                        if let Err(e) = stream.write_all(&response_bytes).await {
+                                                            error!("Failed to send connection setup response: {}", e);
+                                                            return Ok(());
+                                                        }
+                                                        
+                                                        if setup_response.status == crate::protocol::ConnectionSetupStatus::Success {
+                                                            info!("X11 connection setup successful");
+                                                            handshake_complete = true;
+                                                            
+                                                            // Register the client after successful handshake
+                                                            client_id = client_manager
+                                                                .register_client("authenticated".to_string(), None)
+                                                                .await?;
+                                                            debug!("Registered authenticated client with ID: {}", client_id);
+                                                        } else {
+                                                            warn!("X11 connection setup failed: {:?}", setup_response.status);
+                                                            return Ok(());
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error!("Failed to serialize connection setup response: {}", e);
+                                                        return Ok(());
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("Failed to handle connection setup: {}", e);
+                                                return Ok(());
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to parse connection setup request: {}", e);
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to read during handshake: {}", e);
+                    return Ok(());
+                }
+            }
+        }
 
+        // Step 2: Handle regular X11 requests after successful handshake
+        info!("Starting X11 request processing for client {}", client_id);
+        
         let mut buffer = [0u8; 4096];
         let mut connection_buffer = Vec::new();
 
@@ -174,7 +265,9 @@ impl EventLoop {
         }
 
         // Unregister client on disconnect
-        let _ = client_manager.unregister_client(client_id).await;
+        if client_id != 0 {
+            let _ = client_manager.unregister_client(client_id).await;
+        }
         info!("Client {} connection handler terminating", client_id);
         Ok(())
     }
