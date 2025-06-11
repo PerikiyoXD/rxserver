@@ -87,6 +87,13 @@ impl RequestHandler {
                 );
                 self.handle_create_glyph_cursor(client_id, req).await
             }
+            Request::GrabPointer(req) => {
+                info!(
+                    "Processing GrabPointer request: grab_window={}, owner_events={}",
+                    req.grab_window, req.owner_events
+                );
+                self.handle_grab_pointer(client_id, req).await
+            }
             Request::Unknown { opcode, data } => {
                 todo_medium!("request_handler", "Unknown request opcode {}", opcode);
                 warn!(
@@ -278,6 +285,43 @@ impl RequestHandler {
                 Ok(Some(Response::Error(error_reply)))
             }
         }
+    }
+
+    /// Handle GrabPointer request
+    async fn handle_grab_pointer(
+        &self,
+        client_id: u32,
+        req: crate::protocol::requests::GrabPointerRequest,
+    ) -> Result<Option<Response>> {
+        debug!(
+            "GrabPointer request: grab_window={}, owner_events={}, event_mask=0x{:04x}",
+            req.grab_window, req.owner_events, req.event_mask
+        );
+
+        // Use the pointer manager from server state
+        let status = self.server_state.pointer_manager().grab_pointer(
+            client_id,
+            req.grab_window,
+            req.owner_events,
+            req.event_mask,
+            req.pointer_mode.into(),
+            req.keyboard_mode.into(),
+            req.confine_to,
+            req.cursor,
+            req.time,
+        );
+
+        debug!("GrabPointer result: {:?}", status);
+
+        // Create the reply with the status
+        use crate::protocol::responses::GrabPointerReply;
+        let reply = GrabPointerReply {
+            status: status as u8,
+        };
+
+        Ok(Some(Response::Reply(
+            crate::protocol::responses::Reply::GrabPointer(reply),
+        )))
     }
 
     /// Validate request permissions

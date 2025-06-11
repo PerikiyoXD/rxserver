@@ -2,7 +2,7 @@
 //!
 //! This module manages the global state of the X server in a thread-safe manner.
 
-use crate::core::{AtomManager, CursorManager, FontManager};
+use crate::core::{AtomManager, CursorManager, FontManager, PointerManager};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -19,6 +19,8 @@ pub struct ServerState {
     font_manager: FontManager,
     /// Cursor manager for X11 cursors
     cursor_manager: CursorManager,
+    /// Pointer manager for X11 input
+    pointer_manager: PointerManager,
 }
 
 #[derive(Debug)]
@@ -51,6 +53,7 @@ impl ServerState {
             atom_manager: AtomManager::new(),
             font_manager: FontManager::new(),
             cursor_manager: CursorManager::new(),
+            pointer_manager: PointerManager::new(),
         }
     }
 
@@ -115,6 +118,11 @@ impl ServerState {
     pub fn cursor_manager(&self) -> &CursorManager {
         &self.cursor_manager
     }
+
+    /// Get pointer manager
+    pub fn pointer_manager(&self) -> &PointerManager {
+        &self.pointer_manager
+    }
 }
 
 impl std::fmt::Debug for ServerState {
@@ -134,6 +142,13 @@ impl std::fmt::Debug for ServerState {
                 &format!(
                     "CursorManager({} cursors)",
                     self.cursor_manager.cursor_count()
+                ),
+            )
+            .field(
+                "pointer_manager",
+                &format!(
+                    "PointerManager(grabbed: {})",
+                    self.pointer_manager.is_grabbed()
                 ),
             )
             .field("inner", &"<ServerStateInner>")

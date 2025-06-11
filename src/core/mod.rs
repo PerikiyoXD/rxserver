@@ -9,6 +9,7 @@ pub mod cursor_manager;
 pub mod errors;
 pub mod font_manager;
 pub mod ids;
+pub mod pointer_manager;
 pub mod traits;
 
 pub use atom_manager::AtomManager;
@@ -16,4 +17,5 @@ pub use cursor_manager::CursorManager;
 pub use errors::*;
 pub use font_manager::FontManager;
 pub use ids::*;
+pub use pointer_manager::PointerManager;
 pub use traits::*;
