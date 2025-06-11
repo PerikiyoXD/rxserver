@@ -1,16 +1,16 @@
 use std::process;
 
-use clap::Parser;
+use clap::Parser as ArgsParser;
 use tracing::{error, info};
 
 use rxserver::{
     config::ServerConfig,
     server::XServer,
-    utils::{log_implementation_status, log_shutdown_info, log_startup_info},
+    utils::{init_logging, log_implementation_status, log_shutdown_info, log_startup_info},
 };
 
 /// RX - Rust X Window System Server
-#[derive(Parser)]
+#[derive(ArgsParser)]
 #[command(name = "rxserver")]
 #[command(about = "A modern, safe, and efficient Rust implementation of the X11 protocol")]
 #[command(version)]
@@ -65,6 +65,7 @@ async fn main() {
         }
     };
 
+    init_logging(&config.logging.level, log_to_file, log_to_stdout);
     log_startup_info(config.server.display_number, &args.config);
 
     // Create and start the X server
