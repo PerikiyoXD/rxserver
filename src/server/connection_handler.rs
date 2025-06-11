@@ -31,13 +31,13 @@ impl X11ConnectionHandler {
     }    /// Handle a complete client connection from handshake to disconnect
     pub async fn handle_connection(&self, mut stream: TcpStream) -> Result<()> {
         info!("Handling new X11 client connection");
-
+        
         let start_time = std::time::Instant::now();
         let mut client_id = 0;        // Step 1: Handle X11 connection setup handshake
         let handshake_result = with_timing_async("client_handshake", || async {
             self.handle_handshake(&mut stream).await
         }).await;
-
+        
         match handshake_result {
             Ok(id) => {
                 client_id = id;
@@ -55,7 +55,7 @@ impl X11ConnectionHandler {
         let request_result = with_timing_async("client_request_handling", || async {
             self.handle_requests(&mut stream, client_id).await
         }).await;
-
+        
         if let Err(e) = request_result {
             warn!("Request handling error for client {}: {}", client_id, e);
             ProtocolLogger::request_error(client_id, &e);
@@ -80,7 +80,7 @@ impl X11ConnectionHandler {
         // Read and process the X11 connection setup request
         loop {
             let mut buffer = [0u8; 1024];
-
+            
             match stream.read(&mut buffer).await {
                 Ok(0) => {
                     warn!("Client disconnected during handshake");
@@ -88,44 +88,42 @@ impl X11ConnectionHandler {
                 }
                 Ok(n) => {
                     setup_buffer.extend_from_slice(&buffer[..n]);
-
+                    
                     // Try to parse connection setup request (minimum 12 bytes)
                     if setup_buffer.len() >= 12 {
                         // Calculate expected total size based on auth lengths
                         if setup_buffer.len() >= 8 {
                             let auth_name_len = u16::from_le_bytes([setup_buffer[6], setup_buffer[7]]) as usize;
                             let auth_data_len = u16::from_le_bytes([setup_buffer[8], setup_buffer[9]]) as usize;
-
+                            
                             // Calculate padded lengths (X11 protocol pads to 4-byte boundaries)
                             let padded_name_len = (auth_name_len + 3) & !3;
                             let padded_data_len = (auth_data_len + 3) & !3;
                             let total_expected = 12 + padded_name_len + padded_data_len;
-
+                            
                             if setup_buffer.len() >= total_expected {
                                 // We have complete setup request, parse it
                                 match ConnectionHandler::parse_setup_request(&setup_buffer) {
                                     Ok(setup_request) => {
                                         info!("Processing X11 connection setup from client");
-                                        debug!("Client requests protocol {}.{}",
+                                        debug!("Client requests protocol {}.{}", 
                                                setup_request.protocol_major_version,
-                                               setup_request.protocol_minor_version);                                        // Handle the connection setup
+                                               setup_request.protocol_minor_version);
+                                        
+                                        // Handle the connection setup
                                         match connection_handler.handle_connection_setup(setup_request).await {
                                             Ok(setup_response) => {
                                                 // Serialize and send response
                                                 match connection_handler.serialize_setup_response(&setup_response) {
                                                     Ok(response_bytes) => {
-                                                        debug!("Sending handshake response: {} bytes", response_bytes.len());
-                                                        debug!("Handshake response bytes: {:?}", &response_bytes[..std::cmp::min(response_bytes.len(), 64)]);
-                                                        debug!("Setup response structure: {:?}", setup_response);
-                                                        
                                                         if let Err(e) = stream.write_all(&response_bytes).await {
                                                             error!("Failed to send connection setup response: {}", e);
                                                             return Ok(0);
                                                         }
-
+                                                        
                                                         if setup_response.status == crate::protocol::ConnectionSetupStatus::Success {
                                                             info!("X11 connection setup successful");
-
+                                                            
                                                             // Register the client after successful handshake
                                                             let client_id = self.client_manager
                                                                 .register_client("authenticated".to_string(), None)
@@ -169,7 +167,7 @@ impl X11ConnectionHandler {
     /// Handle regular X11 requests after successful handshake
     async fn handle_requests(&self, stream: &mut TcpStream, client_id: u32) -> Result<()> {
         info!("Starting X11 request processing for client {}", client_id);
-
+        
         let mut buffer = [0u8; 4096];
         let mut connection_buffer = Vec::new();
 
@@ -177,25 +175,16 @@ impl X11ConnectionHandler {
             tokio::select! {
                 // Read from client
                 result = stream.read(&mut buffer) => {
-                    debug!("Reading from client {}...", client_id);
-                    debug!("Buffer size: {}", buffer.len());
-                    debug!("Connection buffer size: {}", connection_buffer.len());
-                    debug!("Connection buffer content: {:?}", &connection_buffer[..std::cmp::min(connection_buffer.len(), 16)]);
-
-                    let mut count = 0;
-
                     match result {
                         Ok(0) => {
                             info!("Client {} disconnected", client_id);
-                            return Ok(()); // Client disconnected gracefully
+                            break;
                         }
                         Ok(n) => {
-                            debug!("Current buffer content: {:?}", &buffer[..std::cmp::min(n, 16)]);
-                            debug!("Received {} bytes from client {}: {:?}", n, client_id, &buffer[..std::cmp::min(n, 16)]);
+                            debug!("Received {} bytes from client {}", n, client_id);
 
                             // Add to connection buffer
                             connection_buffer.extend_from_slice(&buffer[..n]);
-                            debug!("Connection buffer now has {} bytes", connection_buffer.len());
 
                             // Try to parse complete requests from buffer
                             while let Some(request_data) = Self::extract_complete_request(&mut connection_buffer)? {
@@ -229,7 +218,6 @@ impl X11ConnectionHandler {
                                     }
                                     Err(e) => {
                                         warn!("Failed to parse request from client {}: {}", client_id, e);
-                                        debug!("Raw request data: {:?}", &request_data[..std::cmp::min(request_data.len(), 32)]);
                                         // Send error response or continue
                                     }
                                 }

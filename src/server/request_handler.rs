@@ -16,8 +16,7 @@ use tracing::{debug, info, warn};
 /// Handles processing of X11 requests
 pub struct RequestHandler {}
 
-impl RequestHandler {
-    /// Create a new request handler
+impl RequestHandler {    /// Create a new request handler
     pub fn new(_client_manager: Arc<ClientManager>, _server_state: Arc<ServerState>) -> Self {
         info!("Initializing RequestHandler");
 
@@ -76,10 +75,6 @@ impl RequestHandler {
                 info!("Processing CreateGlyphCursor request");
                 self.handle_create_glyph_cursor(client_id, req).await
             }
-            Request::QueryExtension(req) => {
-                info!("Processing QueryExtension request: {}", req.name);
-                self.handle_query_extension(client_id, req).await
-            }
             Request::Unknown { opcode, data: _ } => {
                 warn!("Unknown request opcode: {}", opcode);
                 todo_medium!(
@@ -90,7 +85,7 @@ impl RequestHandler {
                 Ok(None)
             }
             _ => {
-                todo_critical!(
+                todo_medium!(
                     "request_handler",
                     "Request type not yet implemented: {:?}",
                     request
@@ -98,9 +93,7 @@ impl RequestHandler {
                 Ok(None)
             }
         }
-    }
-
-    // Individual request handlers (stubs for now)
+    }    // Individual request handlers (stubs for now)
     async fn handle_create_window(
         &self,
         _client_id: u32,
@@ -135,25 +128,25 @@ impl RequestHandler {
     ) -> Result<Option<Response>> {
         todo_critical!("request_handler", "ClearArea not implemented");
         Ok(None)
-    }
-
-    async fn handle_intern_atom(
+    }async fn handle_intern_atom(
         &self,
         _client_id: u32,
         req: crate::protocol::requests::InternAtomRequest,
     ) -> Result<Option<Response>> {
         // Basic InternAtom implementation
+        use crate::protocol::message::{Response, Reply};
         use crate::protocol::message::replies::InternAtomReply;
-        use crate::protocol::message::{Reply, Response};
-
+        
         debug!("InternAtom request for: '{}'", req.name);
-
+        
         // For now, just return a fixed atom ID
         // TODO: Implement proper atom management
         let atom_id = 1; // Placeholder
-
-        let reply = Response::Reply(Reply::InternAtom(InternAtomReply { atom: atom_id }));
-
+        
+        let reply = Response::Reply(Reply::InternAtom(InternAtomReply {
+            atom: atom_id,
+        }));
+        
         Ok(Some(reply))
     }
 
@@ -163,10 +156,10 @@ impl RequestHandler {
         req: crate::protocol::requests::OpenFontRequest,
     ) -> Result<Option<Response>> {
         debug!("OpenFont request for: '{}'", req.name);
-
+        
         // For now, just log and don't send a response (OpenFont doesn't require one)
         info!("Font '{}' opened successfully (placeholder)", req.name);
-
+        
         Ok(None)
     }
 
@@ -174,39 +167,11 @@ impl RequestHandler {
         &self,
         _client_id: u32,
         _req: crate::protocol::requests::CreateGlyphCursorRequest,
-    ) -> Result<Option<Response>> {
-        debug!("CreateGlyphCursor request");
-
+    ) -> Result<Option<Response>> {        debug!("CreateGlyphCursor request");
+        
         // CreateGlyphCursor doesn't require a response
         info!("Glyph cursor created successfully (placeholder)");
-
+        
         Ok(None)
-    }
-
-    async fn handle_query_extension(
-        &self,
-        _client_id: u32,
-        req: crate::protocol::requests::QueryExtensionRequest,
-    ) -> Result<Option<Response>> {
-        // Basic QueryExtension implementation
-        use crate::protocol::message::replies::QueryExtensionReply;
-        use crate::protocol::message::{Reply, Response};
-
-        debug!("QueryExtension request for: '{}'", req.name);
-
-        // For now, return that all extensions are not present
-        // TODO: Implement proper extension management
-        let reply = Response::Reply(Reply::QueryExtension(QueryExtensionReply {
-            present: false,  // Extension not supported
-            major_opcode: 0, // Not applicable since not present
-            first_event: 0,  // Not applicable since not present
-            first_error: 0,  // Not applicable since not present
-        }));
-
-        info!(
-            "QueryExtension '{}': not supported (returning false)",
-            req.name
-        );
-        Ok(Some(reply))
     }
 }
