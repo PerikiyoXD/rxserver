@@ -32,6 +32,7 @@ pub enum Request {
     ClearArea(ClearAreaRequest),
     CopyArea(CopyAreaRequest),
     InternAtom(InternAtomRequest),
+    OpenFont(OpenFontRequest),
     // Unknown request for unimplemented opcodes
     Unknown { opcode: u8, data: bytes::Bytes },
 }
@@ -160,6 +161,13 @@ pub struct InternAtomRequest {
     pub name: String,
 }
 
+/// OpenFont request
+#[derive(Debug, Clone)]
+pub struct OpenFontRequest {
+    pub fid: Font,
+    pub name: String,
+}
+
 /// Request parser for incoming X11 protocol data
 pub struct RequestParser;
 
@@ -190,6 +198,7 @@ impl RequestParser {
             opcodes::window::UNMAP_WINDOW => Self::parse_unmap_window(&data[4..]),
             opcodes::graphics::CLEAR_AREA => Self::parse_clear_area(&data[4..]),
             opcodes::atom::INTERN_ATOM => Self::parse_intern_atom(data),
+            opcodes::text::OPEN_FONT => Self::parse_open_font(data),
             _ => {
                 todo_high!(
                     "request_parsing",
@@ -367,6 +376,50 @@ impl RequestParser {
             name,
         }))
     }
+
+    fn parse_open_font(data: &[u8]) -> Result<Request> {
+        // OpenFont request format:
+        // 1     45                   opcode
+        // 1                         unused
+        // 2     3+(n+p)/4           request length
+        // 4     FONT                fid
+        // 2     n                   length of name
+        // 2                         unused
+        // n     STRING8             name
+        // p                         unused, p=pad(n)
+
+        if data.len() < 12 {
+            return Err(crate::Error::Protocol(
+                "OpenFont request too short".to_string(),
+            ));
+        }
+
+        // Use byte array indexing for proper parsing
+        let _opcode = data[0]; // opcode (45)
+        let _unused1 = data[1]; // unused
+        let _length = u16::from_le_bytes([data[2], data[3]]); // request length
+        let fid = u32::from_le_bytes([data[4], data[5], data[6], data[7]]); // font ID
+        let name_length = u16::from_le_bytes([data[8], data[9]]) as usize; // name length
+        let _unused2 = u16::from_le_bytes([data[10], data[11]]); // unused padding
+
+        // Check if we have enough data for the name
+        if data.len() < 12 + name_length {
+            return Err(crate::Error::Protocol(format!(
+                "OpenFont request name truncated: need {} bytes, have {}",
+                12 + name_length,
+                data.len()
+            )));
+        }
+
+        // Extract the name string starting at byte 12
+        let name_bytes = &data[12..12 + name_length];
+        let name = String::from_utf8(name_bytes.to_vec())
+            .map_err(|_| crate::Error::Protocol("Invalid UTF-8 in font name".to_string()))?;
+
+        debug!("Parsed OpenFont: fid={}, name='{}'", fid, name);
+
+        Ok(Request::OpenFont(OpenFontRequest { fid, name }))
+    }
 }
 
 impl fmt::Display for Request {
@@ -389,6 +442,7 @@ impl fmt::Display for Request {
                 "InternAtom(name='{}', only_if_exists={})",
                 req.name, req.only_if_exists
             ),
+            Request::OpenFont(req) => write!(f, "OpenFont(fid={}, name='{}')", req.fid, req.name),
             _ => write!(f, "{:?}", self),
         }
     }
