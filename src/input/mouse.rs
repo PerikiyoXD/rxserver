@@ -4,7 +4,7 @@
 
 use crate::protocol::message::Event;
 use crate::protocol::types::*;
-use crate::{todo_low, todo_medium, Result};
+use crate::Result;
 
 /// Mouse state manager
 pub struct MouseManager {
