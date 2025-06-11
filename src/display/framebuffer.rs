@@ -8,7 +8,7 @@ use crate::{
     Result,
 };
 use std::sync::{Arc, Mutex};
-use tracing::{info, debug, warn, error};
+use tracing::{info, debug};
 
 /// Framebuffer configuration
 #[derive(Debug, Clone)]

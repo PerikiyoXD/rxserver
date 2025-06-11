@@ -15,7 +15,7 @@ use crate::{
     Result,
 };
 use std::collections::HashMap;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Main display manager coordinating all display components
 pub struct DisplayManager {
@@ -147,40 +147,6 @@ impl DisplayManager {
         }
 
         Ok(())
-    }
-
-    /// Create default screen configuration
-    fn create_default_screen(config: &DisplaySettings) -> Result<ScreenInfo> {
-        info!("Creating default screen with configuration: {:?}", config);
-
-        let screen_info = ScreenInfo::new(0, config);
-        debug!("Created default screen: {:?}", screen_info);
-
-        Ok(screen_info)
-    }
-
-    /// Create default visual configuration
-    fn create_default_visual(config: &DisplaySettings) -> Result<VisualInfo> {
-        info!(
-            "Creating default visual with depth {} and class {:?}",
-            config.depth, config.visual_class
-        );
-
-        let visual_info = match config.visual_class {
-            crate::display::types::VisualClass::TrueColor => {
-                VisualInfo::new_truecolor(1, config.depth)
-            }
-            crate::display::types::VisualClass::PseudoColor => {
-                VisualInfo::new_pseudocolor(1, config.depth)
-            }
-            _ => {
-                // Default to TrueColor for other visual classes
-                VisualInfo::new_truecolor(1, config.depth)
-            }
-        };
-
-        debug!("Created default visual: {:?}", visual_info);
-        Ok(visual_info)
     }
 
     /// Get screen information

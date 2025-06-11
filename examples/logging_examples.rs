@@ -21,11 +21,11 @@ use rxserver::logging::{
     // These are automatically available when you use the crate
 };
 use rxserver::config::types::LoggingSettings;
-use rxserver::{log_connection, log_x11_protocol, log_resource, log_performance, log_implementation};
+use rxserver::{log_connection, log_x11_protocol, log_resource, log_performance};
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::sleep;
-use tracing::{info, warn, error, debug};
+use tracing::{info, warn};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -267,14 +267,4 @@ async fn demonstrate_statistics_logging() {
     
     // Force a report
     monitor.maybe_log_report(true);
-}
-
-async fn demonstrate_implementation_status() {
-    info!("=== Implementation Status Logging ===");
-    
-    // Implementation status using macros
-    log_implementation!(complete, "tcp_listener", "TCP connections working perfectly");
-    log_implementation!(partial, "window_manager", "Basic window operations implemented");
-    log_implementation!(todo, "unix_sockets", "Unix domain sockets need implementation");
-    log_implementation!(missing, "hardware_accel", "GPU acceleration not yet started");
 }
