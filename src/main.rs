@@ -1,9 +1,13 @@
 use std::process;
 
 use clap::Parser;
-use log::{error, info};
+use tracing::{error, info};
 
-use rxserver::{config::ServerConfig, server::XServer, utils::log_implementation_status};
+use rxserver::{
+    config::ServerConfig,
+    server::XServer,
+    utils::{log_implementation_status, log_shutdown_info, log_startup_info},
+};
 
 /// RX - Rust X Window System Server
 #[derive(Parser)]
@@ -31,19 +35,23 @@ struct Args {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    // Initialize tracing/logging
+    let log_level = if args.verbose { "debug" } else { "info" };
 
-    // Initialize logging
-    let log_level = if args.verbose {
-        "debug"
-    } else {
-        "info"
-    };
-    
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level))
-        .init();    info!("Starting RX - Rust X Window System Server");
-    info!("Display: {}", args.display);
-    info!("Config: {}", args.config);
-    
+    // Set up tracing subscriber with proper formatting
+    let subscriber = tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::new(log_level))
+        .with_target(false)
+        .with_level(true)
+        .with_thread_ids(false)
+        .compact()
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set tracing subscriber");
+
+    // Initialize tracing-log bridge to capture log crate messages
+    tracing_log::LogTracer::init().expect("Failed to set up log bridge");
+
     // Log implementation status for awareness
     log_implementation_status();
 
@@ -52,16 +60,20 @@ async fn main() {
         Ok(config) => config,
         Err(e) => {
             error!("Failed to load configuration: {}", e);
-            process::exit(1);
+            on_exit();
+            unreachable!();
         }
     };
 
+    log_startup_info(config.server.display_number, &args.config);
+
     // Create and start the X server
-    let mut server = match XServer::new(args.display, config).await {
+    let server = match XServer::new(args.display, config).await {
         Ok(server) => server,
         Err(e) => {
             error!("Failed to create X server: {}", e);
-            process::exit(1);
+            on_exit();
+            unreachable!();
         }
     };
 
@@ -72,7 +84,7 @@ async fn main() {
                 Ok(_) => info!("Server shut down gracefully"),
                 Err(e) => {
                     error!("Server error: {}", e);
-                    process::exit(1);
+                    on_exit();
                 }
             }
         }
@@ -80,8 +92,13 @@ async fn main() {
             info!("Received Ctrl+C, shutting down...");
             if let Err(e) = server.shutdown().await {
                 error!("Error during shutdown: {}", e);
-                process::exit(1);
+                on_exit();
             }
         }
     }
+}
+
+fn on_exit() {
+    log_shutdown_info();
+    process::exit(0);
 }

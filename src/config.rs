@@ -27,7 +27,7 @@ pub struct ServerConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerSettings {
     /// Display number (e.g., 0 for :0)
-    pub display_num: u8,
+    pub display_number: u8,
     /// Maximum number of client connections
     pub max_clients: usize,
     /// TCP port for X11 connections (6000 + display number)
@@ -84,7 +84,7 @@ impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             server: ServerSettings {
-                display_num: 0,
+                display_number: 0,
                 max_clients: 256,
                 tcp_port_base: 6000,
                 enable_tcp: false,
