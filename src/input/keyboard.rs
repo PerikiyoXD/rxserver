@@ -2,7 +2,7 @@
 //!
 //! This module handles keyboard events, key mapping, and keyboard state.
 
-use crate::protocol::responses::Event;
+use crate::protocol::message::Event;
 use crate::protocol::types::*;
 use crate::{todo_high, todo_medium, Result};
 
