@@ -27,6 +27,7 @@ pub enum Reply {
     QueryTree(QueryTreeReply),
     InternAtom(InternAtomReply),
     GetAtomName(GetAtomNameReply),
+    GrabPointer(GrabPointerReply),
     // Add more replies as needed
 }
 
@@ -93,6 +94,12 @@ pub struct QueryTreeReply {
 #[derive(Debug, Clone)]
 pub struct InternAtomReply {
     pub atom: Atom,
+}
+
+/// GrabPointer reply
+#[derive(Debug, Clone)]
+pub struct GrabPointerReply {
+    pub status: u8,
 }
 
 /// GetAtomName reply
@@ -250,6 +257,15 @@ impl ResponseSerializer {
                 buf.put_u32(reply.atom);
                 // Pad to 32 bytes total (20 bytes of padding needed)
                 for _ in 0..20 {
+                    buf.put_u8(0);
+                }
+            }
+            Reply::GrabPointer(reply) => {
+                buf.put_u8(reply.status); // Status byte
+                buf.put_u16(sequence);
+                buf.put_u32(0); // Reply length (0 for fixed-length replies)
+                                // Pad to 32 bytes total (24 bytes of padding needed)
+                for _ in 0..24 {
                     buf.put_u8(0);
                 }
             }
