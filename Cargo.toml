@@ -62,6 +62,7 @@ parking_lot = "0.12"  # Fast mutexes
 # Utilities
 uuid = { version = "1.0", features = ["v4"] }
 bitflags = { version = "2", features = ["serde"] }
+dirs = "5.0"  # For accessing home directory and user paths
 
 # For X11 constants (optional, we'll define our own clean ones)
 # x11 = { version = "2.19", optional = true }
