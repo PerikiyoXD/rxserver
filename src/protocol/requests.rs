@@ -589,11 +589,15 @@ impl fmt::Display for Request {
                 "InternAtom(name='{}', only_if_exists={})",
                 req.name, req.only_if_exists
             ),
-            Request::OpenFont(req) => write!(f, "OpenFont(fid={}, name='{}')", req.fid, req.name),
-            Request::CreateGlyphCursor(req) => write!(
+            Request::OpenFont(req) => write!(f, "OpenFont(fid={}, name='{}')", req.fid, req.name),            Request::CreateGlyphCursor(req) => write!(
                 f,
                 "CreateGlyphCursor(cid={}, source_font={}, mask_font={}, source_char={}, mask_char={})",
                 req.cid, req.source_font, req.mask_font, req.source_char, req.mask_char
+            ),
+            Request::GrabPointer(req) => write!(
+                f,
+                "GrabPointer(grab_window={}, owner_events={}, event_mask=0x{:04x}, pointer_mode={}, keyboard_mode={})",
+                req.grab_window, req.owner_events, req.event_mask, req.pointer_mode, req.keyboard_mode
             ),
             _ => write!(f, "{:?}", self),
         }
