@@ -3,7 +3,7 @@
 //! This module implements the X11 connection setup and authentication protocol.
 //! The connection setup happens before any regular X11 requests.
 
-use crate::{todo_high, todo_medium, Result};
+use crate::{todo_medium, Result};
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
@@ -298,27 +298,45 @@ impl ConnectionHandler {
 
     /// Calculate the length of server info in 4-byte units
     fn calculate_server_info_length(&self) -> u16 {
-        todo_high!(
-            "connection_setup",
-            "Server info length calculation not implemented"
-        );
-        // This should calculate the actual length of the server info structure
-        100 // Placeholder
+        let mut length = 0u16;
+
+        // Fixed part of server info (32 bytes)
+        length += 8; // 8 * 4-byte units = 32 bytes
+
+        // Vendor string (padded to 4-byte boundary)
+        let vendor_len = self.server_info.vendor.len();
+        length += ((vendor_len + 3) / 4) as u16;
+
+        // Pixmap formats (3 bytes each, padded)
+        let pixmap_formats_len = self.server_info.pixmap_formats.len() * 3;
+        length += ((pixmap_formats_len + 3) / 4) as u16;
+
+        // Screen info for each screen
+        for screen in &self.server_info.screens {
+            length += 10; // 40 bytes for fixed part of screen info
+
+            // Allowed depths
+            for depth in &screen.allowed_depths {
+                length += 2; // 8 bytes for depth info
+
+                // Visual types (24 bytes each)
+                length += (depth.visuals.len() * 6) as u16; // 6 * 4-byte units = 24 bytes
+            }
+        }
+
+        length
     }
 
     /// Create default server info
     fn create_default_server_info() -> ServerInfo {
-        todo_high!(
-            "connection_setup",
-            "Default server info uses hardcoded values"
-        );
+        let vendor = "RX-Server (Rust X11)".to_string();
 
         ServerInfo {
             release: 11000000, // X11 Release
             resource_id_base: 0x00400000,
             resource_id_mask: 0x003fffff,
             motion_buffer_size: 256,
-            vendor_length: 19,
+            vendor_length: vendor.len() as u16,
             maximum_request_length: 65535, // Maximum for u16
             number_of_screens: 1,
             number_of_pixmap_formats: 1,
@@ -328,7 +346,7 @@ impl ConnectionHandler {
             bitmap_format_scanline_pad: 32,
             min_keycode: 8,
             max_keycode: 255,
-            vendor: "RX-Server (Rust X11)".to_string(),
+            vendor,
             pixmap_formats: vec![PixmapFormat {
                 depth: 24,
                 bits_per_pixel: 32,
@@ -469,16 +487,158 @@ impl ConnectionHandler {
 
         // Server info (if successful)
         if let Some(ref server_info) = response.server_info {
-            todo_high!(
-                "connection_setup",
-                "Server info serialization not implemented"
-            );
-            // This should serialize the complete server info structure
-            // For now, add minimal placeholder data
+            // Serialize the complete server info structure according to X11 protocol
+
+            // Release number (4 bytes)
             data.extend_from_slice(&server_info.release.to_le_bytes());
+
+            // Resource ID base (4 bytes)
             data.extend_from_slice(&server_info.resource_id_base.to_le_bytes());
+
+            // Resource ID mask (4 bytes)
             data.extend_from_slice(&server_info.resource_id_mask.to_le_bytes());
-            // ... more fields would go here
+
+            // Motion buffer size (4 bytes)
+            data.extend_from_slice(&server_info.motion_buffer_size.to_le_bytes());
+
+            // Vendor length (2 bytes)
+            data.extend_from_slice(&(server_info.vendor.len() as u16).to_le_bytes());
+
+            // Maximum request length (2 bytes)
+            data.extend_from_slice(&server_info.maximum_request_length.to_le_bytes());
+
+            // Number of screens (1 byte)
+            data.push(server_info.number_of_screens);
+
+            // Number of pixmap formats (1 byte)
+            data.push(server_info.number_of_pixmap_formats);
+
+            // Image byte order (1 byte)
+            data.push(server_info.image_byte_order);
+
+            // Bitmap format bit order (1 byte)
+            data.push(server_info.bitmap_format_bit_order);
+
+            // Bitmap format scanline unit (1 byte)
+            data.push(server_info.bitmap_format_scanline_unit);
+
+            // Bitmap format scanline pad (1 byte)
+            data.push(server_info.bitmap_format_scanline_pad);
+
+            // Min keycode (1 byte)
+            data.push(server_info.min_keycode);
+
+            // Max keycode (1 byte)
+            data.push(server_info.max_keycode);
+
+            // Unused padding (4 bytes)
+            data.extend_from_slice(&[0u8; 4]);
+
+            // Vendor string (padded to 4-byte boundary)
+            data.extend_from_slice(server_info.vendor.as_bytes());
+            let vendor_padding = (4 - (server_info.vendor.len() % 4)) % 4;
+            data.extend_from_slice(&vec![0u8; vendor_padding]);
+
+            // Pixmap formats (3 bytes each, padded to 4-byte boundary)
+            for format in &server_info.pixmap_formats {
+                data.push(format.depth);
+                data.push(format.bits_per_pixel);
+                data.push(format.scanline_pad);
+                data.push(0); // Padding
+            }
+
+            // Screen information
+            for screen in &server_info.screens {
+                // Root window (4 bytes)
+                data.extend_from_slice(&screen.root.to_le_bytes());
+
+                // Default colormap (4 bytes)
+                data.extend_from_slice(&screen.default_colormap.to_le_bytes());
+
+                // White pixel (4 bytes)
+                data.extend_from_slice(&screen.white_pixel.to_le_bytes());
+
+                // Black pixel (4 bytes)
+                data.extend_from_slice(&screen.black_pixel.to_le_bytes());
+
+                // Current input masks (4 bytes)
+                data.extend_from_slice(&screen.current_input_masks.to_le_bytes());
+
+                // Width in pixels (2 bytes)
+                data.extend_from_slice(&screen.width_in_pixels.to_le_bytes());
+
+                // Height in pixels (2 bytes)
+                data.extend_from_slice(&screen.height_in_pixels.to_le_bytes());
+
+                // Width in millimeters (2 bytes)
+                data.extend_from_slice(&screen.width_in_millimeters.to_le_bytes());
+
+                // Height in millimeters (2 bytes)
+                data.extend_from_slice(&screen.height_in_millimeters.to_le_bytes());
+
+                // Min installed maps (2 bytes)
+                data.extend_from_slice(&screen.min_installed_maps.to_le_bytes());
+
+                // Max installed maps (2 bytes)
+                data.extend_from_slice(&screen.max_installed_maps.to_le_bytes());
+
+                // Root visual (4 bytes)
+                data.extend_from_slice(&screen.root_visual.to_le_bytes());
+
+                // Backing stores (1 byte)
+                data.push(screen.backing_stores);
+
+                // Save unders (1 byte)
+                data.push(if screen.save_unders { 1 } else { 0 });
+
+                // Root depth (1 byte)
+                data.push(screen.root_depth);
+
+                // Number of allowed depths (1 byte)
+                data.push(screen.allowed_depths.len() as u8);
+
+                // Allowed depths
+                for depth in &screen.allowed_depths {
+                    // Depth (1 byte)
+                    data.push(depth.depth);
+
+                    // Unused (1 byte)
+                    data.push(0);
+
+                    // Number of visuals (2 bytes)
+                    data.extend_from_slice(&(depth.visuals.len() as u16).to_le_bytes());
+
+                    // Unused (4 bytes)
+                    data.extend_from_slice(&[0u8; 4]);
+
+                    // Visual types
+                    for visual in &depth.visuals {
+                        // Visual ID (4 bytes)
+                        data.extend_from_slice(&visual.visual_id.to_le_bytes());
+
+                        // Class (1 byte)
+                        data.push(visual.class);
+
+                        // Bits per RGB value (1 byte)
+                        data.push(visual.bits_per_rgb_value);
+
+                        // Colormap entries (2 bytes)
+                        data.extend_from_slice(&visual.colormap_entries.to_le_bytes());
+
+                        // Red mask (4 bytes)
+                        data.extend_from_slice(&visual.red_mask.to_le_bytes());
+
+                        // Green mask (4 bytes)
+                        data.extend_from_slice(&visual.green_mask.to_le_bytes());
+
+                        // Blue mask (4 bytes)
+                        data.extend_from_slice(&visual.blue_mask.to_le_bytes());
+
+                        // Unused (4 bytes)
+                        data.extend_from_slice(&[0u8; 4]);
+                    }
+                }
+            }
         }
 
         Ok(data)
