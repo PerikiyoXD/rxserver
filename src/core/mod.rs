@@ -5,12 +5,14 @@
 //! provides type-safe abstractions over X11 concepts.
 
 pub mod atom_manager;
+pub mod cursor_manager;
 pub mod errors;
 pub mod font_manager;
 pub mod ids;
 pub mod traits;
 
 pub use atom_manager::AtomManager;
+pub use cursor_manager::CursorManager;
 pub use errors::*;
 pub use font_manager::FontManager;
 pub use ids::*;
