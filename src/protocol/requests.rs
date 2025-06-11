@@ -7,6 +7,7 @@ use crate::protocol::opcodes;
 use crate::protocol::types::*;
 use crate::{todo_high, todo_medium, Result};
 use bytes::{Buf, Bytes};
+use tracing::debug;
 use std::fmt;
 
 /// X11 protocol request header
@@ -157,6 +158,7 @@ pub struct RequestParser;
 impl RequestParser {
     /// Parse a request from bytes
     pub fn parse(data: &[u8]) -> Result<Request> {
+        debug!("Parsing request from {} bytes", data.len());
         if data.len() < 4 {
             return Err(crate::Error::Protocol("Request too short".to_string()));
         }
