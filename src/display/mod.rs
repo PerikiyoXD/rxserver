@@ -15,6 +15,7 @@ pub mod manager;
 pub mod screen;
 pub mod types;
 pub mod visual;
+pub mod shared_framebuffers;
 
 // Re-export commonly used items for convenience
 pub use init::{init_display, DisplayInitConfig};
@@ -23,3 +24,4 @@ pub use screen::{ScreenManager, ScreenConfig};
 pub use types::{ScreenInfo, VisualInfo, DisplaySettings};
 pub use visual::{VisualManager, VisualConfig};
 pub use framebuffer::{Framebuffer, FramebufferConfig};
+pub use shared_framebuffers::SharedFramebuffers;
