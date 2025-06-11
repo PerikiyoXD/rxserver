@@ -1,24 +1,25 @@
-//! X11 protocol implementation
+//! X11 Protocol Implementation
 //!
-//! This module contains the core X11 protocol handling, including request parsing,
-//! response generation, event handling, and data type definitions.
+//! This module provides a clean, well-organized implementation of the X11 protocol.
+//! It separates concerns into logical modules for better maintainability and understanding.
 
-pub mod connection;
-pub mod events;
-pub mod opcodes;
-pub mod requests;
-pub mod response_builder;
-pub mod responses;
-pub mod types;
-pub mod wire;
+// Core protocol modules
+pub mod types;           // Basic X11 data types and constants
+pub mod opcodes;         // Request and response opcodes
+pub mod requests;        // Client request definitions and parsing
+pub mod message;         // Response/event/error message definitions
+pub mod serialization;   // Wire format serialization
+pub mod builder;         // High-level response construction utilities
+pub mod connection;      // Connection setup and authentication
+pub mod wire;           // Low-level wire format utilities
 
-// Export specific types to avoid naming conflicts
+// Re-export commonly used types for convenience
+pub use types::*;
+pub use requests::{Request, RequestParser};
+pub use message::{Response, Reply, Event, ErrorResponse};
+pub use builder::ResponseBuilder;
+pub use serialization::ResponseSerializer;
 pub use connection::{
     ConnectionHandler, ConnectionSetupRequest, ConnectionSetupResponse, ConnectionSetupStatus,
 };
-pub use events::Event as ProtocolEvent;
-pub use requests::{Request, RequestParser};
-pub use response_builder::ResponseBuilder;
-pub use responses::{Event as ResponseEvent, Reply, Response};
-pub use types::*;
 pub use wire::{Deserialize, Serialize, X11BufExt, X11BufMutExt};
