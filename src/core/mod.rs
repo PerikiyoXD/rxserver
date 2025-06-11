@@ -6,10 +6,12 @@
 
 pub mod atom_manager;
 pub mod errors;
+pub mod font_manager;
 pub mod ids;
 pub mod traits;
 
 pub use atom_manager::AtomManager;
 pub use errors::*;
+pub use font_manager::FontManager;
 pub use ids::*;
 pub use traits::*;
