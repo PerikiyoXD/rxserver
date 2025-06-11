@@ -11,15 +11,26 @@ pub mod message;         // Response/event/error message definitions
 pub mod serialization;   // Wire format serialization
 pub mod builder;         // High-level response construction utilities
 pub mod connection;      // Connection setup and authentication
-pub mod wire;           // Low-level wire format utilities
 
 // Re-export commonly used types for convenience
+
+// Core protocol types and constants
 pub use types::*;
+
+// Request handling
 pub use requests::{Request, RequestParser};
+
+// Response and message types
 pub use message::{Response, Reply, Event, ErrorResponse};
+
+// High-level builders and serialization
 pub use builder::ResponseBuilder;
 pub use serialization::ResponseSerializer;
+
+// Connection setup and management
 pub use connection::{
-    ConnectionHandler, ConnectionSetupRequest, ConnectionSetupResponse, ConnectionSetupStatus,
+    ConnectionHandler, 
+    ConnectionSetupRequest, 
+    ConnectionSetupResponse, 
+    ConnectionSetupStatus,
 };
-pub use wire::{Deserialize, Serialize, X11BufExt, X11BufMutExt};
