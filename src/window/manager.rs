@@ -4,7 +4,7 @@
 //! window stacking, focus management, and window tree operations.
 
 use crate::protocol::types::*;
-use crate::{todo_high, todo_low, todo_medium, Error, Result};
+use crate::{todo_high, todo_medium, Result};
 use std::collections::HashMap;
 
 /// Window manager state
