@@ -36,10 +36,8 @@ impl RequestHandler {
         request: Request,
     ) -> Result<Option<Response>> {
         debug!(
-            "Processing request from client {}: {:02X?}",
-            client_id,
-            // Display the request using Debug formatting
-            format!("{:?}", request)
+            "Processing request from client {:?}: {:?}",
+            client_id, request
         );
 
         match request {
