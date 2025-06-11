@@ -2,7 +2,7 @@
 //!
 //! This module manages the virtual display and screen configuration.
 
-use crate::{config::DisplaySettings, Error, Result};
+use crate::{config::DisplaySettings, Result};
 use crate::protocol::types::*;
 
 /// Represents the X11 display/screen
