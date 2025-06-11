@@ -2,7 +2,7 @@
 //!
 //! This module handles mouse events, cursor position, and button state.
 
-use crate::protocol::events::Event;
+use crate::protocol::message::Event;
 use crate::protocol::types::*;
 use crate::{todo_low, todo_medium, Result};
 
