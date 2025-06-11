@@ -5,7 +5,7 @@
 
 use crate::{todo_medium, Result};
 use std::collections::HashMap;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// X11 Connection Setup Request (sent by client first)
 #[derive(Debug, Clone)]
