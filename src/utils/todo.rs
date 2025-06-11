@@ -5,7 +5,6 @@
  * for tracking non-working or incomplete functionality.
  */
 
-use tracing::{debug, warn, error, info};
 
 /// Macro for marking TODO items with consistent logging
 #[macro_export]
