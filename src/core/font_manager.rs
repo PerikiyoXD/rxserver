@@ -75,19 +75,15 @@ pub struct FontManager {
     fonts: Arc<RwLock<HashMap<Font, FontInfo>>>,
     /// Map from font name to font ID (for reuse)
     name_to_id: Arc<RwLock<HashMap<String, Font>>>,
-    /// Next available font ID for allocation
-    next_id: Arc<RwLock<u32>>,
 }
 
 impl FontManager {
     /// Create a new font manager
     pub fn new() -> Self {
         info!("Initializing FontManager");
-
         let manager = FontManager {
             fonts: Arc::new(RwLock::new(HashMap::new())),
             name_to_id: Arc::new(RwLock::new(HashMap::new())),
-            next_id: Arc::new(RwLock::new(1)), // Start font IDs at 1
         };
 
         info!("FontManager initialized");
