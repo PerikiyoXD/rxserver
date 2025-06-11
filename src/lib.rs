@@ -33,6 +33,7 @@ pub mod config;
 pub mod core;
 pub mod graphics;
 pub mod input;
+pub mod logging;
 pub mod protocol;
 pub mod server;
 pub mod utils;
