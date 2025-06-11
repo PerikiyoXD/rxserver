@@ -30,7 +30,7 @@ impl ConnectionManager {
 
         info!(
             "Initializing ConnectionManager for display :{}",
-            config.server.display_num
+            config.server.display_number
         );
         Ok(ConnectionManager {
             tcp_listener: None,
