@@ -8,7 +8,7 @@ use tokio::sync::{broadcast, RwLock};
 
 use crate::protocol::types::*;
 use crate::protocol::{Event as ProtocolEvent, Request, Response};
-use crate::{Error, Result};
+use crate::Result;
 
 /// Internal server events
 #[derive(Debug, Clone)]
