@@ -47,7 +47,7 @@ impl XServer {
     /// Create a new X server instance
     pub async fn new(display_name: String, config: ServerConfig) -> Result<Self> {
         info!("Creating X server for display: {}", display_name);
-        
+
         // Create event channel for server-wide communication
         // TODO: Use tx and rx for event handling as current implementation
         // uses a broadcast channel for event broadcasting
@@ -55,10 +55,10 @@ impl XServer {
 
         // Initialize shared state
         let state = Arc::new(ServerState::new(display_name.clone()));
-        
+
         // Initialize connection statistics
         let stats = Arc::new(tokio::sync::Mutex::new(ConnectionStats::default()));
-        
+
         // Initialize managers
         let client_manager = Arc::new(ClientManager::new(event_tx.clone()));
         let mut connection_manager = ConnectionManager::new(&config).await?;
@@ -69,9 +69,9 @@ impl XServer {
         // Start the connection manager listening
         connection_manager.start_listening().await?;
         let connection_manager = Arc::new(connection_manager);
-        
+
         info!("X server initialization completed successfully");
-        
+
         Ok(XServer {
             state,
             client_manager,
@@ -81,17 +81,21 @@ impl XServer {
             event_sender: event_tx,
             stats,
         })
-    }    /// Start the X server
+    }
+
+    /// Start the X server
     pub async fn run(&self) -> Result<()> {
         info!("Starting X server on display {}", self.state.display_name());
 
         // Mark server as running
         self.state.set_running(true).await;
-        
+
         // Log server startup statistics
-        info!("Server running with {} initial clients", 
-              self.client_manager.client_count().await);
-        
+        info!(
+            "Server running with {} initial clients",
+            self.client_manager.client_count().await
+        );
+
         // Start the main event loop
         let event_loop = EventLoop::new(
             self.client_manager.clone(),
@@ -104,7 +108,7 @@ impl XServer {
 
         // Mark server as stopped
         self.state.set_running(false).await;
-        
+
         // Log final statistics
         let stats = self.stats.lock().await;
         stats.log_summary();
@@ -112,7 +116,7 @@ impl XServer {
 
         // Broadcast shutdown event
         let _ = self.event_sender.send(ServerEvent::ServerShuttingDown);
-        
+
         info!("X server shutdown completed");
         result
     }
