@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 
 use crate::protocol::types::*;
-use crate::protocol::{responses::Event as ProtocolEvent, Request, Response};
+use crate::protocol::{Event as ProtocolEvent, Request, Response};
 use crate::{Error, Result};
 
 /// Internal server events

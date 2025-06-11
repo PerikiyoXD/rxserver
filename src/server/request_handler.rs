@@ -160,7 +160,7 @@ impl RequestHandler {
         _client_id: u32,
         req: crate::protocol::requests::InternAtomRequest,
     ) -> Result<Option<Response>> {
-        use crate::protocol::responses::InternAtomReply;
+        use crate::protocol::message::replies::InternAtomReply;
 
         debug!(
             "InternAtom request: name='{}', only_if_exists={}",
@@ -188,7 +188,7 @@ impl RequestHandler {
 
         let reply = InternAtomReply { atom };
         Ok(Some(Response::Reply(
-            crate::protocol::responses::Reply::InternAtom(reply),
+            crate::protocol::message::Reply::InternAtom(reply),
         )))
     }
 
@@ -215,10 +215,8 @@ impl RequestHandler {
                 warn!(
                     "OpenFont failed: fid={}, name='{}', error: {}",
                     req.fid, req.name, error
-                );
-
-                // Return a BadFont error
-                use crate::protocol::responses::ErrorResponse;
+                );                // Return a BadFont error
+                use crate::protocol::message::ErrorResponse;
                 use crate::protocol::types::X11Error;
 
                 let error_reply = ErrorResponse {
@@ -268,10 +266,8 @@ impl RequestHandler {
                 warn!(
                     "CreateGlyphCursor failed: cid={}, error: {}",
                     req.cid, error
-                );
-
-                // Return a BadCursor error
-                use crate::protocol::responses::ErrorResponse;
+                );                // Return a BadCursor error
+                use crate::protocol::message::ErrorResponse;
                 use crate::protocol::types::X11Error;
 
                 let error_reply = ErrorResponse {
@@ -314,13 +310,13 @@ impl RequestHandler {
         debug!("GrabPointer result: {:?}", status);
 
         // Create the reply with the status
-        use crate::protocol::responses::GrabPointerReply;
+        use crate::protocol::message::replies::GrabPointerReply;
         let reply = GrabPointerReply {
             status: status as u8,
         };
 
         Ok(Some(Response::Reply(
-            crate::protocol::responses::Reply::GrabPointer(reply),
+            crate::protocol::message::Reply::GrabPointer(reply),
         )))
     }
 
