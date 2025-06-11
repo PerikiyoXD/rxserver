@@ -301,15 +301,12 @@ impl ConnectionHandler {
         let mut length = 0u16;
 
         // Fixed part of server info (32 bytes)
-        length += 8; // 8 * 4-byte units = 32 bytes
-
-        // Vendor string (padded to 4-byte boundary)
+        length += 8; // 8 * 4-byte units = 32 bytes        // Vendor string (padded to 4-byte boundary)
         let vendor_len = self.server_info.vendor.len();
         length += ((vendor_len + 3) / 4) as u16;
 
-        // Pixmap formats (3 bytes each, padded)
-        let pixmap_formats_len = self.server_info.pixmap_formats.len() * 3;
-        length += ((pixmap_formats_len + 3) / 4) as u16;
+        // Pixmap formats (8 bytes each according to X11 spec)
+        length += (self.server_info.pixmap_formats.len() * 2) as u16; // 8 bytes = 2 * 4-byte units
 
         // Screen info for each screen
         for screen in &self.server_info.screens {
@@ -543,22 +540,18 @@ impl ConnectionHandler {
             // Vendor string (padded to 4-byte boundary)
             data.extend_from_slice(server_info.vendor.as_bytes());
             let vendor_padding = (4 - (server_info.vendor.len() % 4)) % 4;
-            data.extend_from_slice(&vec![0u8; vendor_padding]);
-
-            // Pixmap formats (3 bytes each, padded to 4-byte boundary)
+            data.extend_from_slice(&vec![0u8; vendor_padding]);            // Pixmap formats (8 bytes each: 3 data + 5 unused according to X11 spec)
             for format in &server_info.pixmap_formats {
                 data.push(format.depth);
                 data.push(format.bits_per_pixel);
                 data.push(format.scanline_pad);
-                data.push(0); // Padding
-            }
-
-            // Screen information
+                data.extend_from_slice(&[0u8; 5]); // 5 unused bytes per X11 spec
+            }// Screen information
             for screen in &server_info.screens {
                 // Root window (4 bytes)
                 data.extend_from_slice(&screen.root.to_le_bytes());
 
-                // Default colormap (4 bytes)
+                // Default colormap (4 bytes)  
                 data.extend_from_slice(&screen.default_colormap.to_le_bytes());
 
                 // White pixel (4 bytes)
