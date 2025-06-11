@@ -6,7 +6,7 @@ use tracing::{error, info};
 use rxserver::{
     config::ServerConfig,
     server::XServer,
-    utils::{init_logging, log_implementation_status, log_shutdown_info, log_startup_info},
+    utils::log_implementation_status,
 };
 
 /// RX - Rust X Window System Server
@@ -65,8 +65,8 @@ async fn main() {
         }
     };
 
-    init_logging(&config.logging.level, log_to_file, log_to_stdout);
-    log_startup_info(config.server.display_number, &args.config);
+    // init_logging(&config.logging.level, log_to_file, log_to_stdout);
+    // log_startup_info(config.server.display_number, &args.config);
 
     // Create and start the X server
     let server = match XServer::new(args.display, config).await {
