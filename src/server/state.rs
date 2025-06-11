@@ -2,7 +2,7 @@
 //!
 //! This module manages the global state of the X server in a thread-safe manner.
 
-use crate::core::{AtomManager, FontManager};
+use crate::core::{AtomManager, CursorManager, FontManager};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -17,6 +17,8 @@ pub struct ServerState {
     atom_manager: AtomManager,
     /// Font manager for X11 fonts
     font_manager: FontManager,
+    /// Cursor manager for X11 cursors
+    cursor_manager: CursorManager,
 }
 
 #[derive(Debug)]
@@ -43,12 +45,12 @@ impl ServerState {
             sequence_number: 0,
             generation: 1,
         };
-
         Self {
             display_name,
             inner: RwLock::new(inner),
             atom_manager: AtomManager::new(),
             font_manager: FontManager::new(),
+            cursor_manager: CursorManager::new(),
         }
     }
 
@@ -108,6 +110,11 @@ impl ServerState {
     pub fn font_manager(&self) -> &FontManager {
         &self.font_manager
     }
+
+    /// Get cursor manager
+    pub fn cursor_manager(&self) -> &CursorManager {
+        &self.cursor_manager
+    }
 }
 
 impl std::fmt::Debug for ServerState {
@@ -121,6 +128,13 @@ impl std::fmt::Debug for ServerState {
             .field(
                 "font_manager",
                 &format!("FontManager({} fonts)", self.font_manager.font_count()),
+            )
+            .field(
+                "cursor_manager",
+                &format!(
+                    "CursorManager({} cursors)",
+                    self.cursor_manager.cursor_count()
+                ),
             )
             .field("inner", &"<ServerStateInner>")
             .finish()
