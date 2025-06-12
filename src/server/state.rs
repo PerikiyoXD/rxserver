@@ -3,6 +3,7 @@
 //! This module manages the global state of the X server in a thread-safe manner.
 
 use crate::core::{AtomManager, CursorManager, FontManager, PointerManager};
+use crate::server::ExtensionRegistry;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -20,6 +21,8 @@ pub struct ServerState {
     cursor_manager: CursorManager,
     /// Pointer manager for X11 input
     pointer_manager: PointerManager,
+    /// Extension registry for X11 extensions
+    extension_registry: ExtensionRegistry,
 }
 
 #[derive(Debug)]
@@ -45,14 +48,14 @@ impl ServerState {
             running: false,
             sequence_number: 0,
             generation: 1,
-        };
-        Self {
+        };        Self {
             display_name,
             inner: RwLock::new(inner),
             atom_manager: AtomManager::new(),
             font_manager: FontManager::new(),
             cursor_manager: CursorManager::new(),
             pointer_manager: PointerManager::new(),
+            extension_registry: ExtensionRegistry::new(),
         }
     }
 
@@ -116,11 +119,14 @@ impl ServerState {
     /// Get cursor manager
     pub fn cursor_manager(&self) -> &CursorManager {
         &self.cursor_manager
-    }
-
-    /// Get pointer manager
+    }    /// Get pointer manager
     pub fn pointer_manager(&self) -> &PointerManager {
         &self.pointer_manager
+    }
+
+    /// Get extension registry
+    pub fn extension_registry(&self) -> &ExtensionRegistry {
+        &self.extension_registry
     }
 }
 

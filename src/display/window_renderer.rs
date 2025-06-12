@@ -4,15 +4,12 @@
 //! X11 screens to actual operating system windows using winit and softbuffer.
 
 use crate::{
-    display::{framebuffer::Framebuffer, types::DisplaySettings},
+    display::{
+        framebuffer::Framebuffer, shared_framebuffers::SharedFramebuffers, types::DisplaySettings,
+    },
     Result,
 };
-use std::{
-    collections::HashMap,
-    num::NonZeroU32,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, num::NonZeroU32, sync::Arc, time::Duration};
 use tracing::{debug, info, warn};
 use winit::{
     event::{Event, WindowEvent},
@@ -86,7 +83,6 @@ impl ScreenWindowRenderer {
             last_frame_time: std::time::Instant::now(),
         })
     }
-    
     /// Render a framebuffer to this window
     pub fn render_framebuffer(&mut self, framebuffer: &Framebuffer) -> Result<()> {
         // Check if we should limit FPS
@@ -122,6 +118,47 @@ impl ScreenWindowRenderer {
             window_size.width,
             window_size.height,
         )?;
+
+        // Present the buffer
+        buffer
+            .present()
+            .map_err(|e| crate::Error::Display(format!("Failed to present buffer: {}", e)))?;
+
+        self.last_frame_time = std::time::Instant::now();
+
+        Ok(())
+    }
+
+    /// Render a default pattern when no framebuffer is available
+    pub fn render_default_pattern(&mut self) -> Result<()> {
+        // Check if we should limit FPS
+        if !self.config.vsync {
+            let target_frame_duration = Duration::from_millis(1000 / self.config.target_fps as u64);
+            let elapsed = self.last_frame_time.elapsed();
+            if elapsed < target_frame_duration {
+                return Ok(());
+            }
+        }
+
+        let window_size = self.window.inner_size();
+
+        // Resize surface if needed
+        if let Err(e) = self.surface.resize(
+            NonZeroU32::new(window_size.width).unwrap_or(NonZeroU32::new(1).unwrap()),
+            NonZeroU32::new(window_size.height).unwrap_or(NonZeroU32::new(1).unwrap()),
+        ) {
+            warn!("Failed to resize surface: {}", e);
+            return Ok(());
+        }
+
+        // Get the software buffer
+        let mut buffer = self
+            .surface
+            .buffer_mut()
+            .map_err(|e| crate::Error::Display(format!("Failed to get surface buffer: {}", e)))?;
+
+        // Generate a simple pattern to show the display is working
+        Self::generate_default_pattern(&mut buffer, window_size.width, window_size.height);
 
         // Present the buffer
         buffer
@@ -176,7 +213,53 @@ impl ScreenWindowRenderer {
         }
 
         Ok(())
-    }    /// Get the window for this renderer
+    }
+
+    /// Generate a default pattern to display when no framebuffer is available
+    fn generate_default_pattern(buffer: &mut [u32], width: u32, height: u32) {
+        let time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as f32
+            * 0.001;
+
+        for y in 0..height {
+            for x in 0..width {
+                let buffer_index = (y * width + x) as usize;
+                if buffer_index < buffer.len() {
+                    // Create a simple animated pattern
+                    let fx = x as f32 / width as f32;
+                    let fy = y as f32 / height as f32;
+
+                    // Create animated checkerboard pattern
+                    let checker_size = 32.0;
+                    let cx = ((fx * width as f32) / checker_size + time * 2.0) as i32;
+                    let cy = ((fy * height as f32) / checker_size + time * 1.5) as i32;
+                    let checker = (cx + cy) % 2 == 0;
+
+                    // Create animated colors
+                    let r = ((fx + time * 0.5).sin() * 0.5 + 0.5) * 255.0;
+                    let g = ((fy + time * 0.7).sin() * 0.5 + 0.5) * 255.0;
+                    let b = ((fx + fy + time).sin() * 0.5 + 0.5) * 255.0;
+
+                    let color = if checker {
+                        // Bright checker squares
+                        0xFF000000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+                    } else {
+                        // Darker checker squares
+                        0xFF000000
+                            | (((r * 0.3) as u32) << 16)
+                            | (((g * 0.3) as u32) << 8)
+                            | ((b * 0.3) as u32)
+                    };
+
+                    buffer[buffer_index] = color;
+                }
+            }
+        }
+    }
+
+    /// Get the window for this renderer
     pub fn window(&self) -> &Arc<Window> {
         &self.window
     }
@@ -321,11 +404,142 @@ impl WindowRenderer {
                         event: WindowEvent::RedrawRequested,
                         window_id,
                     } => {
-                        // Find the renderer for this window and render
-                        for renderer in screen_renderers.values() {
+                        // Find the renderer for this window and render a default pattern
+                        for renderer in screen_renderers.values_mut() {
                             if renderer.window().id() == window_id {
                                 debug!("Redraw requested for screen {}", renderer.screen_id());
-                                // TODO: Render actual framebuffer data
+                                // Render a default pattern since no framebuffer is connected
+                                if let Err(e) = renderer.render_default_pattern() {
+                                    warn!("Failed to render default pattern: {}", e);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .map_err(|e| crate::Error::Display(format!("Event loop error: {}", e)))?;
+        info!("Window event loop finished");
+        Ok(())
+    }
+
+    /// Run the window event loop with shared framebuffers (blocks current thread)
+    pub fn run_event_loop_with_framebuffers(
+        self,
+        display_settings: &DisplaySettings,
+        shared_framebuffers: SharedFramebuffers,
+    ) -> Result<()> {
+        info!("Starting window event loop with shared framebuffers");
+
+        let event_loop = EventLoop::new()
+            .map_err(|e| crate::Error::Display(format!("Failed to create event loop: {}", e)))?;
+
+        let mut screen_renderers = HashMap::new();
+        let framebuffer_handle = shared_framebuffers.clone_handle();
+
+        // Create windows for each screen
+        for screen_id in 0..display_settings.screens {
+            let config = WindowRendererConfig {
+                title: format!("RX Server - Screen {} (Display :0)", screen_id),
+                width: display_settings.width,
+                height: display_settings.height,
+                ..Default::default()
+            };
+
+            let window = Arc::new(
+                WindowBuilder::new()
+                    .with_title(&config.title)
+                    .with_inner_size(winit::dpi::LogicalSize::new(config.width, config.height))
+                    .with_resizable(true)
+                    .build(&event_loop)
+                    .map_err(|e| {
+                        crate::Error::Display(format!("Failed to create window: {}", e))
+                    })?,
+            );
+
+            let renderer = ScreenWindowRenderer::new(window, config, screen_id)?;
+            screen_renderers.insert(screen_id, renderer);
+        }
+
+        let mut last_render_time = std::time::Instant::now();
+        let render_interval = Duration::from_millis(16); // ~60 FPS
+        let mut frame_count = 0u64;
+
+        info!("🚀 Window event loop starting with framebuffer rendering");
+
+        event_loop
+            .run(move |event, elwt| {
+                elwt.set_control_flow(ControlFlow::Poll);
+
+                match event {
+                    Event::WindowEvent {
+                        event: WindowEvent::CloseRequested,
+                        ..
+                    } => {
+                        info!("🛑 Window close requested - shutting down");
+                        elwt.exit();
+                    }
+                    Event::WindowEvent {
+                        event: WindowEvent::Resized(size),
+                        window_id,
+                    } => {
+                        debug!(
+                            "📏 Window {:?} resized to {}x{}",
+                            window_id, size.width, size.height
+                        );
+                    }
+                    Event::AboutToWait => {
+                        // Render at regular intervals
+                        let now = std::time::Instant::now();
+                        if now.duration_since(last_render_time) >= render_interval {
+                            // Request redraw for all windows
+                            for renderer in screen_renderers.values() {
+                                renderer.window().request_redraw();
+                            }
+                            last_render_time = now;
+                            frame_count += 1;
+
+                            // Log frame rate occasionally
+                            if frame_count % 300 == 0 {
+                                info!("🖼️  Window renderer: {} frames rendered", frame_count);
+                            }
+                        }
+                    }
+                    Event::WindowEvent {
+                        event: WindowEvent::RedrawRequested,
+                        window_id,
+                    } => {
+                        // Find the renderer for this window and render shared framebuffer
+                        for renderer in screen_renderers.values_mut() {
+                            if renderer.window().id() == window_id {
+                                // Get framebuffer from shared storage
+                                if let Ok(fb_map) = framebuffer_handle.read() {
+                                    if let Some(fb_arc) = fb_map.get(&renderer.screen_id()) {
+                                        if let Ok(framebuffer) = fb_arc.read() {
+                                            if let Err(e) =
+                                                renderer.render_framebuffer(&*framebuffer)
+                                            {
+                                                warn!("Failed to render framebuffer: {}", e);
+                                            }
+                                        } else {
+                                            // Fallback to default pattern if can't read framebuffer
+                                            if let Err(e) = renderer.render_default_pattern() {
+                                                warn!("Failed to render default pattern: {}", e);
+                                            }
+                                        }
+                                    } else {
+                                        // Fallback to default pattern if screen not found
+                                        if let Err(e) = renderer.render_default_pattern() {
+                                            warn!("Failed to render default pattern: {}", e);
+                                        }
+                                    }
+                                } else {
+                                    // Fallback to default pattern if can't read framebuffer map
+                                    if let Err(e) = renderer.render_default_pattern() {
+                                        warn!("Failed to render default pattern: {}", e);
+                                    }
+                                }
                                 break;
                             }
                         }
@@ -335,7 +549,7 @@ impl WindowRenderer {
             })
             .map_err(|e| crate::Error::Display(format!("Event loop error: {}", e)))?;
 
-        info!("Window event loop finished");
+        info!("🖼️  Window event loop finished");
         Ok(())
     }
 
