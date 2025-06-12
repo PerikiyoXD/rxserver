@@ -9,27 +9,27 @@ repository = "https://github.com/yourusername/rxserver"
 keywords = ["x11", "window-system", "display-server", "graphics"]
 categories = ["gui", "network-programming"]
 
-[[bin]]
-name = "rxserver"
-path = "src/main.rs"
-
 [lib]
 name = "rxserver"
 path = "src/lib.rs"
 
+[[bin]]
+name = "rxserver"
+path = "src/main.rs"
+
 [dependencies]
-# Async runtime for handling multiple client connections
+# Async runtime
 tokio = { version = "1.0", features = ["full"] }
 
 # Logging
 log = "0.4"
 env_logger = "0.10"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = "0.1"
-tracing-appender = "0.2"                                            # For file logging with rotation
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
-# Command line argument parsing
+# CLI
 clap = { version = "4.0", features = ["derive"] }
 
 # Error handling
@@ -40,36 +40,36 @@ thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 toml = "0.8"
 
-# Binary data handling for X11 protocol
+# Binary data/X11 protocol
 byteorder = "1.4"
-nom = "7.1"       # For parsing binary X11 protocol data
+nom = "7.1"
 
 # Networking
 bytes = "1.0"
 tokio-util = { version = "0.7", features = ["codec"] }
 futures-util = "0.3"
 
-# Date/time handling
+# Date/time
 chrono = { version = "0.4", features = ["serde"] }
 
 # Async traits
 async-trait = "0.1"
 
 # Memory management
-dashmap = "5.5"      # Concurrent hash maps
-parking_lot = "0.12" # Fast mutexes
+dashmap = "5.5"
+parking_lot = "0.12"
 
 # Utilities
 uuid = { version = "1.0", features = ["v4"] }
 bitflags = { version = "2", features = ["serde"] }
-dirs = "5.0"         # For home directory detection
+dirs = "5.0"
 
 # Window rendering
 winit = "0.29"
 softbuffer = "0.4"
 raw-window-handle = "0.6"
 
-# For X11 constants (optional, we'll define our own clean ones)
+# [Optional] For X11 constants
 # x11 = { version = "2.19", optional = true }
 
 [dev-dependencies]
