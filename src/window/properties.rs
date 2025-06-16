@@ -92,7 +92,7 @@ impl WindowProperties {
 
         self.properties
             .entry(window_id)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(property_atom, property);
         Ok(())
     }
@@ -174,7 +174,7 @@ impl WindowProperties {
         // Store in legacy format
         self.legacy_properties
             .entry(window_id)
-            .or_insert_with(HashMap::new)
+            .or_default()
             .insert(property, value.clone());
 
         // Convert to new format - we'll use common atom IDs

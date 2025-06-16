@@ -5,18 +5,24 @@
 
 use async_trait::async_trait;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info};
 
 // Windows-specific winit imports
 #[cfg(target_os = "windows")]
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
+// Import ApplicationHandler and window creation types
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::window::{Window, WindowId};
+
 use crate::{
+    ServerError, ServerResult,
     graphics::Renderer,
     plugins::{PluginRegistry, WindowPlugin},
     protocol::{ClientId, Opcode, ProtocolHandler, Request, Response},
-    ServerError, ServerResult,
 };
 
 /// Messages for communicating with the virtual display thread
@@ -33,6 +39,220 @@ pub enum DisplayMessage {
 #[derive(Debug)]
 pub enum DisplayCallbackMessage {
     WindowResized(u32, u32), // width, height
+}
+
+/// Application handler for the virtual display window
+/// This implements the ApplicationHandler trait required by winit 0.30.x
+struct VirtualDisplayApp {
+    window: Option<Arc<Window>>,
+    context: Option<softbuffer::Context<Arc<Window>>>,
+    surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
+    current_framebuffer: Vec<u32>,
+    current_width: u32,
+    current_height: u32,
+    last_resize_time: std::time::Instant,
+    receiver: mpsc::UnboundedReceiver<DisplayMessage>,
+    callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
+}
+
+impl VirtualDisplayApp {
+    fn new(
+        width: u32,
+        height: u32,
+        receiver: mpsc::UnboundedReceiver<DisplayMessage>,
+        callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
+    ) -> Self {
+        Self {
+            window: None,
+            context: None,
+            surface: None,
+            current_framebuffer: vec![0u32; (width * height) as usize],
+            current_width: width,
+            current_height: height,
+            last_resize_time: std::time::Instant::now(),
+            receiver,
+            callback_sender,
+        }
+    }
+}
+
+impl ApplicationHandler for VirtualDisplayApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_none() {
+            info!(
+                "Creating virtual display window ({}x{})",
+                self.current_width, self.current_height
+            );
+
+            let window_attributes = Window::default_attributes()
+                .with_title("RX X11 Server - Virtual Display")
+                .with_inner_size(winit::dpi::PhysicalSize::new(
+                    self.current_width,
+                    self.current_height,
+                ))
+                .with_resizable(true);
+
+            let window = Arc::new(
+                event_loop
+                    .create_window(window_attributes)
+                    .expect("Failed to create window"),
+            );
+
+            // Create softbuffer context and surface
+            let context = softbuffer::Context::new(window.clone())
+                .expect("Failed to create softbuffer context");
+            let mut surface = softbuffer::Surface::new(&context, window.clone())
+                .expect("Failed to create softbuffer surface");
+
+            // Initialize the surface
+            let width_nz = std::num::NonZeroU32::new(self.current_width).unwrap();
+            let height_nz = std::num::NonZeroU32::new(self.current_height).unwrap();
+            surface
+                .resize(width_nz, height_nz)
+                .expect("Failed to resize surface");
+
+            self.window = Some(window);
+            self.context = Some(context);
+            self.surface = Some(surface);
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if let Some(window) = &self.window {
+            if window.id() == window_id {
+                match event {
+                    WindowEvent::CloseRequested => {
+                        info!("Virtual display window close requested");
+                        event_loop.exit();
+                    }
+                    WindowEvent::RedrawRequested => {
+                        // Update the display with current framebuffer
+                        if let Some(surface) = &mut self.surface {
+                            if let Ok(mut buffer) = surface.buffer_mut() {
+                                let copy_len =
+                                    std::cmp::min(self.current_framebuffer.len(), buffer.len());
+                                buffer[..copy_len]
+                                    .copy_from_slice(&self.current_framebuffer[..copy_len]);
+                                if let Err(e) = buffer.present() {
+                                    error!("Failed to present buffer: {}", e);
+                                }
+                            }
+                        }
+                    }
+                    WindowEvent::Resized(size) => {
+                        info!(
+                            "Virtual display received resize event to {}x{}",
+                            size.width, size.height
+                        );
+
+                        let new_width = size.width;
+                        let new_height = size.height;
+
+                        // Skip resize if dimensions are invalid (e.g., window minimized)
+                        if new_width == 0 || new_height == 0 {
+                            return;
+                        }
+
+                        // Skip resize if dimensions are equal to current size
+                        if new_width == self.current_width && new_height == self.current_height {
+                            return;
+                        }
+
+                        // Throttle resize events - only process at most every 50ms
+                        const RESIZE_THROTTLE_MS: u64 = 50;
+                        let now = std::time::Instant::now();
+                        let time_since_last =
+                            now.duration_since(self.last_resize_time).as_millis() as u64;
+                        if time_since_last < RESIZE_THROTTLE_MS {
+                            // Always update current_width/current_height so the last event is kept
+                            self.current_width = new_width;
+                            self.current_height = new_height;
+                            return; // Skip this resize event, but keep last event state
+                        }
+
+                        // Update throttling state
+                        self.last_resize_time = now;
+
+                        // Update stored dimensions
+                        self.current_width = new_width;
+                        self.current_height = new_height;
+
+                        info!(
+                            "Virtual display resized to {}x{} (throttled)",
+                            new_width, new_height
+                        );
+
+                        // Resize the surface to match new dimensions
+                        if let Some(surface) = &mut self.surface {
+                            let width_nz = std::num::NonZeroU32::new(new_width).unwrap();
+                            let height_nz = std::num::NonZeroU32::new(new_height).unwrap();
+                            if let Err(e) = surface.resize(width_nz, height_nz) {
+                                error!("Failed to resize surface: {}", e);
+                            }
+                        }
+
+                        // Update the current framebuffer size
+                        self.current_framebuffer
+                            .resize((new_width * new_height) as usize, 0); // Send callback to notify protocol handler about resize
+                        if let Some(ref callback_sender) = self.callback_sender {
+                            if callback_sender
+                                .send(DisplayCallbackMessage::WindowResized(new_width, new_height)).is_err()
+                            {
+                                debug!("Callback channel closed, resize notification not sent");
+                            }
+                        }
+
+                        // Request a redraw to update the display
+                        window.request_redraw();
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Check for messages from the protocol handler
+        while let Ok(message) = self.receiver.try_recv() {
+            match message {
+                DisplayMessage::UpdateFramebuffer(framebuffer) => {
+                    debug!("Updating virtual display framebuffer");
+                    let copy_len = std::cmp::min(framebuffer.len(), self.current_framebuffer.len());
+                    self.current_framebuffer[..copy_len].copy_from_slice(&framebuffer[..copy_len]);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::Refresh => {
+                    debug!("Refreshing virtual display");
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::Resize(width, height) => {
+                    debug!("Processing resize message: {}x{}", width, height);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::ResizeRenderer(width, height) => {
+                    debug!("Renderer resize requested: {}x{}", width, height);
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::Shutdown => {
+                    info!("Virtual display shutdown requested");
+                    event_loop.exit();
+                }
+            }
+        }
+    }
 }
 
 /// Virtual display manager that runs in a separate thread
@@ -58,7 +278,9 @@ impl VirtualDisplayManager {
     /// Start the virtual display in a separate thread
     /// This creates the EventLoop and runs it on a dedicated thread
     pub async fn start_display_thread(&self) -> ServerResult<()> {
-        let (sender, mut receiver) = mpsc::unbounded_channel::<DisplayMessage>(); // Store the sender for communication
+        let (sender, receiver) = mpsc::unbounded_channel::<DisplayMessage>();
+
+        // Store the sender for communication
         {
             let mut display_sender = self.display_sender.lock().await;
             *display_sender = Some(sender);
@@ -69,207 +291,32 @@ impl VirtualDisplayManager {
 
         let width = *self.width.lock().await;
         let height = *self.height.lock().await;
-        // Spawn the display thread - this must run EventLoop.run() which blocks
+
+        // Spawn the display thread - this must run EventLoop.run_app() which blocks
         std::thread::spawn(move || {
             info!("Starting virtual display thread ({}x{})", width, height);
+
             // Create the event loop - this must be done on the thread that will run it
             // On Windows, we need to use any_thread() for cross-platform compatibility
             #[cfg(target_os = "windows")]
-            let event_loop = winit::event_loop::EventLoopBuilder::new()
-                .with_any_thread(true)
-                .build()
-                .unwrap();
+            let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
 
             #[cfg(not(target_os = "windows"))]
-            let event_loop = winit::event_loop::EventLoop::new().unwrap(); // Create the window
-            let window = Arc::new(
-                winit::window::WindowBuilder::new()
-                    .with_title("RX X11 Server - Virtual Display")
-                    .with_inner_size(winit::dpi::PhysicalSize::new(width, height))
-                    .with_resizable(true)
-                    .build(&event_loop)
-                    .expect("Failed to create window"),
-            );
+            let event_loop = EventLoop::new().unwrap();
 
-            // Get window ID for event filtering
-            let _window_id = window.id();
+            // Create the application handler
+            let mut app = VirtualDisplayApp::new(width, height, receiver, callback_sender);
 
-            // Create softbuffer context and surface
-            let context = softbuffer::Context::new(window.clone())
-                .expect("Failed to create softbuffer context");
-            let mut surface = softbuffer::Surface::new(&context, window.clone())
-                .expect("Failed to create softbuffer surface");
-
-            // Initialize the surface
-            let width_nz = std::num::NonZeroU32::new(width).unwrap();
-            let height_nz = std::num::NonZeroU32::new(height).unwrap();
-            surface
-                .resize(width_nz, height_nz)
-                .expect("Failed to resize surface"); // Current framebuffer state
-            let mut current_framebuffer = vec![0u32; (width * height) as usize];
-
-            // Track current window dimensions for resize logic
-            let mut current_width = width;
-            let mut current_height = height;
-
-            // Resize throttling state
-            let mut last_resize_time = std::time::Instant::now();
-            const RESIZE_THROTTLE_MS: u64 = 50; // Minimum 50ms between resize processing
-
-            // Get window ID before moving window into closure
-            let window_id = window.id();
-
-            // Run the event loop with proper event handling
+            // Run the event loop with the application handler
             event_loop
-                .run(move |event, event_loop_window_target| {
-                    match event {
-                        winit::event::Event::WindowEvent {
-                            event,
-                            window_id: event_window_id,
-                        } => {
-                            if event_window_id == window_id {
-                                match event {
-                                    winit::event::WindowEvent::CloseRequested => {
-                                        info!("Virtual display window close requested");
-                                        event_loop_window_target.exit();
-                                    }
-                                    winit::event::WindowEvent::RedrawRequested => {
-                                        // Update the display with current framebuffer
-                                        if let Ok(mut buffer) = surface.buffer_mut() {
-                                            let copy_len = std::cmp::min(
-                                                current_framebuffer.len(),
-                                                buffer.len(),
-                                            );
-                                            buffer[..copy_len]
-                                                .copy_from_slice(&current_framebuffer[..copy_len]);
-                                            if let Err(e) = buffer.present() {
-                                                error!("Failed to present buffer: {}", e);
-                                            }
-                                        }
-                                    }
-                                    winit::event::WindowEvent::Resized(size) => {
-                                        info!(
-                                            "Virtual display received resize event to {}x{}",
-                                            size.width, size.height
-                                        );
-                                        // Update "DisplayConfig" with new size and apply everything
-
-                                        let new_width = size.width;
-                                        let new_height = size.height;
-
-                                        // Skip resize if dimensions are invalid (e.g., window minimized)
-                                        if new_width == 0 || new_height == 0 {
-                                            return;
-                                        }
-
-                                        // Skip resize if dimensions are equal to current size
-                                        if new_width == current_width
-                                            && new_height == current_height
-                                        {
-                                            return;
-                                        }
-
-                                        // Throttle resize events - only process at most every 50ms
-                                        let now = std::time::Instant::now();
-                                        let time_since_last =
-                                            now.duration_since(last_resize_time).as_millis() as u64;
-                                        if time_since_last < RESIZE_THROTTLE_MS {
-                                            // Always update current_width/current_height so the last event is kept
-                                            current_width = new_width;
-                                            current_height = new_height;
-                                            return; // Skip this resize event, but keep last event state
-                                        }
-
-                                        // Update throttling state
-                                        last_resize_time = now;
-
-                                        // Update stored dimensions
-                                        current_width = new_width;
-                                        current_height = new_height;
-
-                                        info!(
-                                            "Virtual display resized to {}x{} (throttled)",
-                                            new_width, new_height
-                                        );
-                                        current_height = new_height;
-
-                                        // Resize the surface to match new dimensions
-                                        let width_nz =
-                                            std::num::NonZeroU32::new(new_width).unwrap();
-                                        let height_nz =
-                                            std::num::NonZeroU32::new(new_height).unwrap();
-                                        if let Err(e) = surface.resize(width_nz, height_nz) {
-                                            error!("Failed to resize surface: {}", e);
-                                        }
-
-                                        // Update the current framebuffer size
-                                        current_framebuffer
-                                            .resize((new_width * new_height) as usize, 0);
-
-                                        // Send callback to notify protocol handler about resize
-                                        if let Some(ref callback_sender) = callback_sender {
-                                            if let Err(e) = callback_sender.send(
-                                                DisplayCallbackMessage::WindowResized(
-                                                    new_width, new_height,
-                                                ),
-                                            ) {
-                                                error!("Failed to send resize callback: {}", e);
-                                            }
-                                        }
-
-                                        // Request a redraw to update the display
-                                        window.request_redraw();
-                                    }
-                                    _ => {}
-                                }
-                            }
-                        }
-                        winit::event::Event::AboutToWait => {
-                            // Check for messages from the protocol handler
-                            while let Ok(message) = receiver.try_recv() {
-                                match message {
-                                    DisplayMessage::UpdateFramebuffer(framebuffer) => {
-                                        debug!("Updating virtual display framebuffer");
-                                        let copy_len = std::cmp::min(
-                                            framebuffer.len(),
-                                            current_framebuffer.len(),
-                                        );
-                                        current_framebuffer[..copy_len]
-                                            .copy_from_slice(&framebuffer[..copy_len]);
-                                        window.request_redraw();
-                                    }
-                                    DisplayMessage::Refresh => {
-                                        debug!("Refreshing virtual display");
-                                        window.request_redraw();
-                                    }
-                                    DisplayMessage::Resize(width, height) => {
-                                        debug!("Processing resize message: {}x{}", width, height);
-                                        // The resize is already handled by WindowEvent::Resized
-                                        // This message can trigger additional logic if needed
-                                        window.request_redraw();
-                                    }
-                                    DisplayMessage::ResizeRenderer(width, height) => {
-                                        debug!("Renderer resize requested: {}x{}", width, height);
-                                        // This message is used to notify that renderer should be resized
-                                        // The actual resize will be handled by the protocol handler
-                                        window.request_redraw();
-                                    }
-                                    DisplayMessage::Shutdown => {
-                                        info!("Virtual display shutdown requested");
-                                        event_loop_window_target.exit();
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                })
+                .run_app(&mut app)
                 .expect("Event loop terminated unexpectedly");
         });
 
         info!("Virtual display thread started");
         Ok(())
     }
+
     /// Send a framebuffer update to the display
     pub async fn update_framebuffer(&self, framebuffer: Vec<u32>) -> ServerResult<()> {
         debug!("Sending framebuffer update");
@@ -284,6 +331,7 @@ impl VirtualDisplayManager {
         }
         Ok(())
     }
+
     /// Request a display refresh
     pub async fn refresh_display(&self) -> ServerResult<()> {
         let display_sender = self.display_sender.lock().await;
@@ -362,7 +410,6 @@ impl VirtualDisplayProtocolHandler {
             virtual_display_manager,
         })
     }
-
     /// Start the virtual display (call this after creation)
     pub async fn start_display(&self) -> ServerResult<()> {
         // Set up callback channel for receiving resize notifications
@@ -376,24 +423,57 @@ impl VirtualDisplayProtocolHandler {
         self.virtual_display_manager.start_display_thread().await?;
         info!("Virtual display started");
 
+        // Spawn a task to handle callback messages from the display thread
+        let display_manager = Arc::clone(&self.virtual_display_manager);
+        let renderer = Arc::clone(&self.renderer);
+        tokio::spawn(async move {
+            while let Some(message) = callback_receiver.recv().await {
+                match message {
+                    DisplayCallbackMessage::WindowResized(width, height) => {
+                        info!("Received window resize callback: {}x{}", width, height);
+
+                        // Update the display manager dimensions
+                        display_manager.update_dimensions(width, height).await;
+
+                        // Resize the renderer and redraw the pattern
+                        {
+                            let mut renderer = renderer.lock().await;
+                            renderer.resize(width, height);
+                            renderer.draw_rx_pattern(); // Redraw the pattern for the new size
+                        }
+
+                        // Update the framebuffer with the new renderer content
+                        let framebuffer = {
+                            let renderer = renderer.lock().await;
+                            renderer.framebuffer().to_vec()
+                        };
+
+                        if let Err(e) = display_manager.update_framebuffer(framebuffer).await {
+                            error!("Failed to update framebuffer after resize: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
         // Initial refresh to show the default "rx" pattern
         self.refresh_display().await?;
         info!("Virtual display refreshed with initial pattern");
         Ok(())
     }
+
     /// Get display configuration for this virtual display
     pub async fn get_display_config(&self) -> crate::protocol::DisplayConfig {
         let (width, height) = self.virtual_display_manager.dimensions().await;
         crate::protocol::DisplayConfig {
-            width: width as u16,
-            height: height as u16,
+            width,
+            height,
             // Calculate millimeters assuming 96 DPI
             width_mm: (width as f32 / 96.0 * 25.4) as u16,
             height_mm: (height as f32 / 96.0 * 25.4) as u16,
             depth: 24, // Standard 24-bit color depth
         }
     }
-
     /// Refresh the virtual display with current renderer state
     async fn refresh_display(&self) -> ServerResult<()> {
         let renderer = self.renderer.lock().await;
@@ -403,37 +483,6 @@ impl VirtualDisplayProtocolHandler {
         self.virtual_display_manager
             .update_framebuffer(framebuffer)
             .await?;
-        Ok(())
-    }
-
-    /// Handle display resize - update renderer and display manager
-    pub async fn handle_resize(&self, width: u32, height: u32) -> ServerResult<()> {
-        // Validate dimensions
-        if width == 0 || height == 0 {
-            info!(
-                "Skipping resize with invalid dimensions: {}x{}",
-                width, height
-            );
-            return Ok(());
-        }
-
-        info!("Handling display resize to {}x{}", width, height);
-
-        // Update the virtual display manager dimensions
-        self.virtual_display_manager
-            .update_dimensions(width, height)
-            .await;
-
-        // Resize the renderer and redraw the pattern
-        {
-            let mut renderer = self.renderer.lock().await;
-            renderer.resize(width, height);
-            renderer.draw_rx_pattern(); // Redraw the pattern for the new size
-        }
-
-        // Refresh the display with the updated framebuffer
-        self.refresh_display().await?;
-
         Ok(())
     }
 }

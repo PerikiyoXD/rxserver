@@ -14,6 +14,12 @@ pub struct ProtocolHandlerRegistry {
     display_config: Option<crate::protocol::DisplayConfig>,
 }
 
+impl Default for ProtocolHandlerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProtocolHandlerRegistry {
     pub fn new() -> Self {
         Self {
@@ -35,7 +41,7 @@ impl ProtocolHandlerRegistry {
 
     pub async fn register_handler(
         &mut self,
-        handler: impl ProtocolHandler + Send + Sync + 'static,
+        handler: impl ProtocolHandler + 'static,
     ) -> ServerResult<()> {
         let handler_arc = Arc::new(Mutex::new(handler));
         handler_arc.lock().await.initialize().await?;

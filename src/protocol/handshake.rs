@@ -199,8 +199,8 @@ impl ConnectionSetupRequest {
                     ),
                 ));
             }
-            let auth_data = data[offset..offset + auth_data_len].to_vec();
-            auth_data
+            
+            data[offset..offset + auth_data_len].to_vec()
         } else {
             Vec::new()
         };
@@ -270,7 +270,7 @@ impl ConnectionSetupResponse {
                 } else {
                     &[]
                 };
-                let length_in_units = ((additional_data.len() + 3) / 4) as u16;
+                let length_in_units = additional_data.len().div_ceil(4) as u16;
                 bytes.extend_from_slice(&length_in_units.to_le_bytes());
 
                 // Additional data (server info without the protocol version)
@@ -298,7 +298,7 @@ impl ConnectionSetupResponse {
                 bytes.extend_from_slice(&0u16.to_le_bytes()); // protocol minor = 0
 
                 // Length in 4-byte units of additional data (reason + padding)
-                let padded_len = ((self.data.len() + 3) / 4) as u16;
+                let padded_len = self.data.len().div_ceil(4) as u16;
                 bytes.extend_from_slice(&padded_len.to_le_bytes());
 
                 // Reason string + padding
@@ -318,7 +318,7 @@ impl ConnectionSetupResponse {
                 bytes.extend_from_slice(&[0u8; 5]); // 5 bytes unused
 
                 // Length in 4-byte units of additional data
-                let padded_len = ((self.data.len() + 3) / 4) as u16;
+                let padded_len = self.data.len().div_ceil(4) as u16;
                 bytes.extend_from_slice(&padded_len.to_le_bytes());
 
                 bytes.extend_from_slice(&self.data);

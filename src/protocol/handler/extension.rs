@@ -29,6 +29,12 @@ pub struct ExtensionHandler {
     supported_extensions: Vec<ExtensionInfo>,
 }
 
+impl Default for ExtensionHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExtensionHandler {
     pub fn new() -> Self {
         Self {
@@ -164,7 +170,7 @@ impl ExtensionHandler {
             data_length += 1 + ext.name.len(); // 1 byte for length + name bytes
         }
         // Round up to 4-byte units for reply length field
-        let reply_length = (data_length + 3) / 4;
+        let reply_length = data_length.div_ceil(4);
 
         buf.put_u8(1); // Reply type
         buf.put_u8(num_extensions);

@@ -5,6 +5,7 @@ use tracing::{info, warn};
 
 /// Server configuration loaded from TOML file
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ServerConfig {
     #[serde(default)]
     pub network: NetworkConfig,
@@ -107,17 +108,6 @@ impl ServerConfig {
     }
 }
 
-impl Default for ServerConfig {
-    fn default() -> Self {
-        Self {
-            network: NetworkConfig::default(),
-            logging: LoggingConfig::default(),
-            plugins: PluginConfig::default(),
-            security: SecurityConfig::default(),
-            performance: PerformanceConfig::default(),
-        }
-    }
-}
 
 impl NetworkConfig {
     fn default_listen_address() -> String {

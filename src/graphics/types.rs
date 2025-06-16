@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 
 /// Graphics backend type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum GraphicsBackend {
     #[serde(rename = "software")]
+    #[default]
     Software,
     #[serde(rename = "opengl")]
     OpenGL,
@@ -15,11 +17,6 @@ pub enum GraphicsBackend {
     Vulkan,
 }
 
-impl Default for GraphicsBackend {
-    fn default() -> Self {
-        GraphicsBackend::Software
-    }
-}
 
 /// Color representation
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
