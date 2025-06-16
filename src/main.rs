@@ -62,7 +62,7 @@ async fn main() {
         }
     };
 
-    let server = match RXServer::new_with_display_mode(args.display, config, display_mode).await {
+    let server = match RXServer::new(args.display, config, display_mode).await {
         Ok(server) => server,
         Err(e) => {
             error!("Server creation failed: {}", e);

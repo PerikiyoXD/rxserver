@@ -4,10 +4,13 @@
 // RX X11 Server - Main Server Implementation
 
 use crate::{
+    ServerConfig, ServerError, ServerResult,
     network::ConnectionManager,
     plugins::PluginRegistry,
-    protocol::{ProtocolHandlerRegistry, VirtualDisplayProtocolHandler},
-    ServerConfig, ServerError, ServerResult,
+    protocol::{
+        HeadlessProtocolHandler, NativeDisplayProtocolHandler, ProtocolHandlerRegistry,
+        VirtualDisplayProtocolHandler,
+    },
 };
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -35,13 +38,8 @@ pub struct RXServer {
 }
 
 impl RXServer {
-    /// Create a new X11 server instance with headless display mode
-    pub async fn new(display_str: String, config: ServerConfig) -> ServerResult<Self> {
-        Self::new_with_display_mode(display_str, config, DisplayMode::Headless).await
-    }
-
-    /// Create a new X11 server instance with specific display mode
-    pub async fn new_with_display_mode(
+    /// Create a new X11 server instance
+    pub async fn new(
         display_str: String,
         config: ServerConfig,
         display_mode: DisplayMode,
@@ -78,13 +76,13 @@ impl RXServer {
 
         // Register handlers based on display mode
         match &display_mode {
-            // DisplayMode::Headless => {
-            //     info!("Setting up headless protocol handlers");
-            //     let headless_handler = HeadlessProtocolHandler::new(Arc::clone(&plugins))?;
-            //     protocol_handler_registry
-            //         .register_handler(headless_handler)
-            //         .await?;
-            // }
+            DisplayMode::Headless => {
+                info!("Setting up headless protocol handlers");
+                let headless_handler = HeadlessProtocolHandler::new(Arc::clone(&plugins))?;
+                protocol_handler_registry
+                    .register_handler(headless_handler)
+                    .await?;
+            }
             DisplayMode::VirtualDisplay { width, height } => {
                 info!(
                     "Setting up virtual display protocol handlers ({}x{})",
@@ -103,21 +101,16 @@ impl RXServer {
                     .register_handler(virtual_display_handler)
                     .await?;
             }
-            //DisplayMode::NativeDisplay { width, height } => {
-            //    info!(
-            //        "Setting up native display protocol handlers ({}x{})",
-            //        width, height
-            //    );
-            //    let native_display_handler =
-            //        NativeDisplayProtocolHandler::new(Arc::clone(&plugins), *width, *height)?;
-            //    protocol_handler_registry
-            //        .register_handler(native_display_handler)
-            //        .await?;
-            //}
-            _ => {
-                return Err(ServerError::InitError(
-                    "Unimplemented display mode".to_string(),
-                ));
+            DisplayMode::NativeDisplay { width, height } => {
+                info!(
+                    "Setting up native display protocol handlers ({}x{})",
+                    width, height
+                );
+                let native_display_handler =
+                    NativeDisplayProtocolHandler::new(Arc::clone(&plugins), *width, *height)?;
+                protocol_handler_registry
+                    .register_handler(native_display_handler)
+                    .await?;
             }
         }
 
