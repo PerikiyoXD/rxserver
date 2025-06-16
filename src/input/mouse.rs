@@ -1,22 +1,61 @@
 //! Mouse input handling
 //!
-//! This module handles mouse events, cursor position, and button state.
+//! This module handles mouse events, button presses, and cursor movement.
 
-use crate::protocol::message::Event;
-use crate::protocol::types::*;
-use crate::Result;
+use crate::core::error::ServerResult;
 
-/// Mouse state manager
-pub struct MouseManager {
-    /// Current cursor position
+/// Mouse button
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MouseButton {
+    Left = 1,
+    Middle = 2,
+    Right = 3,
+    WheelUp = 4,
+    WheelDown = 5,
+}
+
+/// Button mask
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ButtonMask(u16);
+
+impl ButtonMask {
+    pub const BUTTON1: ButtonMask = ButtonMask(1 << 8); // Left
+    pub const BUTTON2: ButtonMask = ButtonMask(1 << 9); // Middle
+    pub const BUTTON3: ButtonMask = ButtonMask(1 << 10); // Right
+    pub const BUTTON4: ButtonMask = ButtonMask(1 << 11); // Wheel up
+    pub const BUTTON5: ButtonMask = ButtonMask(1 << 12); // Wheel down
+
+    pub fn contains(&self, other: ButtonMask) -> bool {
+        (self.0 & other.0) == other.0
+    }
+
+    pub fn insert(&mut self, other: ButtonMask) {
+        self.0 |= other.0;
+    }
+
+    pub fn remove(&mut self, other: ButtonMask) {
+        self.0 &= !other.0;
+    }
+}
+
+/// Mouse event
+#[derive(Debug, Clone)]
+pub struct MouseEvent {
     pub x: i16,
     pub y: i16,
-    /// Button state (bit mask)
-    button_state: u8,
-    /// Mouse acceleration factor
+    pub button: Option<MouseButton>,
+    pub pressed: bool,
+    pub button_mask: ButtonMask,
+    pub time: u32,
+}
+
+/// Mouse manager
+pub struct MouseManager {
+    x: i16,
+    y: i16,
+    button_state: ButtonMask,
     acceleration: f32,
-    /// Last motion timestamp
-    last_motion_time: Timestamp,
+    sensitivity: f32,
 }
 
 impl MouseManager {
@@ -25,186 +64,110 @@ impl MouseManager {
         Self {
             x: 0,
             y: 0,
-            button_state: 0,
+            button_state: ButtonMask(0),
             acceleration: 1.0,
-            last_motion_time: 0,
+            sensitivity: 1.0,
         }
     }
 
-    /// Process a mouse button press event
-    pub fn button_press(
-        &mut self,
-        button: u8,
-        timestamp: Timestamp,
-        window: Window,
-    ) -> Result<Event> {
-        self.button_state |= 1 << (button - 1);
+    /// Process mouse movement
+    pub fn mouse_move(&mut self, x: i16, y: i16) -> ServerResult<MouseEvent> {
+        self.x = x;
+        self.y = y;
 
-        Ok(Event::ButtonPress {
-            detail: button,
-            time: timestamp,
-            root: 1, // Root window
-            event: window,
-            child: 0, // TODO: Determine child window
-            root_x: self.x,
-            root_y: self.y,
-            event_x: self.x, // TODO: Convert to window coordinates
-            event_y: self.y,
-            state: self.get_button_state(),
-            same_screen: true,
+        Ok(MouseEvent {
+            x: self.x,
+            y: self.y,
+            button: None,
+            pressed: false,
+            button_mask: self.button_state,
+            time: 0, // TODO: Get actual timestamp
         })
     }
 
-    /// Process a mouse button release event
-    pub fn button_release(
-        &mut self,
-        button: u8,
-        timestamp: Timestamp,
-        window: Window,
-    ) -> Result<Event> {
-        self.button_state &= !(1 << (button - 1));
+    /// Process mouse button press
+    pub fn button_press(&mut self, button: MouseButton) -> ServerResult<MouseEvent> {
+        let button_mask = match button {
+            MouseButton::Left => ButtonMask::BUTTON1,
+            MouseButton::Middle => ButtonMask::BUTTON2,
+            MouseButton::Right => ButtonMask::BUTTON3,
+            MouseButton::WheelUp => ButtonMask::BUTTON4,
+            MouseButton::WheelDown => ButtonMask::BUTTON5,
+        };
 
-        Ok(Event::ButtonRelease {
-            detail: button,
-            time: timestamp,
-            root: 1,
-            event: window,
-            child: 0,
-            root_x: self.x,
-            root_y: self.y,
-            event_x: self.x,
-            event_y: self.y,
-            state: self.get_button_state(),
-            same_screen: true,
+        self.button_state.insert(button_mask);
+
+        Ok(MouseEvent {
+            x: self.x,
+            y: self.y,
+            button: Some(button),
+            pressed: true,
+            button_mask: self.button_state,
+            time: 0, // TODO: Get actual timestamp
         })
     }
 
-    /// Process a mouse motion event
-    pub fn motion(
-        &mut self,
-        new_x: i16,
-        new_y: i16,
-        timestamp: Timestamp,
-        window: Window,
-    ) -> Result<Event> {
-        self.x = new_x;
-        self.y = new_y;
-        self.last_motion_time = timestamp;
+    /// Process mouse button release
+    pub fn button_release(&mut self, button: MouseButton) -> ServerResult<MouseEvent> {
+        let button_mask = match button {
+            MouseButton::Left => ButtonMask::BUTTON1,
+            MouseButton::Middle => ButtonMask::BUTTON2,
+            MouseButton::Right => ButtonMask::BUTTON3,
+            MouseButton::WheelUp => ButtonMask::BUTTON4,
+            MouseButton::WheelDown => ButtonMask::BUTTON5,
+        };
 
-        Ok(Event::MotionNotify {
-            detail: 0,
-            time: timestamp,
-            root: 1,
-            event: window,
-            child: 0,
-            root_x: self.x,
-            root_y: self.y,
-            event_x: self.x,
-            event_y: self.y,
-            state: self.get_button_state(),
-            same_screen: true,
+        self.button_state.remove(button_mask);
+
+        Ok(MouseEvent {
+            x: self.x,
+            y: self.y,
+            button: Some(button),
+            pressed: false,
+            button_mask: self.button_state,
+            time: 0, // TODO: Get actual timestamp
         })
     }
 
-    /// Process a mouse enter event
-    pub fn enter_window(&mut self, window: Window, timestamp: Timestamp) -> Result<Event> {
-        Ok(Event::EnterNotify {
-            detail: NOTIFY_NORMAL,
-            time: timestamp,
-            root: 1,
-            event: window,
-            child: 0,
-            root_x: self.x,
-            root_y: self.y,
-            event_x: self.x,
-            event_y: self.y,
-            state: self.get_button_state(),
-            mode: NOTIFY_MODE_NORMAL,
-            same_screen_focus: 1,
-        })
-    }
-
-    /// Process a mouse leave event
-    pub fn leave_window(&mut self, window: Window, timestamp: Timestamp) -> Result<Event> {
-        Ok(Event::LeaveNotify {
-            detail: NOTIFY_NORMAL,
-            time: timestamp,
-            root: 1,
-            event: window,
-            child: 0,
-            root_x: self.x,
-            root_y: self.y,
-            event_x: self.x,
-            event_y: self.y,
-            state: self.get_button_state(),
-            mode: NOTIFY_MODE_NORMAL,
-            same_screen_focus: 1,
-        })
-    }
-
-    /// Get the current button state
-    pub fn get_button_state(&self) -> u16 {
-        self.button_state as u16
-    }
-
-    /// Check if a button is currently pressed
-    pub fn is_button_pressed(&self, button: u8) -> bool {
-        (self.button_state & (1 << (button - 1))) != 0
-    }
-
-    /// Set mouse acceleration
-    pub fn set_acceleration(&mut self, acceleration: f32) {
-        self.acceleration = acceleration;
-    }
-
-    /// Get current cursor position
+    /// Get current mouse position
     pub fn get_position(&self) -> (i16, i16) {
         (self.x, self.y)
     }
 
-    /// Set cursor position
-    pub fn set_position(&mut self, x: i16, y: i16) {
+    /// Check if a button is currently pressed
+    pub fn is_button_pressed(&self, button: MouseButton) -> bool {
+        let button_mask = match button {
+            MouseButton::Left => ButtonMask::BUTTON1,
+            MouseButton::Middle => ButtonMask::BUTTON2,
+            MouseButton::Right => ButtonMask::BUTTON3,
+            MouseButton::WheelUp => ButtonMask::BUTTON4,
+            MouseButton::WheelDown => ButtonMask::BUTTON5,
+        };
+
+        self.button_state.contains(button_mask)
+    }
+
+    /// Get current button state
+    pub fn get_button_state(&self) -> ButtonMask {
+        self.button_state
+    }
+
+    /// Set mouse acceleration and sensitivity
+    pub fn set_params(&mut self, acceleration: f32, sensitivity: f32) {
+        self.acceleration = acceleration;
+        self.sensitivity = sensitivity;
+    }
+
+    /// Warp mouse cursor to position
+    pub fn warp_cursor(&mut self, x: i16, y: i16) -> ServerResult<()> {
         self.x = x;
         self.y = y;
-    }
-
-    /// Move cursor by relative amount
-    pub fn move_relative(&mut self, dx: i16, dy: i16) {
-        // Apply acceleration
-        let accel_dx = (dx as f32 * self.acceleration) as i16;
-        let accel_dy = (dy as f32 * self.acceleration) as i16;
-
-        self.x += accel_dx;
-        self.y += accel_dy;
-    }
-
-    /// Constrain cursor to bounds
-    pub fn constrain_to_bounds(&mut self, width: u16, height: u16) {
-        self.x = self.x.max(0).min(width as i16 - 1);
-        self.y = self.y.max(0).min(height as i16 - 1);
+        Ok(())
     }
 }
 
-// Mouse button constants
-pub const BUTTON_LEFT: u8 = 1;
-pub const BUTTON_MIDDLE: u8 = 2;
-pub const BUTTON_RIGHT: u8 = 3;
-pub const BUTTON_WHEEL_UP: u8 = 4;
-pub const BUTTON_WHEEL_DOWN: u8 = 5;
-
-// Notify detail constants
-pub const NOTIFY_ANCESTOR: u8 = 0;
-pub const NOTIFY_VIRTUAL: u8 = 1;
-pub const NOTIFY_INFERIOR: u8 = 2;
-pub const NOTIFY_NONLINEAR: u8 = 3;
-pub const NOTIFY_NONLINEAR_VIRTUAL: u8 = 4;
-pub const NOTIFY_POINTER: u8 = 5;
-pub const NOTIFY_POINTER_ROOT: u8 = 6;
-pub const NOTIFY_DETAIL_NONE: u8 = 7;
-pub const NOTIFY_NORMAL: u8 = 0;
-
-// Notify mode constants
-pub const NOTIFY_MODE_NORMAL: u8 = 0;
-pub const NOTIFY_MODE_GRAB: u8 = 1;
-pub const NOTIFY_MODE_UNGRAB: u8 = 2;
-pub const NOTIFY_MODE_WHILE_GRABBED: u8 = 3;
+impl Default for MouseManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}

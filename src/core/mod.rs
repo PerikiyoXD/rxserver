@@ -1,21 +1,17 @@
-//! Core types and traits for RXServer
+//! Core functionality for the RX X11 Server
 //!
-//! This module contains fundamental types, traits, and patterns used throughout
-//! the X server implementation. It establishes the base architecture and
-//! provides type-safe abstractions over X11 concepts.
+//! This module contains fundamental components like configuration,
+//! command line arguments, logging setup, and error handling.
 
-pub mod atom_manager;
-pub mod cursor_manager;
-pub mod errors;
-pub mod font_manager;
-pub mod ids;
-pub mod pointer_manager;
-pub mod traits;
+pub mod args;
+pub mod config;
+pub mod error;
+pub mod logging;
 
-pub use atom_manager::AtomManager;
-pub use cursor_manager::CursorManager;
-pub use errors::*;
-pub use font_manager::FontManager;
-pub use ids::*;
-pub use pointer_manager::PointerManager;
-pub use traits::*;
+// Re-export commonly used types from core modules
+pub use args::CommandlineArgs;
+pub use config::{
+    LoggingConfig, NetworkConfig, PerformanceConfig, PluginConfig, SecurityConfig, ServerConfig,
+};
+pub use error::{ServerError, ServerResult};
+pub use logging::init_logging;

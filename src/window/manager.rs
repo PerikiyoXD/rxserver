@@ -1,172 +1,185 @@
-//! Window manager implementation
+//! Window manager
 //!
-//! This module provides the core window management functionality including
-//! window stacking, focus management, and window tree operations.
+//! This module provides core window management functionality including
+//! window creation, hierarchy management, and focus handling.
 
-use crate::protocol::types::*;
-use crate::{todo_high, Result};
-use core::panic;
+use crate::core::error::ServerResult;
 use std::collections::HashMap;
 
-/// Window manager state
+/// Window identifier
+pub type WindowId = u32;
+
+/// Window manager for handling window operations
 pub struct WindowManager {
-    /// Root window ID
-    root_window: Window,
-    /// Currently focused window
-    focused_window: Option<Window>,
-    /// Window stacking order (bottom to top)
-    stacking_order: Vec<Window>,
-    /// Window parent-child relationships
-    window_tree: HashMap<Window, Vec<Window>>,
+    windows: HashMap<WindowId, Window>,
+    root_window: WindowId,
+    focused_window: Option<WindowId>,
+    next_id: WindowId,
+}
+
+/// Window resource
+#[derive(Debug, Clone)]
+pub struct Window {
+    pub id: WindowId,
+    pub parent: Option<WindowId>,
+    pub children: Vec<WindowId>,
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
+    pub border_width: u16,
+    pub mapped: bool,
+    pub class: WindowClass,
+}
+
+/// Window class
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowClass {
+    CopyFromParent,
+    InputOutput,
+    InputOnly,
 }
 
 impl WindowManager {
     /// Create a new window manager
-    pub fn new(root_window: Window) -> Self {
-        let mut window_tree = HashMap::new();
-        window_tree.insert(root_window, Vec::new());
+    pub fn new() -> Self {
+        let mut manager = Self {
+            windows: HashMap::new(),
+            root_window: 1,
+            focused_window: None,
+            next_id: 2, // Start at 2, root is 1
+        };
 
-        Self {
-            root_window,
-            focused_window: Some(root_window),
-            stacking_order: vec![root_window],
-            window_tree,
-        }
+        // Create root window
+        manager.create_root_window();
+        manager
     }
 
-    /// Add a window to the window tree
-    pub fn add_window(&mut self, window: Window, parent: Window) -> Result<()> {
+    /// Create the root window
+    fn create_root_window(&mut self) {
+        let root = Window {
+            id: self.root_window,
+            parent: None,
+            children: Vec::new(),
+            x: 0,
+            y: 0,
+            width: 1920, // Default screen size
+            height: 1080,
+            border_width: 0,
+            mapped: true,
+            class: WindowClass::InputOutput,
+        };
+
+        self.windows.insert(self.root_window, root);
+    }
+
+    /// Create a new window
+    pub fn create_window(
+        &mut self,
+        parent: WindowId,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        border_width: u16,
+        class: WindowClass,
+    ) -> ServerResult<WindowId> {
+        let window_id = self.next_id;
+        self.next_id += 1;
+
+        let window = Window {
+            id: window_id,
+            parent: Some(parent),
+            children: Vec::new(),
+            x,
+            y,
+            width,
+            height,
+            border_width,
+            mapped: false,
+            class,
+        };
+
         // Add to parent's children
-        self.window_tree
-            .entry(parent)
-            .or_insert_with(Vec::new)
-            .push(window);
+        if let Some(parent_window) = self.windows.get_mut(&parent) {
+            parent_window.children.push(window_id);
+        }
 
-        // Initialize children list for new window
-        self.window_tree.insert(window, Vec::new());
+        self.windows.insert(window_id, window);
+        Ok(window_id)
+    }
 
-        // Add to stacking order (on top)
-        self.stacking_order.push(window);
+    /// Get window by ID
+    pub fn get_window(&self, window_id: WindowId) -> Option<&Window> {
+        self.windows.get(&window_id)
+    }
 
-        log::debug!("Added window {} as child of {}", window, parent);
+    /// Get mutable window by ID
+    pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
+        self.windows.get_mut(&window_id)
+    }
+
+    /// Map a window (make it visible)
+    pub fn map_window(&mut self, window_id: WindowId) -> ServerResult<()> {
+        if let Some(window) = self.windows.get_mut(&window_id) {
+            window.mapped = true;
+        }
         Ok(())
     }
 
-    /// Remove a window from the window tree
-    pub fn remove_window(&mut self, window: Window) -> Result<()> {
-        // Remove from parent's children
-        for children in self.window_tree.values_mut() {
-            children.retain(|&child| child != window);
+    /// Unmap a window (make it invisible)
+    pub fn unmap_window(&mut self, window_id: WindowId) -> ServerResult<()> {
+        if let Some(window) = self.windows.get_mut(&window_id) {
+            window.mapped = false;
         }
-
-        // Remove from stacking order
-        self.stacking_order.retain(|&w| w != window);
-
-        // Remove children (should be handled by resource manager)
-        if let Some(children) = self.window_tree.remove(&window) {
-            for child in children {
-                self.remove_window(child)?;
-            }
-        }
-
-        // Update focus if this was the focused window
-        if self.focused_window == Some(window) {
-            self.focused_window = Some(self.root_window);
-        }
-
-        log::debug!("Removed window {}", window);
         Ok(())
     }
 
-    /// Get the children of a window
-    pub fn get_children(&self, window: Window) -> Vec<Window> {
-        self.window_tree.get(&window).cloned().unwrap_or_default()
-    }
+    /// Destroy a window
+    pub fn destroy_window(&mut self, window_id: WindowId) -> ServerResult<()> {
+        if let Some(window) = self.windows.remove(&window_id) {
+            // Remove from parent's children
+            if let Some(parent_id) = window.parent {
+                if let Some(parent) = self.windows.get_mut(&parent_id) {
+                    parent.children.retain(|&id| id != window_id);
+                }
+            }
 
-    /// Get the parent of a window
-    pub fn get_parent(&self, window: Window) -> Option<Window> {
-        for (parent, children) in &self.window_tree {
-            if children.contains(&window) {
-                return Some(*parent);
+            // Destroy all children
+            let children = window.children.clone();
+            for child_id in children {
+                self.destroy_window(child_id)?;
             }
         }
-        None
+        Ok(())
     }
 
-    /// Set window focus
-    pub fn set_focus(&mut self, window: Window) -> Result<()> {
-        todo_high!("window_manager", "Window focus validation not implemented - not checking if window exists or is mappable");
-        // TODO: Validate window exists and is mappable
-        self.focused_window = Some(window);
-        log::debug!("Focus set to window {}", window);
+    /// Set focus to a window
+    pub fn set_focus(&mut self, window_id: WindowId) -> ServerResult<()> {
+        if self.windows.contains_key(&window_id) {
+            self.focused_window = Some(window_id);
+        }
         Ok(())
     }
 
     /// Get currently focused window
-    pub fn get_focused_window(&self) -> Option<Window> {
+    pub fn get_focused_window(&self) -> Option<WindowId> {
         self.focused_window
     }
 
-    /// Raise a window to the top of the stacking order
-    pub fn raise_window(&mut self, window: Window) -> Result<()> {
-        // Remove from current position
-        self.stacking_order.retain(|&w| w != window);
-        // Add to top
-        self.stacking_order.push(window);
-
-        log::debug!("Raised window {} to top", window);
-        Ok(())
+    /// Get root window ID
+    pub fn get_root_window(&self) -> WindowId {
+        self.root_window
     }
 
-    /// Lower a window to the bottom of the stacking order
-    pub fn lower_window(&mut self, window: Window) -> Result<()> {
-        // Remove from current position
-        self.stacking_order.retain(|&w| w != window);
-        // Add to bottom (after root)
-        if self.stacking_order.is_empty() || self.stacking_order[0] != self.root_window {
-            self.stacking_order.insert(0, window);
-        } else {
-            self.stacking_order.insert(1, window);
-        }
-
-        log::debug!("Lowered window {} to bottom", window);
-        Ok(())
+    /// Get all mapped windows
+    pub fn get_mapped_windows(&self) -> Vec<&Window> {
+        self.windows.values().filter(|w| w.mapped).collect()
     }
+}
 
-    /// Get the window stacking order (bottom to top)
-    pub fn get_stacking_order(&self) -> &[Window] {
-        &self.stacking_order
-    }    /// Find the topmost window at a given point
-    pub fn window_at_point(&self, _x: i16, _y: i16) -> Option<Window> {
-        panic!("window_at_point not implemented - this requires window geometry management");
-    }
-
-    /// Get all windows in the tree (depth-first traversal)
-    pub fn get_all_windows(&self) -> Vec<Window> {
-        let mut windows = Vec::new();
-        self.collect_windows_recursive(self.root_window, &mut windows);
-        windows
-    }
-
-    /// Recursively collect windows
-    fn collect_windows_recursive(&self, window: Window, result: &mut Vec<Window>) {
-        result.push(window);
-        if let Some(children) = self.window_tree.get(&window) {
-            for &child in children {
-                self.collect_windows_recursive(child, result);
-            }
-        }
-    }
-
-    /// Check if a window is an ancestor of another window
-    pub fn is_ancestor(&self, ancestor: Window, descendant: Window) -> bool {
-        let mut current = descendant;
-        while let Some(parent) = self.get_parent(current) {
-            if parent == ancestor {
-                return true;
-            }
-            current = parent;
-        }
-        false
+impl Default for WindowManager {
+    fn default() -> Self {
+        Self::new()
     }
 }

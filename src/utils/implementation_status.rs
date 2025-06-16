@@ -1,62 +1,29 @@
-//! Implementation Status Tracker
+//! Implementation status tracking
 //!
-//! This module provides a comprehensive overview of what's implemented
-//! and what still needs work in the RXServer.
+//! This module provides utilities for tracking and reporting the implementation
+//! status of various components in the RX server.
 
-use crate::{todo_critical, todo_high, todo_low, todo_medium};
-use tracing::{debug, info, warn};
+use tracing::{error, info, warn};
 
 /// Log the current implementation status of all major components
 pub fn log_implementation_status() {
-    info!("=== RXSERVER IMPLEMENTATION STATUS ===");
+    info!("=== RX Server Implementation Status ===");
 
-    // Show what's been completed first
-    info!("=== COMPLETED COMPONENTS ===");
-    info!("✅ Server Architecture: Modular, async design implemented");
-    info!("✅ Event Loop: TCP connection handling working");
-    info!("✅ Protocol Pipeline: X11 request/response processing");
-    info!("✅ Client Management: Connection tracking and registration");
-    info!("✅ Logging System: Structured tracing with multiple levels");
-    info!("✅ Configuration: TOML loading and CLI arguments");
-    info!("✅ Error Handling: Comprehensive error types and propagation");
-    info!("✅ TODO Tracking: Categorized implementation status");
-    info!("");
+    // Core Components
+    info!("CORE COMPONENTS:");
+    info!("✅ Configuration system implemented");
+    info!("✅ Command-line argument parsing implemented");
+    info!("✅ Error handling implemented");
+    info!("✅ Logging system implemented");
 
-    // Core Server Components
-    info!("CORE SERVER COMPONENTS:");
-    info!("✅ Main event loop implemented and running");
-    info!("✅ Connection acceptance implemented (TCP)");
-    info!("✅ Request/response pipeline implemented and working");
-
-    // Network Layer
-    info!("NETWORK LAYER:");
-    info!("✅ TCP listener setup implemented and working");
-    info!("✅ X11 connection handshake protocol implemented and working");
-    todo_high!("networking", "Unix domain socket support not implemented");
-    todo_medium!("networking", "Connection security enhancements needed");
-
-    // Protocol Handling
-    info!("PROTOCOL HANDLING:");
-    info!("✅ X11 request parsing implemented and working");
-    info!("✅ Response building and serialization implemented");
-    info!("✅ X11 connection setup and authentication working");
-    todo_medium!(
-        "protocol",
-        "CreateWindow request handler needs full implementation"
-    );
-    todo_medium!(
-        "protocol",
-        "DestroyWindow request handler needs full implementation"
-    );
-    todo_medium!(
-        "protocol",
-        "MapWindow request handler needs full implementation"
-    );
-    todo_medium!(
-        "protocol",
-        "UnmapWindow request handler needs full implementation"
-    );
-    todo_high!("protocol", "GetWindowAttributes handler incomplete");
+    // Network and Protocol
+    info!("NETWORK & PROTOCOL:");
+    info!("✅ TCP connection handling implemented");
+    info!("✅ Client connection management implemented");
+    todo_high!("protocol", "X11 request parsing incomplete");
+    todo_high!("protocol", "Most X11 requests not implemented");
+    todo_high!("protocol", "X11 response generation incomplete");
+    todo_high!("protocol", "Event handling incomplete");
     todo_high!("protocol", "ClearArea handler missing");
     todo_medium!("protocol", "Most X11 requests not implemented");
     todo_medium!("protocol", "Extension support not implemented");
@@ -116,6 +83,7 @@ pub fn log_implementation_status() {
         "Key mapping and internationalization not implemented"
     );
     todo_low!("input", "Input device hotplug not implemented");
+
     // Client Management
     info!("CLIENT MANAGEMENT:");
     info!("✅ Client connection handling implemented");
@@ -129,109 +97,130 @@ pub fn log_implementation_status() {
         "client_mgr",
         "Client resource cleanup on disconnect incomplete"
     );
-    todo_low!("client_mgr", "Client process monitoring not implemented");
-    
-    // Logging and Monitoring
-    info!("LOGGING AND MONITORING:");
-    info!("✅ Structured logging with tracing implemented");
-    info!("✅ Log level configuration working");
-    info!("✅ Console logging fully functional");
-    todo_high!("logging", "File logging support not implemented");
-    todo_medium!("logging", "Memory usage tracking not implemented");
-    todo_medium!("logging", "Performance profiling not implemented");
-    todo_low!("logging", "Debug tracing not implemented");
 
-    // Configuration
-    info!("CONFIGURATION:");
-    info!("✅ TOML configuration loading implemented");
-    info!("✅ Command line argument parsing working");
-    info!("✅ Configuration structure defined and used");
-    todo_low!("config", "Dynamic configuration reload not implemented");
-    todo_low!("config", "Environment variable override not implemented");
-    todo_low!("config", "Configuration validation not implemented");
+    // Plugin System
+    info!("PLUGIN SYSTEM:");
+    info!("✅ Plugin registry implemented");
+    info!("✅ Atom registry implemented");
+    info!("✅ Font manager implemented");
+    info!("✅ Cursor manager implemented");
+    todo_medium!(
+        "plugins",
+        "Plugin loading from external libraries not implemented"
+    );
+    todo_low!("plugins", "Plugin API versioning not implemented");
 
-    // Extensions and Features
-    warn!("EXTENSIONS AND FEATURES:");
-    todo_low!("extensions", "XINERAMA extension not implemented");
-    todo_low!("extensions", "RENDER extension not implemented");
-    todo_low!("extensions", "COMPOSITE extension not implemented");
-    todo_low!("extensions", "XKB extension not implemented");
-    todo_low!("extensions", "RANDR extension not implemented");
-
-    // Security and Access Control
-    warn!("SECURITY:");
-    todo_medium!("security", "Access control not implemented");
-    todo_medium!("security", "Client authentication not implemented");
-    todo_low!("security", "Resource access control not implemented");
-
-    // Testing and Development
-    warn!("TESTING:");
-    todo_medium!("testing", "Unit tests incomplete");
-    todo_medium!("testing", "Integration tests not implemented");
-    todo_low!("testing", "Performance benchmarks not implemented");
-    info!("=== IMPLEMENTATION PROGRESS SUMMARY ===");
-    info!("✅ Server starts and runs: Main event loop working");
-    info!("✅ Clients can connect: TCP network layer working");
-    info!("✅ X11 handshake protocol: Connection setup and authentication working");
-    info!("✅ Requests are processed: X11 protocol pipeline working");
-    warn!("⚠️  Display initialization: Basic setup done, needs enhancement");
-    warn!("⚠️  Request handlers: Framework ready, need specific implementations");
-    warn!("=== HIGH PRIORITY TASKS ===");
-    warn!("🔥 Replace TCP fallback with Unix domain socket");
-    warn!("🔥 Implement actual window request handler logic");
-    warn!("🔥 Implement basic framebuffer and display setup");
-
-    info!("=== END IMPLEMENTATION STATUS ===");
+    info!("=== End Implementation Status ===");
 }
 
-/// Mark specific unimplemented areas with appropriate priority
-pub fn mark_unimplemented_areas() {
-    // This function can be called from various modules to consistently
-    // mark areas that need implementation
-
-    debug!("Implementation status tracking initialized");
+/// Component status
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ComponentStatus {
+    Complete,
+    Partial,
+    Todo,
+    Missing,
 }
 
-/// Check if a component is implemented
-pub fn is_implemented(component: &str) -> bool {
-    match component {
-        // Mark components as implemented when they're working
-        "config_loading" => true,
-        "basic_logging" => true,
-        "tracing_logging" => true,
-        "todo_macros" => true,
-        "main_event_loop" => true,
-        "tcp_listener" => true,
-        "client_connection_handling" => true,
-        "client_registration" => true,
-        "x11_request_parsing" => true,
-        "x11_response_building" => true,
-        "request_response_pipeline" => true,
-        "command_line_args" => true,
-        "server_core_architecture" => true,
-        _ => {
-            todo_low!(
-                "status_check",
-                "Component '{}' implementation status unknown",
-                component
-            );
-            false
-        }
+/// Component information
+#[derive(Debug, Clone)]
+pub struct ComponentInfo {
+    pub name: String,
+    pub status: ComponentStatus,
+    pub description: String,
+    pub completion_percentage: u8,
+}
+
+/// Get implementation status for all components
+pub fn get_component_status() -> Vec<ComponentInfo> {
+    vec![
+        ComponentInfo {
+            name: "Core Configuration".to_string(),
+            status: ComponentStatus::Complete,
+            description: "Configuration loading and management".to_string(),
+            completion_percentage: 100,
+        },
+        ComponentInfo {
+            name: "Logging System".to_string(),
+            status: ComponentStatus::Complete,
+            description: "Centralized logging with file support".to_string(),
+            completion_percentage: 100,
+        },
+        ComponentInfo {
+            name: "Network Layer".to_string(),
+            status: ComponentStatus::Partial,
+            description: "TCP connections and client management".to_string(),
+            completion_percentage: 70,
+        },
+        ComponentInfo {
+            name: "X11 Protocol".to_string(),
+            status: ComponentStatus::Todo,
+            description: "X11 request/response handling".to_string(),
+            completion_percentage: 20,
+        },
+        ComponentInfo {
+            name: "Resource Management".to_string(),
+            status: ComponentStatus::Todo,
+            description: "Window, pixmap, and other resource management".to_string(),
+            completion_percentage: 30,
+        },
+        ComponentInfo {
+            name: "Display Management".to_string(),
+            status: ComponentStatus::Missing,
+            description: "Framebuffer and screen management".to_string(),
+            completion_percentage: 10,
+        },
+        ComponentInfo {
+            name: "Graphics Rendering".to_string(),
+            status: ComponentStatus::Partial,
+            description: "Basic 2D rendering operations".to_string(),
+            completion_percentage: 40,
+        },
+        ComponentInfo {
+            name: "Window Management".to_string(),
+            status: ComponentStatus::Partial,
+            description: "Window hierarchy and properties".to_string(),
+            completion_percentage: 50,
+        },
+        ComponentInfo {
+            name: "Input Handling".to_string(),
+            status: ComponentStatus::Partial,
+            description: "Keyboard and mouse event handling".to_string(),
+            completion_percentage: 45,
+        },
+        ComponentInfo {
+            name: "Plugin System".to_string(),
+            status: ComponentStatus::Partial,
+            description: "Plugin registry and basic managers".to_string(),
+            completion_percentage: 60,
+        },
+    ]
+}
+
+/// Print a summary of component status
+pub fn print_status_summary() {
+    let components = get_component_status();
+    let total_completion: u32 = components
+        .iter()
+        .map(|c| c.completion_percentage as u32)
+        .sum();
+    let average_completion = total_completion / components.len() as u32;
+
+    info!("=== Component Status Summary ===");
+    for component in &components {
+        let status_icon = match component.status {
+            ComponentStatus::Complete => "✅",
+            ComponentStatus::Partial => "🔄",
+            ComponentStatus::Todo => "📋",
+            ComponentStatus::Missing => "❌",
+        };
+
+        info!(
+            "{} {} - {}% - {}",
+            status_icon, component.name, component.completion_percentage, component.description
+        );
     }
-}
 
-/// Performance TODO markers for optimization
-pub fn mark_performance_todos() {
-    todo_low!("performance", "Memory allocation patterns not optimized");
-    todo_low!("performance", "Request processing not benchmarked");
-    todo_low!("performance", "Graphics rendering not profiled");
-    todo_low!("performance", "Network I/O not optimized");
-}
-
-/// Security TODO markers
-pub fn mark_security_todos() {
-    todo_medium!("security", "No input validation on protocol messages");
-    todo_medium!("security", "No buffer overflow protection");
-    todo_medium!("security", "No resource usage limits");
-    todo_low!("security", "No audit logging");
+    info!("Overall completion: {}%", average_completion);
+    info!("=== End Summary ===");
 }

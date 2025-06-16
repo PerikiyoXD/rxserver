@@ -1,10 +1,9 @@
 /*!
  * TODO and debug logging utilities for RXServer
- * 
+ *
  * This module provides consistent TODO markers and debug logging
  * for tracking non-working or incomplete functionality.
  */
-
 
 /// Macro for marking TODO items with consistent logging
 #[macro_export]
@@ -34,70 +33,96 @@ macro_rules! todo_log {
 macro_rules! todo_critical {
     ($category:expr, $msg:expr) => {
         $crate::todo_log!(error, $category, $msg);
-        //panic!("CRITICAL TODO: {}", $msg);
+        panic!("CRITICAL TODO: {} - {}", $category, $msg);
     };
     ($category:expr, $msg:expr, $($arg:tt)*) => {
-        $crate::todo_log!(error, $category, $msg, $($arg)*);
-        //panic!("CRITICAL TODO: {}", format!($msg, $($arg)*));
+        $crate::todo_log!(error, $category, format!($msg, $($arg)*));
+        panic!("CRITICAL TODO: {} - {}", $category, format!($msg, $($arg)*));
     };
 }
 
-/// Mark a high priority TODO
+/// Mark a high priority missing implementation
 #[macro_export]
 macro_rules! todo_high {
+    ($category:expr, $msg:expr) => {
+        $crate::todo_log!(error, $category, $msg);
+    };
+    ($category:expr, $msg:expr, $($arg:tt)*) => {
+        $crate::todo_log!(error, $category, format!($msg, $($arg)*));
+    };
+}
+
+/// Mark a medium priority missing implementation
+#[macro_export]
+macro_rules! todo_medium {
     ($category:expr, $msg:expr) => {
         $crate::todo_log!(warn, $category, $msg);
     };
     ($category:expr, $msg:expr, $($arg:tt)*) => {
-        $crate::todo_log!(warn, $category, $msg, $($arg)*);
+        $crate::todo_log!(warn, $category, format!($msg, $($arg)*));
     };
 }
 
-/// Mark a medium priority TODO
+/// Mark a low priority missing implementation
 #[macro_export]
-macro_rules! todo_medium {
+macro_rules! todo_low {
     ($category:expr, $msg:expr) => {
         $crate::todo_log!(info, $category, $msg);
     };
     ($category:expr, $msg:expr, $($arg:tt)*) => {
-        $crate::todo_log!(info, $category, $msg, $($arg)*);
+        $crate::todo_log!(info, $category, format!($msg, $($arg)*));
     };
 }
 
-/// Mark a low priority TODO
+/// Debug print with context information
 #[macro_export]
-macro_rules! todo_low {
-    ($category:expr, $msg:expr) => {
-        $crate::todo_log!(debug, $category, $msg);
+macro_rules! debug_print {
+    ($msg:expr) => {
+        tracing::debug!(
+            file = file!(),
+            line = line!(),
+            "DEBUG: {}", $msg
+        );
     };
-    ($category:expr, $msg:expr, $($arg:tt)*) => {
-        $crate::todo_log!(debug, $category, $msg, $($arg)*);
+    ($msg:expr, $($arg:tt)*) => {
+        tracing::debug!(
+            file = file!(),
+            line = line!(),
+            "DEBUG: {}", format!($msg, $($arg)*)
+        );
     };
 }
 
-/// Return a not implemented error with TODO logging
+/// Mark a feature as not yet implemented with context
 #[macro_export]
-macro_rules! todo_return {
-    ($category:expr, $msg:expr) => {{
-        $crate::todo_high!($category, $msg);
-        Err(crate::Error::NotImplemented($msg.to_string()))
-    }};
-    ($category:expr, $msg:expr, $($arg:tt)*) => {{
-        let msg = format!($msg, $($arg)*);
-        $crate::todo_high!($category, "{}", msg);
-        Err(crate::Error::NotImplemented(msg))
-    }};
+macro_rules! not_implemented {
+    ($feature:expr) => {
+        tracing::warn!(
+            feature = $feature,
+            file = file!(),
+            line = line!(),
+            "Feature not yet implemented: {}",
+            $feature
+        );
+        Err(crate::core::error::ServerError::NotImplemented(
+            $feature.to_string(),
+        ))
+    };
 }
 
-/// Placeholder implementation that logs TODO and returns default
+/// Temporary stub for functions that need implementation
 #[macro_export]
-macro_rules! todo_placeholder {
-    ($category:expr, $msg:expr, $default:expr) => {{
-        $crate::todo_medium!($category, $msg);
-        $default
-    }};
-    ($category:expr, $msg:expr, $default:expr, $($arg:tt)*) => {{
-        $crate::todo_medium!($category, $msg, $($arg)*);
-        $default
-    }};
+macro_rules! stub {
+    () => {
+        tracing::trace!(file = file!(), line = line!(), "Function stub called");
+    };
+    ($msg:expr) => {
+        tracing::trace!(
+            message = $msg,
+            file = file!(),
+            line = line!(),
+            "Function stub: {}",
+            $msg
+        );
+    };
 }

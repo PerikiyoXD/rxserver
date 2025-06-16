@@ -1,225 +1,268 @@
-//! Window properties management
+//! Window properties
 //!
-//! This module handles window properties such as window titles, classes,
-//! and other metadata associated with windows.
+//! This module handles window properties and attributes including
+//! WM properties, hints, and other window metadata.
 
+use crate::core::error::ServerResult;
 use std::collections::HashMap;
-use crate::protocol::types::*;
-use crate::{Error, Result};
 
-/// Window property data
+/// Property atom identifier
+pub type PropertyAtom = u32;
+
+/// Property value with format information
 #[derive(Debug, Clone)]
 pub struct Property {
-    /// Property type
-    pub property_type: Atom,
-    /// Property format (8, 16, or 32 bits per item)
-    pub format: u8,
-    /// Property data
+    pub type_atom: PropertyAtom,
+    pub format: u8, // 8, 16, or 32 bits per unit
     pub data: Vec<u8>,
 }
 
-/// Manages window properties
-pub struct PropertyManager {
-    /// Properties for each window
-    window_properties: HashMap<Window, HashMap<Atom, Property>>,
+/// Property value (legacy enum for compatibility)
+#[derive(Debug, Clone)]
+pub enum PropertyValue {
+    String(String),
+    Cardinal(u32),
+    Window(u32),
+    Atom(PropertyAtom),
+    Data(Vec<u8>),
 }
 
-impl PropertyManager {
-    /// Create a new property manager
+impl PropertyValue {
+    /// Convert to new Property format
+    pub fn to_property(&self, string_atom: PropertyAtom, cardinal_atom: PropertyAtom) -> Property {
+        match self {
+            PropertyValue::String(s) => Property {
+                type_atom: string_atom,
+                format: 8,
+                data: s.as_bytes().to_vec(),
+            },
+            PropertyValue::Cardinal(n) => Property {
+                type_atom: cardinal_atom,
+                format: 32,
+                data: n.to_le_bytes().to_vec(),
+            },
+            PropertyValue::Window(id) => Property {
+                type_atom: 33, // WINDOW atom
+                format: 32,
+                data: id.to_le_bytes().to_vec(),
+            },
+            PropertyValue::Atom(atom) => Property {
+                type_atom: 4, // ATOM atom
+                format: 32,
+                data: atom.to_le_bytes().to_vec(),
+            },
+            PropertyValue::Data(data) => Property {
+                type_atom: 0, // None
+                format: 8,
+                data: data.clone(),
+            },
+        }
+    }
+}
+
+/// Window properties manager
+pub struct WindowProperties {
+    properties: HashMap<u32, HashMap<PropertyAtom, Property>>,
+    legacy_properties: HashMap<u32, HashMap<PropertyAtom, PropertyValue>>, // For backward compatibility
+}
+
+impl WindowProperties {
+    /// Create a new window properties manager
     pub fn new() -> Self {
         Self {
-            window_properties: HashMap::new(),
+            properties: HashMap::new(),
+            legacy_properties: HashMap::new(),
         }
     }
 
-    /// Set a property on a window
-    pub fn set_property(
+    /// Set a property on a window with full format control
+    pub fn set_property_full(
         &mut self,
-        window: Window,
-        property: Atom,
-        property_type: Atom,
+        window_id: u32,
+        property_atom: PropertyAtom,
+        type_atom: PropertyAtom,
         format: u8,
         data: Vec<u8>,
-    ) -> Result<()> {
-        if format != 8 && format != 16 && format != 32 {
-            return Err(Error::Window("Invalid property format".to_string()));
-        }
-
-        let prop = Property {
-            property_type,
+    ) -> ServerResult<()> {
+        let property = Property {
+            type_atom,
             format,
             data,
         };
 
-        self.window_properties
-            .entry(window)
+        self.properties
+            .entry(window_id)
             .or_insert_with(HashMap::new)
-            .insert(property, prop);
-
-        log::debug!("Set property {} on window {}", property, window);
+            .insert(property_atom, property);
         Ok(())
     }
 
-    /// Get a property from a window
-    pub fn get_property(&self, window: Window, property: Atom) -> Option<&Property> {
-        self.window_properties
-            .get(&window)
-            .and_then(|props| props.get(&property))
+    /// Get a property from a window with full metadata
+    pub fn get_property_full(
+        &self,
+        window_id: u32,
+        property_atom: PropertyAtom,
+        type_filter: PropertyAtom, // 0 = AnyPropertyType
+        offset: u32,
+        length: u32,
+    ) -> Option<(Property, u32)> {
+        // Returns (property, bytes_after)
+        let window_props = self.properties.get(&window_id)?;
+        let property = window_props.get(&property_atom)?;
+
+        // Check type filter
+        if type_filter != 0 && property.type_atom != type_filter {
+            return None;
+        }
+
+        // Calculate offset and length in bytes
+        let bytes_per_unit = match property.format {
+            8 => 1,
+            16 => 2,
+            32 => 4,
+            _ => return None,
+        };
+
+        let byte_offset = (offset as usize) * bytes_per_unit;
+        let max_byte_length = (length as usize) * bytes_per_unit;
+
+        if byte_offset >= property.data.len() {
+            // Offset beyond data
+            return Some((
+                Property {
+                    type_atom: property.type_atom,
+                    format: property.format,
+                    data: Vec::new(),
+                },
+                0,
+            ));
+        }
+
+        let end_offset = std::cmp::min(byte_offset + max_byte_length, property.data.len());
+        let data_slice = property.data[byte_offset..end_offset].to_vec();
+        let bytes_after = property.data.len().saturating_sub(end_offset) as u32;
+
+        Some((
+            Property {
+                type_atom: property.type_atom,
+                format: property.format,
+                data: data_slice,
+            },
+            bytes_after,
+        ))
     }
 
     /// Delete a property from a window
-    pub fn delete_property(&mut self, window: Window, property: Atom) -> Result<bool> {
-        if let Some(props) = self.window_properties.get_mut(&window) {
-            let removed = props.remove(&property).is_some();
-            log::debug!("Deleted property {} from window {}", property, window);
-            Ok(removed)
+    pub fn delete_property_full(
+        &mut self,
+        window_id: u32,
+        property_atom: PropertyAtom,
+    ) -> ServerResult<bool> {
+        if let Some(window_props) = self.properties.get_mut(&window_id) {
+            Ok(window_props.remove(&property_atom).is_some())
         } else {
             Ok(false)
         }
     }
+    /// Set a property on a window (legacy method for compatibility)
+    pub fn set_property(
+        &mut self,
+        window_id: u32,
+        property: PropertyAtom,
+        value: PropertyValue,
+    ) -> ServerResult<()> {
+        // Store in legacy format
+        self.legacy_properties
+            .entry(window_id)
+            .or_insert_with(HashMap::new)
+            .insert(property, value.clone());
 
-    /// List all properties for a window
-    pub fn list_properties(&self, window: Window) -> Vec<Atom> {
-        self.window_properties
-            .get(&window)
-            .map(|props| props.keys().copied().collect())
-            .unwrap_or_default()
-    }
-
-    /// Remove all properties for a window
-    pub fn remove_window_properties(&mut self, window: Window) {
-        if self.window_properties.remove(&window).is_some() {
-            log::debug!("Removed all properties for window {}", window);
-        }
-    }
-
-    /// Set the window title (WM_NAME property)
-    pub fn set_window_title(&mut self, window: Window, title: &str) -> Result<()> {
-        self.set_property(
-            window,
-            atoms::WM_NAME,
-            atoms::STRING,
-            8,
-            title.as_bytes().to_vec(),
+        // Convert to new format - we'll use common atom IDs
+        let property_obj = value.to_property(31, 6); // STRING=31, CARDINAL=6
+        self.set_property_full(
+            window_id,
+            property,
+            property_obj.type_atom,
+            property_obj.format,
+            property_obj.data,
         )
     }
 
-    /// Get the window title (WM_NAME property)
-    pub fn get_window_title(&self, window: Window) -> Option<String> {
-        self.get_property(window, atoms::WM_NAME)
-            .and_then(|prop| {
-                if prop.format == 8 {
-                    String::from_utf8(prop.data.clone()).ok()
-                } else {
-                    None
-                }
-            })
+    /// Get a property from a window (legacy method for compatibility)
+    pub fn get_property(&self, window_id: u32, property: PropertyAtom) -> Option<PropertyValue> {
+        let window_props = self.legacy_properties.get(&window_id)?;
+        window_props.get(&property).cloned()
     }
 
-    /// Set the window class (WM_CLASS property)
-    pub fn set_window_class(&mut self, window: Window, instance: &str, class: &str) -> Result<()> {
-        let mut data = Vec::new();
-        data.extend_from_slice(instance.as_bytes());
-        data.push(0); // Null terminator
-        data.extend_from_slice(class.as_bytes());
-        data.push(0); // Null terminator
+    /// Delete a property from a window (legacy method)
+    pub fn delete_property(&mut self, window_id: u32, property: PropertyAtom) -> ServerResult<()> {
+        if let Some(window_props) = self.legacy_properties.get_mut(&window_id) {
+            window_props.remove(&property);
+        }
+        // Also remove from new format
+        self.delete_property_full(window_id, property)?;
+        Ok(())
+    }
+    /// List all properties for a window
+    pub fn list_properties(&self, window_id: u32) -> Vec<PropertyAtom> {
+        let mut props = Vec::new();
 
-        self.set_property(window, atoms::WM_CLASS, atoms::STRING, 8, data)
+        // Get from new format
+        if let Some(window_props) = self.properties.get(&window_id) {
+            props.extend(window_props.keys().copied());
+        }
+
+        // Get from legacy format
+        if let Some(window_props) = self.legacy_properties.get(&window_id) {
+            for &key in window_props.keys() {
+                if !props.contains(&key) {
+                    props.push(key);
+                }
+            }
+        }
+
+        props
     }
 
-    /// Get the window class (WM_CLASS property)
-    pub fn get_window_class(&self, window: Window) -> Option<(String, String)> {
-        self.get_property(window, atoms::WM_CLASS)
-            .and_then(|prop| {
-                if prop.format == 8 {
-                    let parts: Vec<&str> = std::str::from_utf8(&prop.data)
-                        .ok()?
-                        .split('\0')
-                        .collect();
-                    if parts.len() >= 2 {
-                        Some((parts[0].to_string(), parts[1].to_string()))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            })
+    /// Remove all properties for a window
+    pub fn remove_window_properties(&mut self, window_id: u32) {
+        self.properties.remove(&window_id);
+        self.legacy_properties.remove(&window_id);
+    }
+    /// Get window title (WM_NAME property)
+    pub fn get_window_title(&self, window_id: u32) -> Option<String> {
+        // WM_NAME is typically atom 39
+        if let Some(PropertyValue::String(title)) = self.get_property(window_id, 39) {
+            Some(title)
+        } else {
+            None
+        }
+    }
+
+    /// Set window title (WM_NAME property)
+    pub fn set_window_title(&mut self, window_id: u32, title: String) -> ServerResult<()> {
+        // WM_NAME is typically atom 39
+        self.set_property(window_id, 39, PropertyValue::String(title))
+    }
+    /// Get window class (WM_CLASS property)
+    pub fn get_window_class(&self, window_id: u32) -> Option<String> {
+        // WM_CLASS is typically atom 67
+        if let Some(PropertyValue::String(class)) = self.get_property(window_id, 67) {
+            Some(class)
+        } else {
+            None
+        }
+    }
+
+    /// Set window class (WM_CLASS property)
+    pub fn set_window_class(&mut self, window_id: u32, class: String) -> ServerResult<()> {
+        // WM_CLASS is typically atom 67
+        self.set_property(window_id, 67, PropertyValue::String(class))
     }
 }
 
-/// Common X11 atom constants
-pub mod atoms {
-    use crate::protocol::types::Atom;
-
-    pub const PRIMARY: Atom = 1;
-    pub const SECONDARY: Atom = 2;
-    pub const ARC: Atom = 3;
-    pub const ATOM: Atom = 4;
-    pub const BITMAP: Atom = 5;
-    pub const CARDINAL: Atom = 6;
-    pub const COLORMAP: Atom = 7;
-    pub const CURSOR: Atom = 8;
-    pub const CUT_BUFFER0: Atom = 9;
-    pub const CUT_BUFFER1: Atom = 10;
-    pub const CUT_BUFFER2: Atom = 11;
-    pub const CUT_BUFFER3: Atom = 12;
-    pub const CUT_BUFFER4: Atom = 13;
-    pub const CUT_BUFFER5: Atom = 14;
-    pub const CUT_BUFFER6: Atom = 15;
-    pub const CUT_BUFFER7: Atom = 16;
-    pub const DRAWABLE: Atom = 17;
-    pub const FONT: Atom = 18;
-    pub const INTEGER: Atom = 19;
-    pub const PIXMAP: Atom = 20;
-    pub const POINT: Atom = 21;
-    pub const RECTANGLE: Atom = 22;
-    pub const RESOURCE_MANAGER: Atom = 23;
-    pub const RGB_COLOR_MAP: Atom = 24;
-    pub const RGB_BEST_MAP: Atom = 25;
-    pub const RGB_BLUE_MAP: Atom = 26;
-    pub const RGB_DEFAULT_MAP: Atom = 27;
-    pub const RGB_GRAY_MAP: Atom = 28;
-    pub const RGB_GREEN_MAP: Atom = 29;
-    pub const RGB_RED_MAP: Atom = 30;
-    pub const STRING: Atom = 31;
-    pub const VISUALID: Atom = 32;
-    pub const WINDOW: Atom = 33;
-    pub const WM_COMMAND: Atom = 34;
-    pub const WM_HINTS: Atom = 35;
-    pub const WM_CLIENT_MACHINE: Atom = 36;
-    pub const WM_ICON_NAME: Atom = 37;
-    pub const WM_ICON_SIZE: Atom = 38;
-    pub const WM_NAME: Atom = 39;
-    pub const WM_NORMAL_HINTS: Atom = 40;
-    pub const WM_SIZE_HINTS: Atom = 41;
-    pub const WM_ZOOM_HINTS: Atom = 42;
-    pub const MIN_SPACE: Atom = 43;
-    pub const NORM_SPACE: Atom = 44;
-    pub const MAX_SPACE: Atom = 45;
-    pub const END_SPACE: Atom = 46;
-    pub const SUPERSCRIPT_X: Atom = 47;
-    pub const SUPERSCRIPT_Y: Atom = 48;
-    pub const SUBSCRIPT_X: Atom = 49;
-    pub const SUBSCRIPT_Y: Atom = 50;
-    pub const UNDERLINE_POSITION: Atom = 51;
-    pub const UNDERLINE_THICKNESS: Atom = 52;
-    pub const STRIKEOUT_ASCENT: Atom = 53;
-    pub const STRIKEOUT_DESCENT: Atom = 54;
-    pub const ITALIC_ANGLE: Atom = 55;
-    pub const X_HEIGHT: Atom = 56;
-    pub const QUAD_WIDTH: Atom = 57;
-    pub const WEIGHT: Atom = 58;
-    pub const POINT_SIZE: Atom = 59;
-    pub const RESOLUTION: Atom = 60;
-    pub const COPYRIGHT: Atom = 61;
-    pub const NOTICE: Atom = 62;
-    pub const FONT_NAME: Atom = 63;
-    pub const FAMILY_NAME: Atom = 64;
-    pub const FULL_NAME: Atom = 65;
-    pub const CAP_HEIGHT: Atom = 66;
-    pub const WM_CLASS: Atom = 67;
-    pub const WM_TRANSIENT_FOR: Atom = 68;
-
-    pub const LAST_PREDEFINED: Atom = 68;
+impl Default for WindowProperties {
+    fn default() -> Self {
+        Self::new()
+    }
 }

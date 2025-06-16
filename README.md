@@ -1,6 +1,13 @@
-# RX - Rust X Window System
+# RX Server - Rust X11 Compatible Server
 
-**RX** is a modern, safe, and efficient implementation of the X11 protocol written in Rust. This project aims to provide a full-featured X Window System server with improved security, performance, and maintainability.
+**RX Server** is a Work in Progress (WIP) implementation of an X11-compatible server written in Rust.
+
+> [!WARNING]
+> ### **DO NOT USE IN PRODUCTION UNDER ANY CIRCUMSTANCE!**
+> 
+> The project is in very early development, and this means it's not stable, feature-complete, or secure.
+>
+> ### **IGNORE THIS DISCLAIMER AT YOUR OWN RISK.**
 
 ## 🚀 Project Status
 
