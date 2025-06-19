@@ -1,18 +1,18 @@
+// SPDX-License-Identifier: Apache-2.0
+//! RX X11 Server - Logging Initialization
+
+use crate::{ServerError, ServerLoggingConfig, ServerResult};
 use tracing_subscriber::{
-    fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+    EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
-use crate::{core::LoggingConfig, ServerError, ServerResult};
-
-/// Initialize logging based on configuration (or defaults if None)
-pub fn init_logging(config: Option<&LoggingConfig>) -> ServerResult<()> {
+pub fn init_logging(config: Option<&ServerLoggingConfig>) -> ServerResult<()> {
     let (level, colored, json, file) = match config {
         Some(cfg) => (&cfg.level, cfg.colored, cfg.json, cfg.file.as_ref()),
         None => (&"info".to_string(), true, false, None),
     };
 
     let env_filter = EnvFilter::try_new(level).unwrap_or_else(|_| EnvFilter::new("info"));
-
     let console_layer = create_console_layer(json, colored);
 
     if let Some(file_path) = file {
