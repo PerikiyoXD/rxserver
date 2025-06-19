@@ -1,40 +1,30 @@
-//! Error handling for the RX X11 Server
-//!
-//! This module defines all error types and result types used throughout the server.
+// SPDX-License-Identifier: Apache-2.0
+
+// RX X11 Server - Error Handling
 
 use crate::protocol::ProtocolError;
 use std::fmt;
 
-/// Result type used throughout the server
-pub type ServerResult<T> = Result<T, ServerError>;
-
 /// Main error type for the RX X11 Server
 #[derive(Debug, Clone)]
+/// Configuration-related errors
 pub enum ServerError {
     /// Configuration-related errors
     ConfigError(String),
-
     /// Network-related errors
     NetworkError(String),
-
     /// Plugin-related errors
     PluginError(String),
-
     /// Protocol-related errors
     ProtocolError(ProtocolError),
-
     /// Logging-related errors
     LoggingError(String),
-
     /// I/O errors
     IoError(String),
-
     /// Authentication/authorization errors
     AuthError(String),
-
     /// Generic server errors
     ServerError(String),
-
     /// Initialization errors
     InitError(String),
 }
@@ -70,8 +60,8 @@ impl From<toml::de::Error> for ServerError {
     }
 }
 
-// impl From<serde_json::Error> for ServerError {
-//     fn from(err: serde_json::Error) -> Self {
-//         ServerError::ConfigError(err.to_string())
-//     }
-// }
+impl From<ProtocolError> for ServerError {
+    fn from(err: ProtocolError) -> Self {
+        ServerError::ProtocolError(err)
+    }
+}
