@@ -1,0 +1,55 @@
+[network]
+bind_address = "127.0.0.1:6000"
+max_connections = 1000
+tcp_keepalive = true
+
+[network.connection_timeout]
+secs = 30
+nanos = 0
+
+[security]
+enable_host_access_control = false
+allowed_hosts = [
+    "localhost",
+    "127.0.0.1",
+]
+enable_authentication = false
+max_auth_attempts = 3
+
+[performance]
+worker_threads = 16
+request_queue_size = 10000
+enable_batching = true
+
+[performance.batch_timeout]
+secs = 0
+nanos = 10000000
+
+[logging]
+level = "trace"
+structured = false
+rotation_size = 104857600
+block_style_protocol_logging = false
+protocol_log_level = "debug"
+
+[plugins]
+enabled = true
+plugin_dir = "plugins"
+auto_load = true
+
+[display]
+preferred_backend = "Headless"
+default_color_depth = "Depth24"
+default_refresh_rate = 60.0
+enable_multiple_displays = false
+
+[display.default_resolution]
+width = 1920
+height = 1080
+
+[input]
+enable_mouse = true
+enable_keyboard = true
+enable_touch = true
+mouse_sensitivity = 1.0
+keyboard_repeat_rate = 30
