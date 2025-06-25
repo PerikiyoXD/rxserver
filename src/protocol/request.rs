@@ -10,15 +10,50 @@ pub mod opcodes {
 pub enum RequestKind {
     ConnectionSetup,
     GetGeometry(GetGeometryRequest),
-    // CreateWindow,
-    // DestroyWindow,
-    // Add other request variants as needed
+    InternAtom(InternAtomRequest),
 }
 
 #[derive(Debug, Clone)]
 pub struct Request {
     pub kind: RequestKind,
     pub sequence_number: SequenceNumber,
+    pub data: Vec<u8>,    // Raw request data for parsing
+    pub opcode_value: u8, // Store the actual opcode
+}
+
+impl Request {
+    /// Get the opcode for this request
+    pub fn opcode(&self) -> u8 {
+        self.opcode_value
+    }
+
+    /// Create a new request with header data
+    pub fn new_with_header(opcode: u8, sequence_number: SequenceNumber, data: Vec<u8>) -> Self {
+        // Determine the kind based on opcode
+        let kind = match opcode {
+            opcodes::CONNECTION_SETUP => RequestKind::ConnectionSetup,
+            opcodes::GET_GEOMETRY => RequestKind::GetGeometry(GetGeometryRequest {
+                opcode,
+                unused: 0,
+                length: 2,
+                drawable: 0, // Will be parsed from data
+            }),
+            16 => RequestKind::InternAtom(InternAtomRequest {
+                opcode,
+                unused: 0,
+                length: 2,
+                name: [0; 128], // Will be parsed from data
+            }),
+            _ => RequestKind::ConnectionSetup, // Default fallback
+        };
+
+        Self {
+            kind,
+            sequence_number,
+            data,
+            opcode_value: opcode,
+        }
+    }
 }
 
 /// GetGeometry request structure matching X11 protocol
@@ -31,6 +66,16 @@ pub struct GetGeometryRequest {
     pub drawable: DrawableId,
 }
 
+/// InternAtom request structure matching X11 protocol
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InternAtomRequest {
+    pub opcode: u8,      // Should be 0
+    pub unused: u8,      // Padding
+    pub length: u16,     // Request length in 4-byte units (always 2)
+    pub name: [u8; 128], // Atom name (null-terminated)
+}
+
 impl Request {
     /// Parse a request from raw bytes
     pub fn parse(bytes: &[u8]) -> Result<Self> {
@@ -39,15 +84,46 @@ impl Request {
         }
 
         let opcode = bytes[0];
+        let sequence_number = 0; // Will be set by connection handler
+
         match opcode {
-            opcodes::CONNECTION_SETUP => {
+            opcodes::CONNECTION_SETUP => Ok(Request {
+                kind: RequestKind::ConnectionSetup,
+                sequence_number,
+                data: bytes.to_vec(),
+                opcode_value: opcode,
+            }),
+            opcodes::GET_GEOMETRY => {
+                if bytes.len() < 8 {
+                    return Err(X11Error::Protocol(
+                        "GetGeometry request too short".to_string(),
+                    ));
+                }
+
+                let drawable = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+                let request = GetGeometryRequest {
+                    opcode,
+                    unused: bytes[1],
+                    length: u16::from_le_bytes([bytes[2], bytes[3]]),
+                    drawable,
+                };
+
                 Ok(Request {
-                    kind: RequestKind::ConnectionSetup,
-                    sequence_number: 0, // Connection setup doesn't have sequence number
+                    kind: RequestKind::GetGeometry(request),
+                    sequence_number,
+                    data: bytes.to_vec(),
+                    opcode_value: opcode,
                 })
             }
-            opcodes::GET_GEOMETRY => todo!(), // Implement GetGeometry parsing
-            _ => Err(X11Error::Protocol(format!("Unknown opcode: {}", opcode))),
+            _ => {
+                // For unknown opcodes, create a generic request
+                Ok(Request {
+                    kind: RequestKind::ConnectionSetup, // Default
+                    sequence_number,
+                    data: bytes.to_vec(),
+                    opcode_value: opcode,
+                })
+            }
         }
     }
 }

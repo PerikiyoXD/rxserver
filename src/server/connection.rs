@@ -6,60 +6,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, error, info, trace};
 
-use crate::protocol::{ByteOrder, Request, RequestValidator, X11Error, X11RequestValidator};
+use crate::protocol::{ByteOrder, Request, RequestValidator, X11Error, X11RequestValidator, RequestHandlerRegistry, create_standard_handler_registry, EndianWriter};
 use crate::server::state::{ClientId, ClientState, ServerState};
-
-/// Utility for handling connection-specific byte order operations
-struct EndianWriter<'a> {
-    buffer: &'a mut Vec<u8>,
-    byte_order: ByteOrder,
-}
-
-impl<'a> EndianWriter<'a> {
-    fn new(buffer: &'a mut Vec<u8>, byte_order: ByteOrder) -> Self {
-        Self { buffer, byte_order }
-    }
-
-    fn write_u8(&mut self, value: u8) {
-        self.buffer.push(value);
-    }
-
-    fn write_u16(&mut self, value: u16) {
-        match self.byte_order {
-            ByteOrder::LittleEndian => self.buffer.extend_from_slice(&value.to_le_bytes()),
-            ByteOrder::BigEndian => self.buffer.extend_from_slice(&value.to_be_bytes()),
-        }
-    }
-
-    fn write_u32(&mut self, value: u32) {
-        match self.byte_order {
-            ByteOrder::LittleEndian => self.buffer.extend_from_slice(&value.to_le_bytes()),
-            ByteOrder::BigEndian => self.buffer.extend_from_slice(&value.to_be_bytes()),
-        }
-    }
-
-    fn write_bytes(&mut self, bytes: &[u8]) {
-        self.buffer.extend_from_slice(bytes);
-    }
-
-    fn write_string_with_padding(&mut self, s: &str) {
-        self.buffer.extend_from_slice(s.as_bytes());
-        let padding = (4 - (s.len() % 4)) % 4;
-        self.buffer.extend_from_slice(&vec![0u8; padding]);
-    }
-
-    /// Write a slice of bytes with proper padding for strings
-    fn write_padded_string(&mut self, s: &str, align: usize) {
-        self.buffer.extend_from_slice(s.as_bytes());
-        let padding = (align - (s.len() % align)) % align;
-        self.buffer.extend_from_slice(&vec![0u8; padding]);
-    }
-
-    /// Get the length of the buffer
-    fn len(&self) -> usize {
-        self.buffer.len()
-    }
-}
 
 /// Connection handler that manages the complete lifecycle of an X11 client connection
 pub struct ConnectionHandler {
@@ -71,6 +19,8 @@ pub struct ConnectionHandler {
     client_id: ClientId,
     /// TCP stream
     stream: TcpStream,
+    /// Request handler registry
+    handler_registry: RequestHandlerRegistry,
 }
 
 impl ConnectionHandler {
@@ -84,9 +34,7 @@ impl ConnectionHandler {
                 .lock()
                 .map_err(|_| X11Error::Protocol("Failed to lock server state".to_string()))?;
             server.register_client(peer_addr)
-        };
-
-        debug!(
+        };        debug!(
             "info: handler created client {} from {}",
             client_id, peer_addr
         );
@@ -95,6 +43,7 @@ impl ConnectionHandler {
             client_state,
             client_id,
             stream,
+            handler_registry: create_standard_handler_registry(),
         })
     }
 
@@ -283,50 +232,171 @@ impl ConnectionHandler {
         info!("info: authenticated client {}", self.client_id);
         Ok(())
     }
-
-    /// Handle authenticated X11 requests
+    /// Handle authenticated X11 requests - may contain multiple requests in one buffer
     async fn handle_authenticated_request(&mut self, data: &[u8]) -> Result<(), X11Error> {
+        let mut offset = 0;
+        let mut request_count = 0;
+
         trace!(
-            "trace: parsing request {}B opcode=0x{:02x} client {}",
+            "trace: processing buffer {}B client {} (may contain multiple requests)",
             data.len(),
-            data.get(0).unwrap_or(&0),
             self.client_id
         );
 
-        let mut request = Request::parse(data)?;
-        trace!("trace: parsed {:?} client {}", request.kind, self.client_id);
+        // Process all requests in the buffer
+        while offset < data.len() {
+            if offset + 4 > data.len() {
+                // Not enough data for a complete request header
+                trace!(
+                    "trace: incomplete request header at offset {} client {}",
+                    offset, self.client_id
+                );
+                break;
+            }
 
-        let sequence_number = {
-            let mut client = self
-                .client_state
-                .lock()
-                .map_err(|_| X11Error::Protocol("Failed to lock client state".to_string()))?;
-            let seq = client.next_sequence_number();
+            let opcode = data[offset];
+            let length_field = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+            let request_length = (length_field as usize) * 4; // Convert from 32-bit words to bytes
+
             trace!(
-                "trace: seq={} client {} (next={})",
-                seq,
-                self.client_id,
-                seq.wrapping_add(1)
+                "trace: request {} opcode=0x{:02x} length={}B at offset={} client {}",
+                request_count + 1,
+                opcode,
+                request_length,
+                offset,
+                self.client_id
             );
-            seq
-        };
-        request.sequence_number = sequence_number;
-        debug!(
-            "info: processing seq={} client {}",
-            sequence_number, self.client_id
-        );
 
-        trace!("trace: validating client {}", self.client_id);
-        X11RequestValidator::validate(&request)?;
-        trace!("trace: validation passed client {}", self.client_id);
+            if offset + request_length > data.len() {
+                trace!(
+                    "trace: incomplete request body: need {}B have {}B at offset {} client {}",
+                    request_length,
+                    data.len() - offset,
+                    offset,
+                    self.client_id
+                );
+                break;
+            }
 
-        trace!("trace: routing request client {}", self.client_id);
-        // TODO: Process the actual request and generate appropriate response
-        // For now, we'll just acknowledge the request
-        debug!("info: request processed client {}", self.client_id);
+            // Extract this request's data
+            let request_data = &data[offset..offset + request_length];
+
+            // Parse and process this individual request
+            let mut request = Request::parse(request_data)?;
+            trace!("trace: parsed {:?} client {}", request.kind, self.client_id);
+
+            let sequence_number = {
+                let mut client = self
+                    .client_state
+                    .lock()
+                    .map_err(|_| X11Error::Protocol("Failed to lock client state".to_string()))?;
+                let seq = client.next_sequence_number();
+                trace!(
+                    "trace: seq={} client {} (next={})",
+                    seq,
+                    self.client_id,
+                    seq.wrapping_add(1)
+                );
+                seq
+            };
+            request.sequence_number = sequence_number;
+            debug!(
+                "info: processing request {} seq={} client {}",
+                request_count + 1,
+                sequence_number,
+                self.client_id
+            );
+
+            trace!(
+                "trace: validating request {} client {}",
+                request_count + 1,
+                self.client_id
+            );
+            X11RequestValidator::validate(&request)?;
+            trace!(
+                "trace: validation passed request {} client {}",
+                request_count + 1,
+                self.client_id
+            );
+            trace!(
+                "trace: routing request {} client {}",
+                request_count + 1,
+                self.client_id
+            );
+
+            // Process the actual request and generate appropriate response
+            match self.process_request(&request).await {
+                Ok(Some(response)) => {
+                    // Send response if one was generated
+                    self.stream
+                        .write_all(&response)
+                        .await
+                        .map_err(|e| X11Error::Io(e))?;
+                    trace!(
+                        "trace: sent {}B response for request {} client {}",
+                        response.len(),
+                        request_count + 1,
+                        self.client_id
+                    );
+                }
+                Ok(None) => {
+                    // No response needed for this request type
+                    trace!(
+                        "trace: no response needed for request {} client {}",
+                        request_count + 1,
+                        self.client_id
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        "error: failed to process request {} client {}: {:?}",
+                        request_count + 1,
+                        self.client_id,
+                        e
+                    );
+                    // Continue processing other requests instead of failing the whole buffer
+                }
+            }
+
+            debug!(
+                "info: request {} processed client {}",
+                request_count + 1,
+                self.client_id
+            );
+
+            // Move to next request
+            offset += request_length;
+            request_count += 1;
+        }
+
+        if request_count > 1 {
+            debug!(
+                "info: processed {} requests from {}B buffer client {}",
+                request_count,
+                data.len(),
+                self.client_id
+            );
+        }
 
         Ok(())
+    }    /// Process an individual X11 request and generate response if needed
+    async fn process_request(&mut self, request: &Request) -> Result<Option<Vec<u8>>, X11Error> {
+        let byte_order = {
+            let client = self.client_state.lock()
+                .map_err(|_| X11Error::Protocol("Failed to lock client state".to_string()))?;
+            client.byte_order
+        };
+
+        // Use the handler registry to process the request
+        self.handler_registry.handle_request(
+            self.client_id,
+            request,
+            Arc::clone(&self.server_state),
+            Arc::clone(&self.client_state),
+            byte_order,
+        ).await
     }
+
     /// Send connection setup success response
     async fn send_connection_setup_success(
         &mut self,
@@ -415,7 +485,9 @@ impl ConnectionHandler {
         writer.write_u8(display_config.depth); // Use real depth from virtual display
         writer.write_u8(32); // bits-per-pixel
         writer.write_u8(32); // scanline-pad
-        writer.write_bytes(&[0u8; 5]); // 5 bytes unused        // Screen information using real display data (40 bytes base + depths)
+        writer.write_bytes(&[0u8; 5]); // 5 bytes unused    
+        
+            // Screen information using real display data (40 bytes base + depths)
         let screen_data = {
             let server = self
                 .server_state

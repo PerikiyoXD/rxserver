@@ -26,7 +26,7 @@ log = "0.4.27"
 env_logger = "0.11.8"
 tracing = "0.1.41"
 tracing-log = "0.2.0"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3.19", features = ["env-filter", "chrono"] }
 tracing-appender = "0.2.3"
 
 # CLI
