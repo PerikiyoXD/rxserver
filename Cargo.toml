@@ -3,8 +3,8 @@ name = "rxserver"
 version = "0.1.0"
 edition = "2024"
 authors = ["Pedro Valadés <perikiyoxd@gmail.com>"]
-description = "RX - A modern, safe, and efficient Rust implementation of the X11 protocol"
-license = "MIT OR Apache-2.0"
+description = "RX X11 Server - A modern, async, and extensible X11 display server implementation in Rust."
+license = "Apache-2.0"
 repository = "https://github.com/perikiyoxd/rxserver"
 keywords = ["x11", "window-system", "display-server", "graphics"]
 categories = ["gui", "network-programming"]
@@ -77,6 +77,7 @@ tempfile = "3.20.0"
 
 # Random number generation (for load balancing)
 rand = "0.8.5"
+sysinfo = "0.35.2"
 
 # Platform-specific dependencies
 [target.'cfg(windows)'.dependencies]
@@ -105,4 +106,10 @@ opt-level = 0
 debug = true
 
 [lints.rust]
-dead_code = "warn"
+dead_code = "forbid"
+unreachable_code = "deny"
+unused_functions = "deny"
+unused_structs = "deny"
+unused_enums = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
