@@ -1,23 +1,50 @@
 use super::types::*;
 use std::convert::TryFrom;
-use std::ops::Deref;
 
-// Forward-thinking: Try to enforce protocol safety, zero-copy capability, extensibility, and data-oriented principles
+// ==================== SINGLE MARKER TRAIT ====================
+
+/// Marker trait for X11 protocol responses.
+/// This is purely for type identification - no compile-time guarantees.
+pub trait ProtocolResponse {}
+
+// ==================== CONNECTION SETUP (existing complex types) ====================
+
+/// Raw connection setup request from client (matches X11 protocol exactly)
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConnectionSetupRequestRaw {
+    pub byte_order: u8, // #x42 = MSB first, #x6C = LSB first
+    pub unused1: u8,
+    pub protocol_major_version: u16,
+    pub protocol_minor_version: u16,
+    pub authorization_protocol_name_length: u16,
+    pub authorization_protocol_data_length: u16,
+    pub unused2: u16,
+    // Variable length data follows: auth_name, padding, auth_data, padding
+}
+
+/// Complete connection setup request with variable-length data
+#[derive(Debug, Clone)]
+pub struct ConnectionSetupRequest<'a> {
+    pub raw: &'a ConnectionSetupRequestRaw,
+    pub authorization_protocol_name: &'a str,
+    pub authorization_protocol_data: &'a [u8],
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum VisualClass {
-    StaticGray   = 0,
-    GrayScale    = 1,
-    StaticColor  = 2,
-    PseudoColor  = 3,
-    TrueColor    = 4,
-    DirectColor  = 5,
+    StaticGray = 0,
+    GrayScale = 1,
+    StaticColor = 2,
+    PseudoColor = 3,
+    TrueColor = 4,
+    DirectColor = 5,
 }
 
 impl TryFrom<u8> for VisualClass {
     type Error = u8;
-    fn try_from(v: u8) -> Result<Self, Self::Error> {
+    fn try_from(v: u8) -> std::result::Result<Self, Self::Error> {
         use VisualClass::*;
         match v {
             0 => Ok(StaticGray),
@@ -38,15 +65,6 @@ impl From<VisualClass> for u8 {
     }
 }
 
-impl ByteOrderConversion for VisualClass {
-    #[inline(always)]
-    fn from_byte_order(self, _order: ByteOrder) -> Self { self }
-    #[inline(always)]
-    fn to_byte_order(self, _order: ByteOrder) -> Box<[u8]> { Box::new([self as u8]) }
-}
-
-// -- Zero-copy slice-of-struct pattern for data-oriented access
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScreenDepthVisualRaw {
@@ -60,12 +78,11 @@ pub struct ScreenDepthVisualRaw {
 }
 
 impl ScreenDepthVisualRaw {
-    pub fn class(&self) -> Result<VisualClass, u8> {
+    pub fn class(&self) -> std::result::Result<VisualClass, u8> {
         VisualClass::try_from(self.class)
     }
 }
 
-// Data-oriented: Use slices, not Vec
 #[derive(Debug, PartialEq, Eq)]
 pub struct ScreenDepth<'a> {
     pub depth: u8,
@@ -91,16 +108,14 @@ pub struct ScreenRaw {
     pub save_unders: u8,
     pub root_depth: u8,
     pub allowed_depths_len: u8, // Number of allowed depths
-    // allowed_depths follow in memory, not in struct
 }
 
-// The 'Screen' view overlays the underlying buffer, and can yield zero-copy subviews
+#[derive(Debug)]
 pub struct Screen<'a> {
     pub raw: &'a ScreenRaw,
     pub allowed_depths: &'a [ScreenDepth<'a>],
 }
 
-// Protocol response: Use enums for extensibility, with version/extra extension fields
 #[derive(Debug, Clone)]
 pub enum ConnectionSetupResponse<'a> {
     Accepted(ConnectionSetupAccepted<'a>),
@@ -113,7 +128,6 @@ pub enum ConnectionSetupResponse<'a> {
     },
 }
 
-// New: Versioned, extensible, data-oriented accepted response
 #[derive(Debug, Clone)]
 pub struct ConnectionSetupAccepted<'a> {
     pub protocol_major_version: u16,
@@ -151,7 +165,6 @@ pub struct ConnectionSetupAuthRequired<'a> {
     pub extra_fields: &'a [u8],
 }
 
-// Example: Pixmap format as a POD struct
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixmapFormatRaw {
@@ -160,7 +173,55 @@ pub struct PixmapFormatRaw {
     pub scanline_pad: u8,
 }
 
-// For fallback/unknown responses, or to support raw data overlays
+// ==================== GET GEOMETRY (the new functionality) ====================
+
+/// GetGeometry response structure matching X11 protocol layout exactly
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetGeometryResponse {
+    pub response_type: u8,    // Always 1 for replies
+    pub depth: u8,            // Depth of drawable
+    pub sequence_number: u16, // Sequence number
+    pub length: u32,          // Response length (always 0 for GetGeometry)
+    pub root: WindowId,       // Root window
+    pub x: i16,               // X coordinate relative to parent
+    pub y: i16,               // Y coordinate relative to parent
+    pub width: u16,           // Width in pixels
+    pub height: u16,          // Height in pixels
+    pub border_width: u16,    // Border width in pixels
+    pub unused: [u8; 10],     // Padding to 32 bytes total
+}
+
+impl GetGeometryResponse {
+    /// Create a new GetGeometry response
+    pub fn new(
+        sequence_number: u16,
+        depth: u8,
+        root: WindowId,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        border_width: u16,
+    ) -> Self {
+        Self {
+            response_type: 1, // Reply
+            depth,
+            sequence_number,
+            length: 0, // No additional data
+            root,
+            x,
+            y,
+            width,
+            height,
+            border_width,
+            unused: [0; 10],
+        }
+    }
+}
+
+// ==================== RESPONSE ENVELOPE ====================
+
 #[derive(Debug, Clone)]
 pub struct RawResponse<'a> {
     pub data: &'a [u8],
@@ -170,6 +231,7 @@ pub struct RawResponse<'a> {
 pub enum ResponseKind<'a> {
     Reply, // Generic
     ConnectionSetup(ConnectionSetupResponse<'a>),
+    GetGeometry(GetGeometryResponse),
     Raw(RawResponse<'a>),
 }
 
@@ -190,5 +252,68 @@ impl<'a> Default for Response<'a> {
     }
 }
 
-// Note: Parsing/overlaying these zero-copy views would require careful lifetime management.
-//        For a production parser, consider using 'bytemuck', 'zerocopy', or hand-rolled byte overlay code.
+// ==================== PROTOCOL RESPONSE IMPLEMENTATIONS ====================
+
+// Only implement ProtocolResponse for types that are actual protocol responses
+impl ProtocolResponse for GetGeometryResponse {}
+impl<'a> ProtocolResponse for ConnectionSetupResponse<'a> {}
+impl<'a> ProtocolResponse for Response<'a> {}
+
+// ==================== PROTOCOL CONSTANTS ====================
+
+pub mod byte_order {
+    pub const MSB_FIRST: u8 = 0x42;
+    pub const LSB_FIRST: u8 = 0x6C;
+}
+
+pub mod connection_status {
+    pub const FAILED: u8 = 0;
+    pub const SUCCESS: u8 = 1;
+    pub const AUTHENTICATE: u8 = 2;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_geometry_response_creation() {
+        let response = GetGeometryResponse::new(
+            42,   // sequence_number
+            32,   // depth
+            1,    // root window
+            100,  // x
+            200,  // y
+            1024, // width
+            768,  // height
+            5,    // border_width
+        );
+
+        assert_eq!(response.response_type, 1);
+        assert_eq!(response.depth, 32);
+        assert_eq!(response.sequence_number, 42);
+        assert_eq!(response.length, 0);
+        assert_eq!(response.root, 1);
+        assert_eq!(response.x, 100);
+        assert_eq!(response.y, 200);
+        assert_eq!(response.width, 1024);
+        assert_eq!(response.height, 768);
+        assert_eq!(response.border_width, 5);
+        assert_eq!(response.unused, [0; 10]);
+    }
+
+    #[test]
+    fn test_get_geometry_response_size() {
+        use std::mem;
+        // Verify the struct size matches X11 protocol
+        assert_eq!(mem::size_of::<GetGeometryResponse>(), 32);
+    }
+
+    #[test]
+    fn test_protocol_response_trait() {
+        // Test that our types implement the ProtocolResponse trait
+        fn assert_protocol_response<T: ProtocolResponse>() {}
+
+        assert_protocol_response::<GetGeometryResponse>();
+    }
+}
