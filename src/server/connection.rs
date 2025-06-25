@@ -339,6 +339,19 @@ impl ConnectionHandler {
                 .lock()
                 .map_err(|_| X11Error::Protocol("Failed to lock client state".to_string()))?;
             client.byte_order
+        }; // Get real display configuration from virtual display
+        let display_config = {
+            let server = self
+                .server_state
+                .lock()
+                .map_err(|_| X11Error::Protocol("Failed to lock server state".to_string()))?;
+
+            if let Some(ref virtual_display) = server.virtual_display {
+                virtual_display.get_config()
+            } else {
+                // Fallback to default if no virtual display
+                crate::server::display::DisplayConfig::default()
+            }
         };
 
         let vendor = "RxServer";
@@ -392,21 +405,17 @@ impl ConnectionHandler {
         writer.write_u8(32); // Bitmap format scanline pad
         writer.write_u8(8); // Min keycode
         writer.write_u8(255); // Max keycode
-        writer.write_bytes(&[0u8; 4]); // 4 bytes unused
-
-        // Vendor string with proper padding
+        writer.write_bytes(&[0u8; 4]); // 4 bytes unused        // Vendor string with proper padding
         writer.write_bytes(vendor.as_bytes());
         if vendor_pad > 0 {
             writer.write_bytes(&vec![0u8; vendor_pad]);
         }
 
-        // Pixmap format (8 bytes total as per X11 spec)
-        writer.write_u8(24); // depth
+        // Pixmap format (8 bytes total as per X11 spec) - using real display config
+        writer.write_u8(display_config.depth); // Use real depth from virtual display
         writer.write_u8(32); // bits-per-pixel
         writer.write_u8(32); // scanline-pad
-        writer.write_bytes(&[0u8; 5]); // 5 bytes unused
-
-        // Screen information (40 bytes base + depths)
+        writer.write_bytes(&[0u8; 5]); // 5 bytes unused        // Screen information using real display data (40 bytes base + depths)
         let screen_data = {
             let server = self
                 .server_state
@@ -417,26 +426,26 @@ impl ConnectionHandler {
             let mut screen = Vec::new();
             let mut screen_writer = EndianWriter::new(&mut screen, byte_order);
 
-            // SCREEN structure (40 bytes)
+            // SCREEN structure (40 bytes) - using real display dimensions
             screen_writer.write_u32(root.id); // root window
             screen_writer.write_u32(1); // default colormap
             screen_writer.write_u32(0xFFFFFF); // white pixel
             screen_writer.write_u32(0x000000); // black pixel
             screen_writer.write_u32(0); // current input masks
-            screen_writer.write_u16(root.width); // width in pixels
-            screen_writer.write_u16(root.height); // height in pixels
-            screen_writer.write_u16(400); // width in mm
-            screen_writer.write_u16(300); // height in mm
+            screen_writer.write_u16(display_config.width); // Real display width
+            screen_writer.write_u16(display_config.height); // Real display height
+            screen_writer.write_u16(display_config.width_mm); // Real physical width in mm
+            screen_writer.write_u16(display_config.height_mm); // Real physical height in mm
             screen_writer.write_u16(1); // min installed maps
             screen_writer.write_u16(1); // max installed maps
             screen_writer.write_u32(0x21); // root visual
             screen_writer.write_u8(0); // backing stores (Never)
             screen_writer.write_u8(0); // save unders (False)
-            screen_writer.write_u8(root.depth); // root depth
+            screen_writer.write_u8(display_config.depth); // Real root depth
             screen_writer.write_u8(1); // number of allowed depths
 
             // DEPTH structure (8 bytes)
-            screen_writer.write_u8(24); // depth
+            screen_writer.write_u8(display_config.depth); // Real depth
             screen_writer.write_u8(0); // unused
             screen_writer.write_u16(1); // number of visuals
             screen_writer.write_bytes(&[0u8; 4]); // padding
@@ -459,12 +468,15 @@ impl ConnectionHandler {
             .write_all(&response)
             .await
             .map_err(|e| X11Error::Io(e))?;
-
         trace!(
-            "trace: sent {}B response client {} (expected: {}B)",
+            "trace: sent {}B response client {} with real display {}x{}@{}bpp ({}x{}mm)",
             response.len(),
             self.client_id,
-            8 + additional_data_length * 4
+            display_config.width,
+            display_config.height,
+            display_config.depth,
+            display_config.width_mm,
+            display_config.height_mm
         );
         Ok(())
     }

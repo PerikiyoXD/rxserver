@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, trace};
 
 use crate::protocol::{Atom, ByteOrder, SequenceNumber, WindowId, XId};
+use crate::server::display::{DisplayConfig, VirtualDisplay};
 
 /// Global server state shared across all connections
 #[derive(Debug)]
@@ -25,6 +26,8 @@ pub struct ServerState {
     pub clients: HashMap<ClientId, Arc<Mutex<ClientState>>>,
     /// Next client ID
     pub next_client_id: ClientId,
+    /// Virtual display for showing X11 content
+    pub virtual_display: Option<VirtualDisplay>,
 }
 
 /// Unique identifier for a client connection
@@ -105,7 +108,6 @@ impl Default for ServerState {
                 owner: None, // Root window has no owner
             },
         );
-
         Self {
             atom_registry,
             next_atom_id,
@@ -114,6 +116,7 @@ impl Default for ServerState {
             next_resource_id: 0x00400000, // Start at a reasonable base
             clients: HashMap::new(),
             next_client_id: 1,
+            virtual_display: None,
         }
     }
 }
@@ -253,6 +256,12 @@ impl ServerState {
         self.windows
             .get(&self.root_window_id)
             .expect("Root window should always exist")
+    }
+
+    /// Set the virtual display for this server
+    pub fn set_virtual_display(&mut self, virtual_display: VirtualDisplay) {
+        self.virtual_display = Some(virtual_display);
+        debug!("Virtual display set in server state");
     }
 }
 

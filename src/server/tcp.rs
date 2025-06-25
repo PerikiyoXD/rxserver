@@ -4,11 +4,27 @@ use anyhow::Result;
 use tokio::net::TcpListener;
 use tracing::{debug, error, info};
 
-use crate::server::{ConnectionHandler, ServerState};
+use crate::server::{ConnectionHandler, ServerState, VirtualDisplay, DisplayConfig};
 
 pub async fn run(addr: &str) -> Result<()> {
+    // Initialize virtual display with default configuration
+    let display_config = DisplayConfig::default();
+    info!("Creating virtual display with config: {:?}", display_config);
+    
+    let mut virtual_display = VirtualDisplay::new(display_config.clone());
+    virtual_display.start()?;
+    info!("Virtual display started successfully");
+
     // Initialize global server state
     let server_state = ServerState::new();
+    
+    // Set the virtual display in the server state
+    {
+        let mut state = server_state.lock().unwrap();
+        state.set_virtual_display(virtual_display);
+        info!("Virtual display integrated with server state");
+    }
+    
     info!("Initialized X11 server state");
 
     let listener = TcpListener::bind(addr).await?;
