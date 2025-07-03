@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Protocol Request Handler Traits
 //!
 //! This module defines the core traits for handling X11 protocol requests
@@ -7,14 +9,13 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use super::{ByteOrder, EndianWriter, Request, X11Error};
+use super::{ByteOrder, Request, X11Error};
 use crate::server::state::{ClientId, ClientState, ServerState};
 
 /// Result type for request handlers
 pub type HandlerResult<T> = Result<T, X11Error>;
 
 /// Core trait for handling X11 protocol requests
-/// All implementations must use EndianWriter for response generation to ensure protocol compliance
 #[async_trait]
 pub trait RequestHandler: Send + Sync {
     /// Handle a specific X11 request and generate a response using EndianWriter
@@ -74,7 +75,7 @@ impl RequestHandlerRegistry {
         client_state: Arc<Mutex<ClientState>>,
         byte_order: ByteOrder,
     ) -> HandlerResult<Option<Vec<u8>>> {
-        let opcode = request.opcode();
+        let opcode = request.opcode;
 
         if let Some(handler) = self.handlers.get(&opcode) {
             handler

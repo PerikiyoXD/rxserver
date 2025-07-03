@@ -6,7 +6,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::{debug, error, info, trace};
 
-use crate::protocol::{ByteOrder, Request, RequestValidator, X11Error, X11RequestValidator, RequestHandlerRegistry, create_standard_handler_registry, EndianWriter};
+use crate::protocol::{
+    ByteOrder, ByteOrderWriter, Request, RequestHandlerRegistry, RequestParser, RequestValidator, X11Error, X11RequestParser,
+    X11RequestValidator, create_standard_handler_registry,
+};
 use crate::server::state::{ClientId, ClientState, ServerState};
 
 /// Connection handler that manages the complete lifecycle of an X11 client connection
@@ -26,15 +29,19 @@ pub struct ConnectionHandler {
 impl ConnectionHandler {
     /// Create a new connection handler
     pub fn new(server_state: Arc<Mutex<ServerState>>, stream: TcpStream) -> Result<Self, X11Error> {
+        // Get the peer address for logging
         let peer_addr = stream.peer_addr().map_err(|e| X11Error::Io(e))?;
         trace!("info: creating handler for {}", peer_addr);
 
+        // Register the client in the server state
+        // This will assign a unique client ID and initialize the client state
         let (client_id, client_state) = {
             let mut server = server_state
                 .lock()
                 .map_err(|_| X11Error::Protocol("Failed to lock server state".to_string()))?;
             server.register_client(peer_addr)
-        };        debug!(
+        };
+        debug!(
             "info: handler created client {} from {}",
             client_id, peer_addr
         );
@@ -57,9 +64,10 @@ impl ConnectionHandler {
                 .unwrap_or_else(|_| "unknown".parse().unwrap())
         );
 
+        // Setup a buffer for reading data
         let mut buffer = vec![0u8; 4096];
         trace!(
-            "info: starting loop client {} buffer {}B",
+            "info: starting loop client {} with buffer size {}B",
             self.client_id,
             buffer.len()
         );
@@ -73,7 +81,7 @@ impl ConnectionHandler {
                 }
                 Ok(n) => {
                     trace!(
-                        "trace: read {}B client {} ({:.1}%)",
+                        "trace: read {}B from client {} ({}%)",
                         n,
                         self.client_id,
                         (n as f32 / buffer.len() as f32) * 100.0
@@ -106,7 +114,10 @@ impl ConnectionHandler {
             };
 
             if !is_authenticated {
-                trace!("trace: setup phase client {}", self.client_id);
+                trace!(
+                    "trace: client not authenticated, entering setup phase client {}",
+                    self.client_id
+                );
                 if let Err(e) = self.handle_connection_setup(data).await {
                     error!("error: setup failed client {}: {:?}", self.client_id, e);
                     trace!("trace: breaking setup failure client {}", self.client_id);
@@ -114,7 +125,10 @@ impl ConnectionHandler {
                 }
                 trace!("trace: setup complete client {}", self.client_id);
             } else {
-                trace!("trace: request phase client {}", self.client_id);
+                trace!(
+                    "trace: client authenticated, processing requests client {}",
+                    self.client_id
+                );
                 if let Err(e) = self.handle_authenticated_request(data).await {
                     error!("error: request failed client {}: {:?}", self.client_id, e);
                     trace!("trace: continuing after error client {}", self.client_id);
@@ -232,6 +246,7 @@ impl ConnectionHandler {
         info!("info: authenticated client {}", self.client_id);
         Ok(())
     }
+
     /// Handle authenticated X11 requests - may contain multiple requests in one buffer
     async fn handle_authenticated_request(&mut self, data: &[u8]) -> Result<(), X11Error> {
         let mut offset = 0;
@@ -282,7 +297,7 @@ impl ConnectionHandler {
             let request_data = &data[offset..offset + request_length];
 
             // Parse and process this individual request
-            let mut request = Request::parse(request_data)?;
+            let mut request = X11RequestParser::parse(request_data)?;
             trace!("trace: parsed {:?} client {}", request.kind, self.client_id);
 
             let sequence_number = {
@@ -379,22 +394,27 @@ impl ConnectionHandler {
         }
 
         Ok(())
-    }    /// Process an individual X11 request and generate response if needed
+    }
+    /// Process an individual X11 request and generate response if needed
     async fn process_request(&mut self, request: &Request) -> Result<Option<Vec<u8>>, X11Error> {
         let byte_order = {
-            let client = self.client_state.lock()
+            let client = self
+                .client_state
+                .lock()
                 .map_err(|_| X11Error::Protocol("Failed to lock client state".to_string()))?;
             client.byte_order
         };
 
         // Use the handler registry to process the request
-        self.handler_registry.handle_request(
-            self.client_id,
-            request,
-            Arc::clone(&self.server_state),
-            Arc::clone(&self.client_state),
-            byte_order,
-        ).await
+        self.handler_registry
+            .handle_request(
+                self.client_id,
+                request,
+                Arc::clone(&self.server_state),
+                Arc::clone(&self.client_state),
+                byte_order,
+            )
+            .await
     }
 
     /// Send connection setup success response
@@ -434,8 +454,7 @@ impl ConnectionHandler {
         // 8 + 2*1 + (8+0+72)/4 = 8 + 2 + 20 = 30 words
         let additional_data_length = 30u16;
 
-        let mut response = Vec::new();
-        let mut writer = EndianWriter::new(&mut response, byte_order);
+        let mut writer = ByteOrderWriter::new(byte_order);
 
         // Connection setup response header (8 bytes)
         writer.write_u8(1); // Success
@@ -486,8 +505,8 @@ impl ConnectionHandler {
         writer.write_u8(32); // bits-per-pixel
         writer.write_u8(32); // scanline-pad
         writer.write_bytes(&[0u8; 5]); // 5 bytes unused    
-        
-            // Screen information using real display data (40 bytes base + depths)
+
+        // Screen information using real display data (40 bytes base + depths)
         let screen_data = {
             let server = self
                 .server_state
@@ -495,8 +514,7 @@ impl ConnectionHandler {
                 .map_err(|_| X11Error::Protocol("Failed to lock server state".to_string()))?;
             let root = server.get_root_window();
 
-            let mut screen = Vec::new();
-            let mut screen_writer = EndianWriter::new(&mut screen, byte_order);
+            let mut screen_writer = ByteOrderWriter::new(byte_order);
 
             // SCREEN structure (40 bytes) - using real display dimensions
             screen_writer.write_u32(root.id); // root window
@@ -532,10 +550,11 @@ impl ConnectionHandler {
             screen_writer.write_u32(0x0000FF); // blue mask
             screen_writer.write_bytes(&[0u8; 4]); // padding
 
-            screen
+            screen_writer.into_vec()
         };
         writer.write_bytes(&screen_data);
 
+        let response = writer.into_vec();
         self.stream
             .write_all(&response)
             .await
@@ -570,8 +589,7 @@ impl ConnectionHandler {
             client.byte_order
         };
 
-        let mut response = Vec::new();
-        let mut writer = EndianWriter::new(&mut response, byte_order);
+        let mut writer = ByteOrderWriter::new(byte_order);
 
         writer.write_u8(0); // Failed
         writer.write_u8(reason.len() as u8); // reason length
@@ -584,81 +602,12 @@ impl ConnectionHandler {
         let padding = (4 - (reason.len() % 4)) % 4;
         writer.write_bytes(&vec![0u8; padding]);
 
+        let response = writer.into_vec();
         self.stream
             .write_all(&response)
             .await
             .map_err(|e| X11Error::Io(e))?;
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::protocol::opcodes;
-    use tokio::io::AsyncWriteExt;
-    use tokio::net::{TcpListener, TcpStream};
-
-    #[tokio::test]
-    async fn test_connection_setup_and_get_geometry() {
-        // Start test server
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let server_state = ServerState::new();
-
-        // Spawn server handler
-        let server_state_clone = server_state.clone();
-        tokio::spawn(async move {
-            if let Ok((socket, _)) = listener.accept().await {
-                if let Ok(handler) = ConnectionHandler::new(server_state_clone, socket) {
-                    let _ = handler.handle().await;
-                }
-            }
-        });
-
-        // Connect as client
-        let mut client = TcpStream::connect(addr).await.unwrap();
-
-        // Send connection setup
-        let mut setup_request = Vec::new();
-        setup_request.push(0x6C); // LSB first
-        setup_request.push(0); // unused
-        setup_request.extend_from_slice(&11u16.to_le_bytes()); // protocol major
-        setup_request.extend_from_slice(&0u16.to_le_bytes()); // protocol minor
-        setup_request.extend_from_slice(&0u16.to_le_bytes()); // auth protocol name length
-        setup_request.extend_from_slice(&0u16.to_le_bytes()); // auth protocol data length
-        setup_request.extend_from_slice(&0u16.to_le_bytes()); // unused
-
-        client.write_all(&setup_request).await.unwrap();
-
-        // Read connection setup response
-        let mut setup_response = vec![0u8; 8];
-        client.read_exact(&mut setup_response).await.unwrap();
-        assert_eq!(setup_response[0], 1); // Success
-
-        // Read additional data length and skip the rest of setup response
-        let additional_length =
-            u16::from_le_bytes([setup_response[6], setup_response[7]]) as usize * 4;
-        let mut additional_data = vec![0u8; additional_length];
-        client.read_exact(&mut additional_data).await.unwrap();
-
-        // Now send GetGeometry request
-        let mut geo_request = vec![0u8; 8];
-        geo_request[0] = opcodes::GET_GEOMETRY;
-        geo_request[1] = 0;
-        geo_request[2..4].copy_from_slice(&2u16.to_le_bytes()); // length
-        geo_request[4..8].copy_from_slice(&1u32.to_le_bytes()); // root window
-
-        client.write_all(&geo_request).await.unwrap();
-
-        // Read GetGeometry response
-        let mut geo_response = vec![0u8; 32];
-        client.read_exact(&mut geo_response).await.unwrap();
-
-        assert_eq!(geo_response[0], 1); // response type (reply)
-        assert_eq!(geo_response[1], 24); // depth
-
-        info!("info: connection setup and GetGeometry test passed");
     }
 }

@@ -10,7 +10,6 @@ pub trait ProtocolResponse {}
 // ==================== CONNECTION SETUP (existing complex types) ====================
 
 /// Raw connection setup request from client (matches X11 protocol exactly)
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConnectionSetupRequestRaw {
     pub byte_order: u8, // #x42 = MSB first, #x6C = LSB first
@@ -65,7 +64,6 @@ impl From<VisualClass> for u8 {
     }
 }
 
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScreenDepthVisualRaw {
     pub id: VisualId,
@@ -89,7 +87,6 @@ pub struct ScreenDepth<'a> {
     pub visuals: &'a [ScreenDepthVisualRaw],
 }
 
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScreenRaw {
     pub root: WindowId,
@@ -165,7 +162,6 @@ pub struct ConnectionSetupAuthRequired<'a> {
     pub extra_fields: &'a [u8],
 }
 
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixmapFormatRaw {
     pub depth: u8,
@@ -176,7 +172,6 @@ pub struct PixmapFormatRaw {
 // ==================== GET GEOMETRY (the new functionality) ====================
 
 /// GetGeometry response structure matching X11 protocol layout exactly
-#[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GetGeometryResponse {
     pub response_type: u8,    // Always 1 for replies

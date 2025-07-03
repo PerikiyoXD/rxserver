@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use tracing::Level;
 use tracing_subscriber::{
     EnvFilter, Registry,
-    fmt::{self, Layer as _, time::ChronoLocal},
+    fmt::{self, time::ChronoLocal},
     prelude::*,
 };
 

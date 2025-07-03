@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use tracing::{debug, trace};
 
 use crate::protocol::{Atom, ByteOrder, SequenceNumber, WindowId, XId};
-use crate::server::display::{DisplayConfig, VirtualDisplay};
+use crate::server::display::VirtualDisplay;
 
 /// Global server state shared across all connections
 #[derive(Debug)]
@@ -164,7 +164,7 @@ impl ServerState {
                     client.owned_resources.len(),
                     client_id
                 );
-                for resource_id in &client.owned_resources {
+                for _resource_id in &client.owned_resources {
                     // Remove windows owned by this client
                     self.windows
                         .retain(|_, window| window.owner != Some(client_id));

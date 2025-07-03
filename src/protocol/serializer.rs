@@ -2,7 +2,7 @@ use super::response::*;
 use super::types::*;
 
 /// Trait for serializing X11 protocol responses
-pub trait ResponseSerializer {
+pub trait ResponseBuilder {
     /// Serialize a response to bytes
     fn serialize(&self, response: &Response) -> Result<Option<Vec<u8>>>;
 
@@ -13,11 +13,11 @@ pub trait ResponseSerializer {
 }
 
 /// Serializer for GetGeometry responses
-impl ResponseSerializer for GetGeometryResponse {
+impl ResponseBuilder for GetGeometryResponse {
     fn serialize(&self, _response: &Response) -> Result<Option<Vec<u8>>> {
         // GetGeometry response is fixed size (32 bytes)
         let mut bytes = Vec::with_capacity(32);
-        
+
         bytes.push(self.response_type);
         bytes.push(self.depth);
         bytes.extend_from_slice(&self.sequence_number.to_le_bytes());
@@ -29,7 +29,7 @@ impl ResponseSerializer for GetGeometryResponse {
         bytes.extend_from_slice(&self.height.to_le_bytes());
         bytes.extend_from_slice(&self.border_width.to_le_bytes());
         bytes.extend_from_slice(&self.unused);
-        
+
         Ok(Some(bytes))
     }
 
@@ -39,9 +39,9 @@ impl ResponseSerializer for GetGeometryResponse {
 }
 
 /// Generic response serializer that dispatches to specific serializers
-pub struct X11ResponseSerializer;
+pub struct X11ResponseBuilder;
 
-impl ResponseSerializer for X11ResponseSerializer {
+impl ResponseBuilder for X11ResponseBuilder {
     fn serialize(&self, response: &Response) -> Result<Option<Vec<u8>>> {
         match &response.kind {
             ResponseKind::GetGeometry(get_geo) => get_geo.serialize(response),
@@ -65,36 +65,36 @@ mod tests {
     #[test]
     fn test_get_geometry_response_serialization() {
         let response = GetGeometryResponse::new(
-            1234,   // sequence_number
-            24,     // depth
-            100,    // root window
-            10,     // x
-            20,     // y
-            800,    // width
-            600,    // height
-            2,      // border_width
+            1234, // sequence_number
+            24,   // depth
+            100,  // root window
+            10,   // x
+            20,   // y
+            800,  // width
+            600,  // height
+            2,    // border_width
         );
 
         let dummy_response = Response::default();
         let serialized = response.serialize(&dummy_response).unwrap().unwrap();
-        
+
         // Verify the serialized length
         assert_eq!(serialized.len(), 32);
-        
+
         // Verify first few bytes
-        assert_eq!(serialized[0], 1);  // response_type
+        assert_eq!(serialized[0], 1); // response_type
         assert_eq!(serialized[1], 24); // depth
-        
+
         // Verify sequence number (little endian)
         let seq_bytes = u16::from_le_bytes([serialized[2], serialized[3]]);
         assert_eq!(seq_bytes, 1234);
-        
+
         // Verify width and height
         let x_bytes = i16::from_le_bytes([serialized[12], serialized[13]]);
         let y_bytes = i16::from_le_bytes([serialized[14], serialized[15]]);
         let width_bytes = u16::from_le_bytes([serialized[16], serialized[17]]);
         let height_bytes = u16::from_le_bytes([serialized[18], serialized[19]]);
-        
+
         assert_eq!(x_bytes, 10);
         assert_eq!(y_bytes, 20);
         assert_eq!(width_bytes, 800);
@@ -116,7 +116,7 @@ mod tests {
             byte_order: ByteOrder::LittleEndian,
         };
 
-        let serializer = X11ResponseSerializer;
+        let serializer = X11ResponseBuilder;
         let result = serializer.serialize(&response).unwrap().unwrap();
         assert_eq!(result.len(), 32);
     }
