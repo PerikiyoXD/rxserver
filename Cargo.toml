@@ -106,10 +106,10 @@ opt-level = 0
 debug = true
 
 [lints.rust]
-dead_code = "warn"
-unreachable_code = "warn"
-unused_functions = "warn"
-unused_structs = "warn"
-unused_enums = "warn"
-unused_imports = "warn"
-unused_variables = "warn"
+dead_code = "deny"
+unreachable_code = "deny"
+unused_functions = "deny"
+unused_structs = "deny"
+unused_enums = "deny"
+unused_imports = "deny"
+unused_variables = "deny"
