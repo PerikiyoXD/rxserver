@@ -1,94 +1,65 @@
-//! Virtual Display Management for X11 Server
-//!
-//! This module creates a native window using winit to display the X11 server's output.
-//! It provides a virtual display that shows the rendered content of the X11 windows.
+use std::{collections::HashSet, sync::Arc};
 
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use softbuffer::{Context, Surface};
+use tokio::{
+    sync::mpsc::{UnboundedReceiver, UnboundedSender},
+    time::Instant,
+};
+use tracing::{debug, error, info};
+use winit::{
+    application::ApplicationHandler,
+    event::WindowEvent,
+    event_loop::ActiveEventLoop,
+    window::{Window, WindowId},
+};
 
-use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use crate::{
+    display::{
+        config::DisplayConfig,
+        types::{DisplayCallbackMessage, DisplayMessage},
+    },
+    server::WindowState,
+};
 
-use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId};
-
-#[cfg(target_os = "windows")]
-use winit::platform::windows::EventLoopBuilderExtWindows;
-
-use crate::protocol::X11Error;
-use crate::server::state::WindowState;
-
-/// Display configuration for the virtual display
-#[derive(Debug, Clone)]
-pub struct DisplayConfig {
-    pub width: u16,
-    pub height: u16,
-    pub width_mm: u16,  // Physical width in millimeters
-    pub height_mm: u16, // Physical height in millimeters
-    pub depth: u8,      // Color depth in bits
-}
-
-impl Default for DisplayConfig {
-    fn default() -> Self {
-        Self {
-            width: 1024,
-            height: 768,
-            width_mm: 270,  // ~96 DPI
-            height_mm: 203, // ~96 DPI
-            depth: 24,
-        }
-    }
-}
-
-/// Messages for communicating with the virtual display thread
-#[derive(Debug)]
-pub enum DisplayMessage {
-    UpdateFramebuffer(Vec<u32>),
-    UpdateWindows(Vec<WindowState>), // Send all windows for re-rendering
-    WindowCreated(WindowState),
-    WindowMapped(u32),    // WindowId
-    WindowUnmapped(u32),  // WindowId
-    WindowDestroyed(u32), // WindowId
-    Resize(u32, u32),
-    Shutdown,
-}
-
-/// Messages sent from the virtual display back to the server
-#[derive(Debug)]
-pub enum DisplayCallbackMessage {
-    WindowResized(u32, u32),
-    DisplayClosed,
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Virtual display application handler for winit
-struct VirtualDisplayApp {
+///
+/// Allows spawning a native OS window to display X11 server output
+///
+/// Handles window management, rendering, and interaction with the X11 server
+pub struct VirtualDisplayApp {
     window: Option<Arc<Window>>,
-    context: Option<softbuffer::Context<Arc<Window>>>,
-    surface: Option<softbuffer::Surface<Arc<Window>, Arc<Window>>>,
+    context: Option<Context<Arc<Window>>>,
+    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
     framebuffer: Vec<u32>,
     config: DisplayConfig,
     last_resize_time: Instant,
-    message_receiver: mpsc::UnboundedReceiver<DisplayMessage>,
-    callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
+    message_receiver: UnboundedReceiver<DisplayMessage>,
+    callback_sender: Option<UnboundedSender<DisplayCallbackMessage>>,
     // Window rendering state
     windows: Vec<WindowState>,
-    mapped_windows: std::collections::HashSet<u32>, // WindowId
+    mapped_windows: HashSet<u32>, // WindowId
 }
 
 impl VirtualDisplayApp {
-    fn new(
+    pub fn new(
         config: DisplayConfig,
-        message_receiver: mpsc::UnboundedReceiver<DisplayMessage>,
-        callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
+        message_receiver: UnboundedReceiver<DisplayMessage>,
+        callback_sender: Option<UnboundedSender<DisplayCallbackMessage>>,
     ) -> Self {
-        let framebuffer_size = (config.width as u32 * config.height as u32) as usize;
-        let mut mapped_windows = std::collections::HashSet::new();
-        
+        let resolution: [u32; 2] = config.resolution;
+        let framebuffer_size: usize = (resolution[0] * resolution[1]) as usize;
+        let mut mapped_windows: HashSet<u32> = HashSet::new();
+
         // Root window (ID 1) should be mapped by default
         mapped_windows.insert(1);
-        
+
         Self {
             window: None,
             context: None,
@@ -105,8 +76,9 @@ impl VirtualDisplayApp {
 
     /// Render all windows to the framebuffer
     fn render_windows(&mut self) {
-        let width = self.config.width as u32;
-        let height = self.config.height as u32;
+        let dimensions = self.config.resolution;
+        let width = dimensions[0];
+        let height = dimensions[1];
 
         // Clear framebuffer with default background
         let default_bg_color = 0x000000FF; // Black background
@@ -164,25 +136,26 @@ impl VirtualDisplayApp {
         let abs_x = parent_x + window.x as i32;
         let abs_y = parent_y + window.y as i32;
 
-        // For root window, ensure it covers the entire display
-        let (actual_width, actual_height, actual_x, actual_y) = if is_root {
-            // Root window should always cover the entire display
-            (self.config.width, self.config.height, 0, 0)
-        } else {
-            // Regular windows use their defined size and position
-            // Skip if window is outside visible area
-            if abs_x >= max_width as i32
-                || abs_y >= max_height as i32
-                || abs_x + window.width as i32 <= 0
-                || abs_y + window.height as i32 <= 0
-            {
-                return;
-            }
-            (window.width, window.height, abs_x, abs_y)
+        let window_rect = Rect {
+            x: abs_x,
+            y: abs_y,
+            width: window.width as u32,
+            height: window.height as u32,
         };
 
-        let width = self.config.width as u32;
-        let height = self.config.height as u32;
+        // For root window, ensure it covers the entire display
+        let actual_x = if is_root { 0 } else { window_rect.x };
+        let actual_y = if is_root { 0 } else { window_rect.y };
+        let actual_width = if is_root {
+            max_width as i32
+        } else {
+            window_rect.width as i32
+        };
+        let actual_height = if is_root {
+            max_height as i32
+        } else {
+            window_rect.height as i32
+        };
 
         // Determine window colors based on type
         let (bg_color, border_color) = if is_root {
@@ -197,17 +170,17 @@ impl VirtualDisplayApp {
             "Rendering {} window {} at ({},{}) size {}x{}",
             if is_root { "root" } else { "child" },
             window.id,
-            actual_x,
-            actual_y,
-            actual_width,
-            actual_height
+            window_rect.x,
+            window_rect.y,
+            window_rect.width,
+            window_rect.height
         );
 
         // Draw window background and border
-        for y in 0..actual_height {
-            for x in 0..actual_width {
-                let screen_x = actual_x + x as i32;
-                let screen_y = actual_y + y as i32;
+        for y in 0..window_rect.height {
+            for x in 0..window_rect.width {
+                let screen_x = window_rect.x + x as i32;
+                let screen_y = window_rect.y + y as i32;
 
                 if screen_x >= 0
                     && screen_x < width as i32
@@ -425,9 +398,9 @@ impl ApplicationHandler for VirtualDisplayApp {
             );
 
             // Create softbuffer context and surface for rendering
-            let context = softbuffer::Context::new(window.clone())
-                .expect("Failed to create softbuffer context");
-            let mut surface = softbuffer::Surface::new(&context, window.clone())
+            let context =
+                Context::new(window.clone()).expect("Failed to create softbuffer context");
+            let mut surface = Surface::new(&context, window.clone())
                 .expect("Failed to create softbuffer surface");
 
             // Initialize surface with current configuration
@@ -611,185 +584,6 @@ impl ApplicationHandler for VirtualDisplayApp {
                     _event_loop.exit();
                 }
             }
-        }
-    }
-}
-
-/// Virtual display manager that handles the display thread
-#[derive(Debug)]
-pub struct VirtualDisplay {
-    config: Arc<Mutex<DisplayConfig>>,
-    message_sender: Option<mpsc::UnboundedSender<DisplayMessage>>,
-    callback_receiver: Option<mpsc::UnboundedReceiver<DisplayCallbackMessage>>,
-}
-
-impl VirtualDisplay {
-    /// Create a new virtual display with the given configuration
-    pub fn new(config: DisplayConfig) -> Self {
-        Self {
-            config: Arc::new(Mutex::new(config)),
-            message_sender: None,
-            callback_receiver: None,
-        }
-    }
-
-    /// Start the virtual display in a separate thread
-    pub fn start(&mut self) -> Result<(), X11Error> {
-        let (message_sender, message_receiver) = mpsc::unbounded_channel();
-        let (callback_sender, callback_receiver) = mpsc::unbounded_channel();
-
-        let config = {
-            let config_guard = self.config.lock().unwrap();
-            config_guard.clone()
-        };
-
-        // Store the channels
-        self.message_sender = Some(message_sender);
-        self.callback_receiver = Some(callback_receiver);
-
-        // Spawn the display thread
-        std::thread::spawn(move || {
-            info!("Starting virtual display thread");
-
-            // Create event loop
-            #[cfg(target_os = "windows")]
-            let event_loop = EventLoop::builder()
-                .with_any_thread(true)
-                .build()
-                .expect("Failed to create event loop");
-
-            #[cfg(not(target_os = "windows"))]
-            let event_loop = EventLoop::new().expect("Failed to create event loop");
-
-            // Create application
-            let mut app = VirtualDisplayApp::new(config, message_receiver, Some(callback_sender));
-
-            // Run the event loop
-            if let Err(e) = event_loop.run_app(&mut app) {
-                error!("Virtual display event loop error: {}", e);
-            }
-
-            info!("Virtual display thread terminated");
-        });
-
-        info!("Virtual display started successfully");
-        Ok(())
-    }
-
-    /// Get the current display configuration
-    pub fn get_config(&self) -> DisplayConfig {
-        let config_guard = self.config.lock().unwrap();
-        config_guard.clone()
-    }
-
-    /// Update the display configuration
-    pub fn update_config(&self, new_config: DisplayConfig) {
-        let mut config_guard = self.config.lock().unwrap();
-        *config_guard = new_config;
-    }
-
-    /// Send a framebuffer update to the display
-    pub fn update_framebuffer(&self, framebuffer: Vec<u32>) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::UpdateFramebuffer(framebuffer))
-                .map_err(|e| {
-                    X11Error::Protocol(format!("Failed to send framebuffer update: {}", e))
-                })?;
-        }
-        Ok(())
-    }
-
-    /// Request a display resize
-    pub fn resize(&self, width: u32, height: u32) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::Resize(width, height))
-                .map_err(|e| X11Error::Protocol(format!("Failed to send resize: {}", e)))?;
-        }
-        Ok(())
-    }
-
-    /// Shutdown the virtual display
-    pub fn shutdown(&self) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::Shutdown)
-                .map_err(|e| X11Error::Protocol(format!("Failed to send shutdown: {}", e)))?;
-        }
-        Ok(())
-    }
-
-    /// Check for callback messages (non-blocking)
-    pub fn try_recv_callback(&mut self) -> Option<DisplayCallbackMessage> {
-        if let Some(ref mut receiver) = self.callback_receiver {
-            receiver.try_recv().ok()
-        } else {
-            None
-        }
-    }
-
-    /// Send window updates to the display
-    pub fn update_windows(&self, windows: Vec<WindowState>) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::UpdateWindows(windows))
-                .map_err(|e| X11Error::Protocol(format!("Failed to send window update: {}", e)))?;
-        }
-        Ok(())
-    }
-
-    /// Notify display of window creation
-    pub fn window_created(&self, window: WindowState) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::WindowCreated(window))
-                .map_err(|e| {
-                    X11Error::Protocol(format!("Failed to send window creation: {}", e))
-                })?;
-        }
-        Ok(())
-    }
-
-    /// Notify display of window mapping
-    pub fn window_mapped(&self, window_id: u32) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::WindowMapped(window_id))
-                .map_err(|e| X11Error::Protocol(format!("Failed to send window mapping: {}", e)))?;
-        }
-        Ok(())
-    }
-
-    /// Notify display of window unmapping
-    pub fn window_unmapped(&self, window_id: u32) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::WindowUnmapped(window_id))
-                .map_err(|e| {
-                    X11Error::Protocol(format!("Failed to send window unmapping: {}", e))
-                })?;
-        }
-        Ok(())
-    }
-
-    /// Notify display of window destruction
-    pub fn window_destroyed(&self, window_id: u32) -> Result<(), X11Error> {
-        if let Some(ref sender) = self.message_sender {
-            sender
-                .send(DisplayMessage::WindowDestroyed(window_id))
-                .map_err(|e| {
-                    X11Error::Protocol(format!("Failed to send window destruction: {}", e))
-                })?;
-        }
-        Ok(())
-    }
-}
-
-impl Drop for VirtualDisplay {
-    fn drop(&mut self) {
-        if let Err(e) = self.shutdown() {
-            warn!("Error shutting down virtual display: {}", e);
         }
     }
 }

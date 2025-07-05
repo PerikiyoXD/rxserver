@@ -1,28 +1,49 @@
-use tracing::Level;
+use std::fs::File;
+use std::io::Read;
 
-/// Fine-grained logging configuration.
-#[derive(Debug)]
-pub struct LoggingConfig {
-    /// Fallback log level if `RUST_LOG` is missing or invalid.
-    pub default_level: Level,
-    /// Enable ANSI colors?
-    pub ansi: bool,
-    /// Show thread IDs?
-    pub show_thread_ids: bool,
-    /// Show thread names?
-    pub show_thread_names: bool,
-    /// Show file and line number?
-    pub show_file_location: bool,
+use serde::{Deserialize, Serialize};
+
+use crate::display::config::DisplayConfig;
+use crate::logging::LoggingConfig;
+
+/// Configuration containing all displays
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ServerConfig {
+    pub logging: LoggingConfig,
+    pub displays: Vec<DisplayConfig>,
 }
 
-impl Default for LoggingConfig {
+impl Default for ServerConfig {
     fn default() -> Self {
-        Self {
-            default_level: Level::TRACE,
-            ansi: true,
-            show_thread_ids: true,
-            show_thread_names: true,
-            show_file_location: true,
+        ServerConfig {
+            displays: vec![DisplayConfig::default()],
+            logging: LoggingConfig::default(),
         }
+    }
+}
+
+/// Load the server configuration from a file.
+/// If the file does not exist or is invalid, return a default configuration.
+pub fn load_config(path: Option<String>) -> anyhow::Result<ServerConfig> {
+    let config_path = path.unwrap_or_else(|| "rxserver.toml".to_string());
+    let mut contents = String::new();
+    if let Ok(mut file) = File::open(&config_path) {
+        if file.read_to_string(&mut contents).is_ok() {
+            if let Ok(cfg) = toml::from_str(&contents) {
+                return Ok(cfg);
+            }
+        }
+    }
+    Ok(ServerConfig::default())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_load_config() {
+        let config = load_config(None);
+        assert!(config.is_ok());
     }
 }

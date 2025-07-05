@@ -2,12 +2,13 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-use tracing::{debug, trace};
-
+use crate::display::types::Display;
 use crate::protocol::{Atom, ByteOrder, SequenceNumber, WindowId, XId};
-use crate::server::display::VirtualDisplay;
+use crate::transport::TransportInfo;
+use tracing::{debug, trace};
 
 /// Global server state shared across all connections
 #[derive(Debug)]
@@ -26,8 +27,8 @@ pub struct ServerState {
     pub clients: HashMap<ClientId, Arc<Mutex<ClientState>>>,
     /// Next client ID
     pub next_client_id: ClientId,
-    /// Virtual display for showing X11 content
-    pub virtual_display: Option<VirtualDisplay>,
+    /// Named displays managed by the server (e.g., 0 (aka ":0") -> VirtualDisplay)
+    pub displays: HashMap<TransportInfo, Arc<Mutex<Display>>>,
 }
 
 /// Unique identifier for a client connection
@@ -54,7 +55,7 @@ pub struct ClientState {
     pub owned_resources: Vec<XId>,
 }
 
-/// Window state information
+/// Internal representation of a window in the X11 server
 #[derive(Debug, Clone)]
 pub struct WindowState {
     pub id: WindowId,
@@ -113,10 +114,10 @@ impl Default for ServerState {
             next_atom_id,
             windows,
             root_window_id,
-            next_resource_id: 0x00400000, // Start at a reasonable base
+            next_resource_id: 0x00400000,
             clients: HashMap::new(),
             next_client_id: 1,
-            virtual_display: None,
+            displays: HashMap::new(),
         }
     }
 }
@@ -124,14 +125,11 @@ impl Default for ServerState {
 impl ServerState {
     /// Create a new server state
     pub fn new() -> Arc<Mutex<Self>> {
-        trace!("Creating new server state");
         let state = Arc::new(Mutex::new(Self::default()));
-        debug!(
-            "Server state created with {} predefined atoms",
-            PREDEFINED_ATOMS.len()
-        );
         state
     }
+
+    /// Initialize displays from configuration
 
     /// Register a new client
     pub fn register_client(&mut self, address: SocketAddr) -> (ClientId, Arc<Mutex<ClientState>>) {

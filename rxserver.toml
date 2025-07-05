@@ -1,0 +1,18 @@
+[logging]
+level = "trace"
+file = "rxserver.log"
+console = true
+
+[[displays]]
+id = 0
+type = "virtual"
+name = "Primary Monitor"
+transport = "tcp"
+resolution = [1920, 1080]
+
+# [[displays]]
+# id = 1
+# type = "virtual"
+# name = "Secondary Monitor"
+# transport = "tcp"
+# resolution = [2560, 1440]
