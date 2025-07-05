@@ -1,11 +1,9 @@
+use crate::protocol::{ByteOrderReader, types::ByteOrder};
 use anyhow::Result;
-use crate::protocol::types::ByteOrder;
-
-use crate::EndianReader;
 
 use super::types::*;
 
-/// Macro to convert EndianReader errors to anyhow::Error
+/// Macro to convert ByteOrderReader errors to anyhow::Error
 macro_rules! read_or_err {
     ($reader:expr, $method:ident) => {
         $reader.$method().map_err(|e| anyhow::anyhow!(e))?
@@ -95,7 +93,7 @@ pub struct DestroyWindowRequest {
     pub window: WindowId, // window to destroy
 }
 
-/// MapWindow request structure  
+/// MapWindow request structure
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MapWindowRequest {
     pub opcode: u8,       // opcode (8)
@@ -155,7 +153,7 @@ pub struct NoOperationRequest {
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
-    
+
     /// Parse a byte slice into a Request
     fn parse(bytes: &[u8]) -> Result<Request>;
 
@@ -176,32 +174,32 @@ pub struct NoOperationParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = opcodes::GET_GEOMETRY;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
             return Err(anyhow::anyhow!("GetGeometry request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let drawable = read_or_err!(reader, read_u32);
-        
+
         let request = GetGeometryRequest {
             opcode,
             unused,
             length,
             drawable,
         };
-        
+
         Ok(Request {
             kind: RequestKind::GetGeometry(request),
             sequence_number: 0, // Will be set by connection handler
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::GetGeometry(req) => {
@@ -210,33 +208,37 @@ impl RequestParser for GetGeometryParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for GetGeometryParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for GetGeometryParser"
+            )),
         }
     }
 }
 
 impl RequestParser for InternAtomParser {
     const OPCODE: u8 = opcodes::INTERN_ATOM;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
             return Err(anyhow::anyhow!("InternAtom request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let only_if_exists = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let name_len = read_or_err!(reader, read_u16);
         let unused = read_or_err!(reader, read_u16);
-        
+
         let atom_name = if name_len > 0 {
-            let name_bytes = reader.read_bytes(name_len as usize).map_err(|e| anyhow::anyhow!(e))?;
+            let name_bytes = reader
+                .read_bytes(name_len as usize)
+                .map_err(|e| anyhow::anyhow!(e))?;
             String::from_utf8_lossy(name_bytes).to_string()
         } else {
             String::new()
         };
-        
+
         let request = InternAtomRequest {
             opcode,
             only_if_exists,
@@ -245,14 +247,14 @@ impl RequestParser for InternAtomParser {
             unused,
             atom_name,
         };
-        
+
         Ok(Request {
             kind: RequestKind::InternAtom(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::InternAtom(req) => {
@@ -268,13 +270,13 @@ impl RequestParser for InternAtomParser {
 
 impl RequestParser for CreateWindowParser {
     const OPCODE: u8 = opcodes::CREATE_WINDOW;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 32 {
             return Err(anyhow::anyhow!("CreateWindow request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let depth = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
@@ -288,7 +290,7 @@ impl RequestParser for CreateWindowParser {
         let class = read_or_err!(reader, read_u16);
         let visual = read_or_err!(reader, read_u32);
         let value_mask = read_or_err!(reader, read_u32);
-        
+
         // Parse variable length value list
         let mut value_list = Vec::new();
         let remaining_bytes = (length as usize * 4).saturating_sub(32);
@@ -298,7 +300,7 @@ impl RequestParser for CreateWindowParser {
                 value_list.push(read_or_err!(reader, read_u32));
             }
         }
-        
+
         let request = CreateWindowRequest {
             opcode,
             depth,
@@ -315,58 +317,62 @@ impl RequestParser for CreateWindowParser {
             value_mask,
             value_list,
         };
-        
+
         Ok(Request {
             kind: RequestKind::CreateWindow(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::CreateWindow(req) => {
                 if req.width == 0 || req.height == 0 {
-                    return Err(anyhow::anyhow!("CreateWindow: width and height must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CreateWindow: width and height must be non-zero"
+                    ));
                 }
                 if req.depth == 0 {
                     return Err(anyhow::anyhow!("CreateWindow: depth must be non-zero"));
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for CreateWindowParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for CreateWindowParser"
+            )),
         }
     }
 }
 
 impl RequestParser for DestroyWindowParser {
     const OPCODE: u8 = opcodes::DESTROY_WINDOW;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
             return Err(anyhow::anyhow!("DestroyWindow request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let window = read_or_err!(reader, read_u32);
-        
+
         let request = DestroyWindowRequest {
             opcode,
             unused,
             length,
             window,
         };
-        
+
         Ok(Request {
             kind: RequestKind::DestroyWindow(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::DestroyWindow(req) => {
@@ -375,39 +381,41 @@ impl RequestParser for DestroyWindowParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for DestroyWindowParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for DestroyWindowParser"
+            )),
         }
     }
 }
 
 impl RequestParser for MapWindowParser {
     const OPCODE: u8 = opcodes::MAP_WINDOW;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
             return Err(anyhow::anyhow!("MapWindow request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let window = read_or_err!(reader, read_u32);
-        
+
         let request = MapWindowRequest {
             opcode,
             unused,
             length,
             window,
         };
-        
+
         Ok(Request {
             kind: RequestKind::MapWindow(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::MapWindow(req) => {
@@ -423,32 +431,32 @@ impl RequestParser for MapWindowParser {
 
 impl RequestParser for UnmapWindowParser {
     const OPCODE: u8 = opcodes::UNMAP_WINDOW;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
             return Err(anyhow::anyhow!("UnmapWindow request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let window = read_or_err!(reader, read_u32);
-        
+
         let request = UnmapWindowRequest {
             opcode,
             unused,
             length,
             window,
         };
-        
+
         Ok(Request {
             kind: RequestKind::UnmapWindow(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::UnmapWindow(req) => {
@@ -457,20 +465,22 @@ impl RequestParser for UnmapWindowParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for UnmapWindowParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for UnmapWindowParser"
+            )),
         }
     }
 }
 
 impl RequestParser for CreateGlyphCursorParser {
     const OPCODE: u8 = opcodes::CREATE_GLYPH_CURSOR;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 32 {
             return Err(anyhow::anyhow!("CreateGlyphCursor request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
@@ -485,7 +495,7 @@ impl RequestParser for CreateGlyphCursorParser {
         let back_red = read_or_err!(reader, read_u16);
         let back_green = read_or_err!(reader, read_u16);
         let back_blue = read_or_err!(reader, read_u16);
-        
+
         let request = CreateGlyphCursorRequest {
             opcode,
             unused,
@@ -502,53 +512,61 @@ impl RequestParser for CreateGlyphCursorParser {
             back_green,
             back_blue,
         };
-        
+
         Ok(Request {
             kind: RequestKind::CreateGlyphCursor(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::CreateGlyphCursor(req) => {
                 if req.cid == 0 {
-                    return Err(anyhow::anyhow!("CreateGlyphCursor: cursor id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CreateGlyphCursor: cursor id must be non-zero"
+                    ));
                 }
                 if req.source_font == 0 {
-                    return Err(anyhow::anyhow!("CreateGlyphCursor: source font must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CreateGlyphCursor: source font must be non-zero"
+                    ));
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for CreateGlyphCursorParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for CreateGlyphCursorParser"
+            )),
         }
     }
 }
 
 impl RequestParser for OpenFontParser {
     const OPCODE: u8 = opcodes::OPEN_FONT;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
             return Err(anyhow::anyhow!("OpenFont request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
         let fid = read_or_err!(reader, read_u32);
         let name_len = read_or_err!(reader, read_u16);
         let unused2 = read_or_err!(reader, read_u16);
-        
+
         let name = if name_len > 0 {
-            let name_bytes = reader.read_bytes(name_len as usize).map_err(|e| anyhow::anyhow!(e))?;
+            let name_bytes = reader
+                .read_bytes(name_len as usize)
+                .map_err(|e| anyhow::anyhow!(e))?;
             String::from_utf8_lossy(name_bytes).to_string()
         } else {
             String::new()
         };
-        
+
         let request = OpenFontRequest {
             opcode,
             unused,
@@ -558,14 +576,14 @@ impl RequestParser for OpenFontParser {
             unused2,
             name,
         };
-        
+
         Ok(Request {
             kind: RequestKind::OpenFont(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::OpenFont(req) => {
@@ -584,30 +602,30 @@ impl RequestParser for OpenFontParser {
 
 impl RequestParser for NoOperationParser {
     const OPCODE: u8 = opcodes::NO_OPERATION;
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 4 {
             return Err(anyhow::anyhow!("NoOperation request too short"));
         }
-        
-        let mut reader = EndianReader::new(bytes, ByteOrder::LittleEndian);
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
         let opcode = read_or_err!(reader, read_u8);
         let unused = read_or_err!(reader, read_u8);
         let length = read_or_err!(reader, read_u16);
-        
+
         let request = NoOperationRequest {
             opcode,
             unused,
             length,
         };
-        
+
         Ok(Request {
             kind: RequestKind::NoOperation(request),
             sequence_number: 0,
             opcode,
         })
     }
-    
+
     fn validate(_request: &Request) -> Result<()> {
         // NoOperation requests are always valid
         Ok(())
@@ -619,12 +637,12 @@ pub struct X11RequestParser;
 
 impl RequestParser for X11RequestParser {
     const OPCODE: u8 = 0; // Dispatcher doesn't have a specific opcode
-    
+
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!("Request too short"));
         }
-        
+
         let opcode = bytes[0];
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
@@ -639,7 +657,7 @@ impl RequestParser for X11RequestParser {
             _ => Err(anyhow::anyhow!("Unknown opcode: {}", opcode)),
         }
     }
-    
+
     fn validate(request: &Request) -> Result<()> {
         match &request.kind {
             RequestKind::GetGeometry(_) => GetGeometryParser::validate(request),

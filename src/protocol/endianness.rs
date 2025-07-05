@@ -2,7 +2,7 @@
 
 //! Utilities for reading and writing X11 protocol data with correct endianness.
 //!
-//! Provides `EndianWriter` and `EndianReader` for encoding and decoding integers and strings
+//! Provides `EndianWriter` and `ByteOrderReader` for encoding and decoding integers and strings
 //! according to the byte order required by the X11 protocol.
 
 use super::types::ByteOrder;
@@ -63,14 +63,14 @@ impl ByteOrderWriter {
 
 /// Utility for reading X11 protocol data with proper byte order handling
 /// This complements EndianWriter for parsing incoming requests
-pub struct EndianReader<'a> {
+pub struct ByteOrderReader<'a> {
     data: &'a [u8],
     offset: usize,
     byte_order: ByteOrder,
 }
 
-impl<'a> EndianReader<'a> {
-    /// Create a new EndianReader with the specified byte order
+impl<'a> ByteOrderReader<'a> {
+    /// Create a new ByteOrderReader with the specified byte order
     pub fn new(data: &'a [u8], byte_order: ByteOrder) -> Self {
         Self {
             data,
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn test_endian_reader_little_endian() {
         let data = vec![0x34, 0x12, 0x78, 0x56, 0x34, 0x12];
-        let mut reader = EndianReader::new(&data, ByteOrder::LittleEndian);
+        let mut reader = ByteOrderReader::new(&data, ByteOrder::LittleEndian);
 
         assert_eq!(reader.read_u16().unwrap(), 0x1234);
         assert_eq!(reader.read_u32().unwrap(), 0x12345678);
@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn test_endian_reader_big_endian() {
         let data = vec![0x12, 0x34, 0x12, 0x34, 0x56, 0x78];
-        let mut reader = EndianReader::new(&data, ByteOrder::BigEndian);
+        let mut reader = ByteOrderReader::new(&data, ByteOrder::BigEndian);
 
         assert_eq!(reader.read_u16().unwrap(), 0x1234);
         assert_eq!(reader.read_u32().unwrap(), 0x12345678);
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_reader_bounds_checking() {
         let data = vec![0x12];
-        let mut reader = EndianReader::new(&data, ByteOrder::LittleEndian);
+        let mut reader = ByteOrderReader::new(&data, ByteOrder::LittleEndian);
 
         assert!(reader.read_u8().is_ok());
         assert!(reader.read_u8().is_err()); // Should fail - no more data
@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_reader_string_handling() {
         let data = b"hello\0\0\0"; // "hello" with null padding
-        let mut reader = EndianReader::new(data, ByteOrder::LittleEndian);
+        let mut reader = ByteOrderReader::new(data, ByteOrder::LittleEndian);
 
         let result = reader.read_string(8).unwrap();
         assert_eq!(result, "hello");
@@ -271,7 +271,7 @@ mod tests {
     #[test]
     fn test_string_reading() {
         let data = vec![b'a', b'b', 0, 0, b'c', b'd', b'e', b'f'];
-        let mut reader = EndianReader::new(&data, ByteOrder::LittleEndian);
+        let mut reader = ByteOrderReader::new(&data, ByteOrder::LittleEndian);
 
         assert_eq!(reader.read_string(2).unwrap(), "ab");
         reader.skip_padding(4).unwrap();

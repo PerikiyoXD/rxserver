@@ -243,6 +243,10 @@ impl ServerState {
             "Created window {} ({}x{} at {},{}) for client {} with parent {}",
             window_id, width, height, x, y, owner, parent
         );
+
+        // Notify display of window creation
+        self.notify_window_created(window_id);
+
         Ok(())
     }
 
@@ -260,8 +264,114 @@ impl ServerState {
 
     /// Set the virtual display for this server
     pub fn set_virtual_display(&mut self, virtual_display: VirtualDisplay) {
+        // Update root window size to match display configuration
+        if let Some(root_window) = self.windows.get_mut(&self.root_window_id) {
+            let config = virtual_display.get_config();
+            root_window.width = config.width;
+            root_window.height = config.height;
+            root_window.depth = config.depth;
+
+            debug!(
+                "Updated root window size to {}x{} (depth: {})",
+                config.width, config.height, config.depth
+            );
+        }
+
         self.virtual_display = Some(virtual_display);
         debug!("Virtual display set in server state");
+    }
+
+    /// Send current window state to the virtual display
+    pub fn sync_windows_to_display(&self) {
+        if let Some(ref display) = self.virtual_display {
+            let windows: Vec<WindowState> = self.windows.values().cloned().collect();
+            if let Err(e) = display.update_windows(windows) {
+                debug!("Failed to sync windows to display: {}", e);
+            }
+        }
+    }
+
+    /// Notify display when a window is created
+    pub fn notify_window_created(&self, window_id: WindowId) {
+        if let Some(ref display) = self.virtual_display {
+            if let Some(window) = self.windows.get(&window_id) {
+                if let Err(e) = display.window_created(window.clone()) {
+                    debug!("Failed to notify display of window creation: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Notify display when a window is mapped
+    pub fn notify_window_mapped(&self, window_id: WindowId) {
+        if let Some(ref display) = self.virtual_display {
+            if let Err(e) = display.window_mapped(window_id) {
+                debug!("Failed to notify display of window mapping: {}", e);
+            }
+        }
+    }
+
+    /// Notify display when a window is unmapped
+    pub fn notify_window_unmapped(&self, window_id: WindowId) {
+        if let Some(ref display) = self.virtual_display {
+            if let Err(e) = display.window_unmapped(window_id) {
+                debug!("Failed to notify display of window unmapping: {}", e);
+            }
+        }
+    }
+
+    /// Notify display when a window is destroyed
+    pub fn notify_window_destroyed(&self, window_id: WindowId) {
+        if let Some(ref display) = self.virtual_display {
+            if let Err(e) = display.window_destroyed(window_id) {
+                debug!("Failed to notify display of window destruction: {}", e);
+            }
+        }
+    }
+
+    /// Map a window (make it visible)
+    pub fn map_window(&mut self, window_id: WindowId) -> Result<(), &'static str> {
+        if !self.windows.contains_key(&window_id) {
+            return Err("Window does not exist");
+        }
+
+        debug!("Mapping window {}", window_id);
+
+        // Notify display of window mapping
+        self.notify_window_mapped(window_id);
+
+        Ok(())
+    }
+
+    /// Unmap a window (make it invisible)
+    pub fn unmap_window(&mut self, window_id: WindowId) -> Result<(), &'static str> {
+        if !self.windows.contains_key(&window_id) {
+            return Err("Window does not exist");
+        }
+
+        debug!("Unmapping window {}", window_id);
+
+        // Notify display of window unmapping
+        self.notify_window_unmapped(window_id);
+
+        Ok(())
+    }
+
+    /// Destroy a window
+    pub fn destroy_window(&mut self, window_id: WindowId) -> Result<(), &'static str> {
+        if !self.windows.contains_key(&window_id) {
+            return Err("Window does not exist");
+        }
+
+        debug!("Destroying window {}", window_id);
+
+        // Notify display of window destruction
+        self.notify_window_destroyed(window_id);
+
+        // Remove from windows
+        self.windows.remove(&window_id);
+
+        Ok(())
     }
 }
 

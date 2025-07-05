@@ -1,5 +1,5 @@
 //! Virtual Display Management for X11 Server
-//! 
+//!
 //! This module creates a native window using winit to display the X11 server's output.
 //! It provides a virtual display that shows the rendered content of the X11 windows.
 
@@ -18,6 +18,7 @@ use winit::window::{Window, WindowId};
 use winit::platform::windows::EventLoopBuilderExtWindows;
 
 use crate::protocol::X11Error;
+use crate::server::state::WindowState;
 
 /// Display configuration for the virtual display
 #[derive(Debug, Clone)]
@@ -45,6 +46,11 @@ impl Default for DisplayConfig {
 #[derive(Debug)]
 pub enum DisplayMessage {
     UpdateFramebuffer(Vec<u32>),
+    UpdateWindows(Vec<WindowState>), // Send all windows for re-rendering
+    WindowCreated(WindowState),
+    WindowMapped(u32),    // WindowId
+    WindowUnmapped(u32),  // WindowId
+    WindowDestroyed(u32), // WindowId
     Resize(u32, u32),
     Shutdown,
 }
@@ -66,6 +72,9 @@ struct VirtualDisplayApp {
     last_resize_time: Instant,
     message_receiver: mpsc::UnboundedReceiver<DisplayMessage>,
     callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
+    // Window rendering state
+    windows: Vec<WindowState>,
+    mapped_windows: std::collections::HashSet<u32>, // WindowId
 }
 
 impl VirtualDisplayApp {
@@ -75,6 +84,11 @@ impl VirtualDisplayApp {
         callback_sender: Option<mpsc::UnboundedSender<DisplayCallbackMessage>>,
     ) -> Self {
         let framebuffer_size = (config.width as u32 * config.height as u32) as usize;
+        let mut mapped_windows = std::collections::HashSet::new();
+        
+        // Root window (ID 1) should be mapped by default
+        mapped_windows.insert(1);
+        
         Self {
             window: None,
             context: None,
@@ -84,47 +98,307 @@ impl VirtualDisplayApp {
             last_resize_time: Instant::now(),
             message_receiver,
             callback_sender,
+            windows: Vec::new(),
+            mapped_windows,
         }
     }
 
-    /// Draw a simple test pattern to the framebuffer
-    fn draw_test_pattern(&mut self) {
+    /// Render all windows to the framebuffer
+    fn render_windows(&mut self) {
         let width = self.config.width as u32;
         let height = self.config.height as u32;
-        
-        for y in 0..height {
-            for x in 0..width {
-                let index = (y * width + x) as usize;
-                if index < self.framebuffer.len() {
-                    // Create a simple gradient pattern
-                    let r = ((x * 255) / width) as u8;
-                    let g = ((y * 255) / height) as u8;
-                    let b = 128u8;
-                    self.framebuffer[index] = ((r as u32) << 16) | ((g as u32) << 8) | (b as u32) | 0xFF000000;
+
+        // Clear framebuffer with default background
+        let default_bg_color = 0x000000FF; // Black background
+        self.framebuffer.fill(default_bg_color);
+
+        // Create a list of windows to render in proper order
+        let mut windows_to_render = Vec::new();
+
+        // Find and add root window first (should always be rendered, even if not explicitly mapped)
+        if let Some(root_window) = self.windows.iter().find(|w| w.parent.is_none()) {
+            debug!(
+                "Found root window {} ({}x{} at {},{}) - always rendering",
+                root_window.id, root_window.width, root_window.height, root_window.x, root_window.y
+            );
+            windows_to_render.push((root_window.clone(), 0, 0, true));
+        } else {
+            debug!(
+                "No root window found in window list (count: {})",
+                self.windows.len()
+            );
+        }
+
+        // Add all other mapped windows in hierarchical order
+        for window in &self.windows {
+            if window.parent.is_some() {
+                let is_mapped = self.mapped_windows.contains(&window.id);
+                debug!("Child window {} - mapped: {}", window.id, is_mapped);
+                if is_mapped {
+                    windows_to_render.push((window.clone(), 0, 0, false));
                 }
             }
         }
-        
-        // Draw "RX X11 Server" text pattern in the center
-        let center_x = width / 2;
-        let center_y = height / 2;
-        
-        // Draw a simple cross pattern to represent the server
-        for i in 0..60 {
-            let x1 = center_x.saturating_sub(30) + i;
-            let y1 = center_y;
-            let index1 = (y1 * width + x1) as usize;
-            if index1 < self.framebuffer.len() {
-                self.framebuffer[index1] = 0xFFFFFFFF; // White
+
+        debug!("Rendering {} windows total", windows_to_render.len());
+
+        // Render all windows
+        for (window, parent_x, parent_y, is_root) in windows_to_render {
+            self.render_window(&window, parent_x, parent_y, width, height, is_root);
+        }
+
+        // Draw server info overlay
+        self.draw_server_info();
+    }
+
+    /// Render a single window
+    fn render_window(
+        &mut self,
+        window: &WindowState,
+        parent_x: i32,
+        parent_y: i32,
+        max_width: u32,
+        max_height: u32,
+        is_root: bool,
+    ) {
+        let abs_x = parent_x + window.x as i32;
+        let abs_y = parent_y + window.y as i32;
+
+        // For root window, ensure it covers the entire display
+        let (actual_width, actual_height, actual_x, actual_y) = if is_root {
+            // Root window should always cover the entire display
+            (self.config.width, self.config.height, 0, 0)
+        } else {
+            // Regular windows use their defined size and position
+            // Skip if window is outside visible area
+            if abs_x >= max_width as i32
+                || abs_y >= max_height as i32
+                || abs_x + window.width as i32 <= 0
+                || abs_y + window.height as i32 <= 0
+            {
+                return;
             }
-            
-            let x2 = center_x;
-            let y2 = center_y.saturating_sub(30) + i;
-            let index2 = (y2 * width + x2) as usize;
-            if index2 < self.framebuffer.len() {
-                self.framebuffer[index2] = 0xFFFFFFFF; // White
+            (window.width, window.height, abs_x, abs_y)
+        };
+
+        let width = self.config.width as u32;
+        let height = self.config.height as u32;
+
+        // Determine window colors based on type
+        let (bg_color, border_color) = if is_root {
+            // Root window - desktop background (dark blue-gray)
+            (0x2E3440FF, 0x3B4252FF)
+        } else {
+            // Regular window - light background with visible border
+            (0xECEFF4FF, 0x5E81ACFF) // Light gray with blue border
+        };
+
+        debug!(
+            "Rendering {} window {} at ({},{}) size {}x{}",
+            if is_root { "root" } else { "child" },
+            window.id,
+            actual_x,
+            actual_y,
+            actual_width,
+            actual_height
+        );
+
+        // Draw window background and border
+        for y in 0..actual_height {
+            for x in 0..actual_width {
+                let screen_x = actual_x + x as i32;
+                let screen_y = actual_y + y as i32;
+
+                if screen_x >= 0
+                    && screen_x < width as i32
+                    && screen_y >= 0
+                    && screen_y < height as i32
+                {
+                    let index = (screen_y as u32 * width + screen_x as u32) as usize;
+                    if index < self.framebuffer.len() {
+                        if !is_root
+                            && window.border_width > 0
+                            && (x < window.border_width
+                                || x >= actual_width - window.border_width
+                                || y < window.border_width
+                                || y >= actual_height - window.border_width)
+                        {
+                            // Draw border for non-root windows
+                            self.framebuffer[index] = border_color;
+                        } else {
+                            // Draw background
+                            self.framebuffer[index] = bg_color;
+                        }
+                    }
+                }
             }
         }
+
+        // Draw window content for non-root windows
+        if !is_root {
+            self.draw_window_content(window, actual_x, actual_y);
+        } else {
+            // For root window, draw a subtle pattern to show it's active
+            self.draw_root_window_pattern(actual_x, actual_y, actual_width, actual_height);
+        }
+    }
+
+    /// Draw content inside a window
+    fn draw_window_content(&mut self, window: &WindowState, abs_x: i32, abs_y: i32) {
+        let width = self.config.width as u32;
+        let height = self.config.height as u32;
+
+        // Draw a simple pattern to show this is a window
+        let content_color = 0xD8DEE9FF; // Light gray
+        let pattern_color = 0x88C0D0FF; // Light blue
+
+        // Calculate content area (inside border)
+        let content_x = abs_x + window.border_width as i32;
+        let content_y = abs_y + window.border_width as i32;
+        let content_width = window.width.saturating_sub(window.border_width * 2);
+        let content_height = window.height.saturating_sub(window.border_width * 2);
+
+        // Draw simple window identifier pattern
+        for y in 0..content_height {
+            for x in 0..content_width {
+                let screen_x = content_x + x as i32;
+                let screen_y = content_y + y as i32;
+
+                if screen_x >= 0
+                    && screen_x < width as i32
+                    && screen_y >= 0
+                    && screen_y < height as i32
+                {
+                    let index = (screen_y as u32 * width + screen_x as u32) as usize;
+                    if index < self.framebuffer.len() {
+                        // Simple checkerboard pattern for window content
+                        let color = if (x / 8 + y / 8) % 2 == 0 {
+                            content_color
+                        } else {
+                            pattern_color
+                        };
+                        self.framebuffer[index] = color;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw a subtle pattern for the root window to show it's active
+    fn draw_root_window_pattern(&mut self, _x: i32, _y: i32, width: u16, height: u16) {
+        let display_width = self.config.width as u32;
+        let display_height = self.config.height as u32;
+
+        // Draw a subtle grid pattern on the root window
+        let grid_color = 0x3B4252FF; // Slightly lighter than background
+        let grid_size = 32;
+
+        for y in 0..height {
+            for x in 0..width {
+                if x as u32 >= display_width || y as u32 >= display_height {
+                    continue;
+                }
+
+                let index = (y as u32 * display_width + x as u32) as usize;
+                if index < self.framebuffer.len() {
+                    // Draw grid lines
+                    if x % grid_size == 0 || y % grid_size == 0 {
+                        self.framebuffer[index] = grid_color;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw server information overlay
+    fn draw_server_info(&mut self) {
+        let width = self.config.width as u32;
+        let height = self.config.height as u32;
+
+        // Draw RX X11 Server text in the top-left corner
+        let text_color = 0xD8DEE9FF; // Light color
+        let text_bg = 0x2E3440CC; // Semi-transparent background
+
+        // Simple text rendering - draw "RX X11" as a pattern
+        for y in 10..25 {
+            for x in 10..120 {
+                if x < width && y < height {
+                    let index = (y * width + x) as usize;
+                    if index < self.framebuffer.len() {
+                        // Draw background for text area
+                        if x == 10 || x == 119 || y == 10 || y == 24 {
+                            self.framebuffer[index] = text_color;
+                        } else {
+                            self.framebuffer[index] = text_bg;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Draw window count info
+        let window_count = self.windows.len();
+        let mapped_count = self.mapped_windows.len();
+
+        // Draw simple indicators for window count (dots)
+        for i in 0..window_count.min(10) {
+            let dot_x = 10 + i as u32 * 6;
+            let dot_y = 30;
+            if dot_x < width && dot_y < height {
+                let index = (dot_y * width + dot_x) as usize;
+                if index < self.framebuffer.len() {
+                    self.framebuffer[index] = if i < mapped_count {
+                        0x88C0D0FF // Bright blue for mapped windows
+                    } else {
+                        0x4C566AFF // Gray for unmapped windows
+                    };
+                }
+            }
+        }
+
+        // Draw status indicators for root window and children
+        let status_y = 35;
+        let status_colors = [
+            0x88C0D0FF, // Blue for active
+            0xBF616AFF, // Red for inactive
+            0xA3BE8CFF, // Green for mapped
+            0xEBCB8BFF, // Yellow for created
+        ];
+
+        // Status line: Root window indicator
+        if let Some(_root_window) = self.windows.iter().find(|w| w.parent.is_none()) {
+            for i in 0..4 {
+                let status_x = 10 + i as u32 * 8;
+                if status_x < width && status_y < height {
+                    let index = (status_y * width + status_x) as usize;
+                    if index < self.framebuffer.len() {
+                        self.framebuffer[index] = status_colors[0]; // Root window is always active
+                    }
+                }
+            }
+        }
+
+        // Child window status indicators
+        let child_windows: Vec<_> = self.windows.iter().filter(|w| w.parent.is_some()).collect();
+        for (i, window) in child_windows.iter().take(8).enumerate() {
+            let status_x = 50 + i as u32 * 8;
+            if status_x < width && status_y < height {
+                let index = (status_y * width + status_x) as usize;
+                if index < self.framebuffer.len() {
+                    self.framebuffer[index] = if self.mapped_windows.contains(&window.id) {
+                        status_colors[2] // Green for mapped
+                    } else {
+                        status_colors[3] // Yellow for created but not mapped
+                    };
+                }
+            }
+        }
+    }
+
+    /// Draw a simple test pattern to the framebuffer (legacy method)
+    fn draw_test_pattern(&mut self) {
+        // For backward compatibility, this now calls render_windows
+        self.render_windows();
     }
 }
 
@@ -234,13 +508,14 @@ impl ApplicationHandler for VirtualDisplayApp {
                                 error!("Failed to resize surface: {}", e);
                                 return;
                             }
-                        }                        // Resize framebuffer
+                        } // Resize framebuffer
                         let new_size = (new_width * new_height) as usize;
                         self.framebuffer.resize(new_size, 0x000000FF);
-                        
+
                         // Notify the server about the resize
                         if let Some(ref callback_sender) = self.callback_sender {
-                            let _ = callback_sender.send(DisplayCallbackMessage::WindowResized(new_width, new_height));
+                            let _ = callback_sender
+                                .send(DisplayCallbackMessage::WindowResized(new_width, new_height));
                         }
 
                         // Draw test pattern and request redraw outside the borrow scope
@@ -266,7 +541,56 @@ impl ApplicationHandler for VirtualDisplayApp {
                     debug!("Updating virtual display framebuffer");
                     let copy_len = std::cmp::min(new_framebuffer.len(), self.framebuffer.len());
                     self.framebuffer[..copy_len].copy_from_slice(&new_framebuffer[..copy_len]);
-                    
+
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::UpdateWindows(new_windows) => {
+                    debug!(
+                        "Updating virtual display windows (count: {})",
+                        new_windows.len()
+                    );
+                    self.windows = new_windows;
+                    self.render_windows();
+
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::WindowCreated(window_state) => {
+                    debug!("Window created: ID {}", window_state.id);
+                    self.windows.push(window_state);
+                    self.render_windows();
+
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::WindowMapped(window_id) => {
+                    debug!("Window mapped: ID {}", window_id);
+                    self.mapped_windows.insert(window_id);
+                    self.render_windows();
+
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::WindowUnmapped(window_id) => {
+                    debug!("Window unmapped: ID {}", window_id);
+                    self.mapped_windows.remove(&window_id);
+                    self.render_windows();
+
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
+                }
+                DisplayMessage::WindowDestroyed(window_id) => {
+                    debug!("Window destroyed: ID {}", window_id);
+                    self.windows.retain(|w| w.id != window_id);
+                    self.mapped_windows.remove(&window_id);
+                    self.render_windows();
+
                     if let Some(window) = &self.window {
                         window.request_redraw();
                     }
@@ -275,7 +599,8 @@ impl ApplicationHandler for VirtualDisplayApp {
                     debug!("Received resize request: {}x{}", width, height);
                     // Let the window system handle resizing naturally
                     if let Some(window) = &self.window {
-                        let _ = window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
+                        let _ =
+                            window.request_inner_size(winit::dpi::PhysicalSize::new(width, height));
                     }
                 }
                 DisplayMessage::Shutdown => {
@@ -368,7 +693,9 @@ impl VirtualDisplay {
         if let Some(ref sender) = self.message_sender {
             sender
                 .send(DisplayMessage::UpdateFramebuffer(framebuffer))
-                .map_err(|e| X11Error::Protocol(format!("Failed to send framebuffer update: {}", e)))?;
+                .map_err(|e| {
+                    X11Error::Protocol(format!("Failed to send framebuffer update: {}", e))
+                })?;
         }
         Ok(())
     }
@@ -400,6 +727,62 @@ impl VirtualDisplay {
         } else {
             None
         }
+    }
+
+    /// Send window updates to the display
+    pub fn update_windows(&self, windows: Vec<WindowState>) -> Result<(), X11Error> {
+        if let Some(ref sender) = self.message_sender {
+            sender
+                .send(DisplayMessage::UpdateWindows(windows))
+                .map_err(|e| X11Error::Protocol(format!("Failed to send window update: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Notify display of window creation
+    pub fn window_created(&self, window: WindowState) -> Result<(), X11Error> {
+        if let Some(ref sender) = self.message_sender {
+            sender
+                .send(DisplayMessage::WindowCreated(window))
+                .map_err(|e| {
+                    X11Error::Protocol(format!("Failed to send window creation: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Notify display of window mapping
+    pub fn window_mapped(&self, window_id: u32) -> Result<(), X11Error> {
+        if let Some(ref sender) = self.message_sender {
+            sender
+                .send(DisplayMessage::WindowMapped(window_id))
+                .map_err(|e| X11Error::Protocol(format!("Failed to send window mapping: {}", e)))?;
+        }
+        Ok(())
+    }
+
+    /// Notify display of window unmapping
+    pub fn window_unmapped(&self, window_id: u32) -> Result<(), X11Error> {
+        if let Some(ref sender) = self.message_sender {
+            sender
+                .send(DisplayMessage::WindowUnmapped(window_id))
+                .map_err(|e| {
+                    X11Error::Protocol(format!("Failed to send window unmapping: {}", e))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// Notify display of window destruction
+    pub fn window_destroyed(&self, window_id: u32) -> Result<(), X11Error> {
+        if let Some(ref sender) = self.message_sender {
+            sender
+                .send(DisplayMessage::WindowDestroyed(window_id))
+                .map_err(|e| {
+                    X11Error::Protocol(format!("Failed to send window destruction: {}", e))
+                })?;
+        }
+        Ok(())
     }
 }
 

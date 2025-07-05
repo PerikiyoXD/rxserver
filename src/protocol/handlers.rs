@@ -6,9 +6,10 @@
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
-use crate::protocol::{ByteOrder, HandlerResult, Request, RequestHandler, X11Error};
+use crate::protocol::{
+    ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
+};
 use crate::server::state::{ClientId, ClientState, ServerState};
-use crate::{ByteOrderWriter, RequestKind};
 
 /// Handler for InternAtom requests (opcode 16)
 pub struct InternAtomHandler;
@@ -28,7 +29,11 @@ impl RequestHandler for InternAtomHandler {
         // Get request kind
         let _kind = match &request.kind {
             RequestKind::InternAtom(_atom) => _atom,
-            _ => return Err(X11Error::Protocol("Invalid request type for InternAtomHandler".to_string())),
+            _ => {
+                return Err(X11Error::Protocol(
+                    "Invalid request type for InternAtomHandler".to_string(),
+                ));
+            }
         };
 
         // Create a simple response - in a real implementation, this would look up atoms

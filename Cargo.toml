@@ -108,8 +108,5 @@ debug = true
 [lints.rust]
 dead_code = "deny"
 unreachable_code = "deny"
-unused_functions = "deny"
-unused_structs = "deny"
-unused_enums = "deny"
 unused_imports = "deny"
 unused_variables = "deny"
