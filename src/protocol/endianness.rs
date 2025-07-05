@@ -177,6 +177,20 @@ impl<'a> EndianReader<'a> {
         }
         Ok(self.data[self.offset])
     }
+
+    /// Read a 16-bit signed value with proper byte order
+    pub fn read_i16(&mut self) -> Result<i16, &'static str> {
+        if self.offset + 2 > self.data.len() {
+            return Err("Not enough data to read i16");
+        }
+        let bytes = [self.data[self.offset], self.data[self.offset + 1]];
+        self.offset += 2;
+
+        match self.byte_order {
+            ByteOrder::LittleEndian => Ok(i16::from_le_bytes(bytes)),
+            ByteOrder::BigEndian => Ok(i16::from_be_bytes(bytes)),
+        }
+    }
 }
 
 #[cfg(test)]
