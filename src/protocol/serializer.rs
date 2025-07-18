@@ -2,7 +2,7 @@ use super::response::*;
 use super::types::*;
 
 /// Trait for serializing X11 protocol responses
-pub trait ResponseBuilder {
+pub trait ResponseSerializer {
     /// Serialize a response to bytes
     fn serialize(&self, response: &Response) -> Result<Option<Vec<u8>>>;
 
@@ -13,7 +13,7 @@ pub trait ResponseBuilder {
 }
 
 /// Serializer for GetGeometry responses
-impl ResponseBuilder for GetGeometryResponse {
+impl ResponseSerializer for GetGeometryResponse {
     fn serialize(&self, _response: &Response) -> Result<Option<Vec<u8>>> {
         // GetGeometry response is fixed size (32 bytes)
         let mut bytes = Vec::with_capacity(32);
@@ -39,9 +39,9 @@ impl ResponseBuilder for GetGeometryResponse {
 }
 
 /// Generic response serializer that dispatches to specific serializers
-pub struct X11ResponseBuilder;
+pub struct X11ResponseSerializer;
 
-impl ResponseBuilder for X11ResponseBuilder {
+impl ResponseSerializer for X11ResponseSerializer {
     fn serialize(&self, response: &Response) -> Result<Option<Vec<u8>>> {
         match &response.kind {
             ResponseKind::GetGeometry(get_geo) => get_geo.serialize(response),
@@ -116,7 +116,7 @@ mod tests {
             byte_order: ByteOrder::LittleEndian,
         };
 
-        let serializer = X11ResponseBuilder;
+        let serializer = X11ResponseSerializer;
         let result = serializer.serialize(&response).unwrap().unwrap();
         assert_eq!(result.len(), 32);
     }

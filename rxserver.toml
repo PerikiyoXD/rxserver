@@ -1,11 +1,15 @@
 [logging]
-level = "trace"
+default_level = "trace"
+show_thread_ids = false
+show_thread_names = true
+ansi = true
+show_file_location = false
 file = "rxserver.log"
 console = true
 
 [[displays]]
 id = 0
-type = "virtual"
+kind = "virtual"
 name = "Primary Monitor"
 transport = "tcp"
 resolution = [1920, 1080]

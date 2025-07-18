@@ -13,7 +13,7 @@ use crate::{
         types::{DisplayCallbackMessage, DisplayMessage, DisplayTrait},
         virtual_display_app::VirtualDisplayApp,
     },
-    server::WindowState,
+    server::window_system::Window,
 };
 
 /// Virtual display manager that handles the display thread
@@ -96,7 +96,7 @@ impl DisplayTrait for VirtualDisplay {
         Ok(())
     }
 
-    fn on_update_windows(&self, windows: Vec<WindowState>) -> Result<()> {
+    fn on_update_windows(&self, windows: Vec<Window>) -> Result<()> {
         if let Some(ref sender) = self.message_sender {
             sender
                 .send(DisplayMessage::UpdateWindows(windows))
@@ -105,7 +105,7 @@ impl DisplayTrait for VirtualDisplay {
         Ok(())
     }
 
-    fn on_window_created(&self, window: WindowState) -> Result<()> {
+    fn on_window_created(&self, window: Window) -> Result<()> {
         if let Some(ref sender) = self.message_sender {
             sender
                 .send(DisplayMessage::WindowCreated(window))

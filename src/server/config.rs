@@ -1,49 +1,49 @@
-use std::fs::File;
-use std::io::Read;
-
 use serde::{Deserialize, Serialize};
+use std::fs;
+use tracing::warn;
 
 use crate::display::config::DisplayConfig;
 use crate::logging::LoggingConfig;
 
-/// Configuration containing all displays
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
+    #[serde(default)]
     pub logging: LoggingConfig,
+    #[serde(default = "default_displays")]
     pub displays: Vec<DisplayConfig>,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
-        ServerConfig {
-            displays: vec![DisplayConfig::default()],
+        Self {
             logging: LoggingConfig::default(),
+            displays: default_displays(),
         }
     }
 }
 
-/// Load the server configuration from a file.
-/// If the file does not exist or is invalid, return a default configuration.
-pub fn load_config(path: Option<String>) -> anyhow::Result<ServerConfig> {
-    let config_path = path.unwrap_or_else(|| "rxserver.toml".to_string());
-    let mut contents = String::new();
-    if let Ok(mut file) = File::open(&config_path) {
-        if file.read_to_string(&mut contents).is_ok() {
-            if let Ok(cfg) = toml::from_str(&contents) {
-                return Ok(cfg);
-            }
-        }
-    }
-    Ok(ServerConfig::default())
+fn default_displays() -> Vec<DisplayConfig> {
+    vec![DisplayConfig::default()]
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub fn load_config(path: Option<&str>) -> anyhow::Result<ServerConfig> {
+    let config_path = path.unwrap_or("rxserver.toml");
 
-    #[test]
-    fn test_load_config() {
-        let config = load_config(None);
-        assert!(config.is_ok());
-    }
+    let contents = match fs::read_to_string(config_path) {
+        Ok(contents) => contents,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            warn!("Config file '{}' not found, using defaults", config_path);
+            return Ok(ServerConfig::default());
+        }
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Cannot read config file '{}': {}",
+                config_path,
+                e
+            ));
+        }
+    };
+
+    toml::from_str(&contents)
+        .map_err(|e| anyhow::anyhow!("Invalid config file '{}': {}", config_path, e))
 }

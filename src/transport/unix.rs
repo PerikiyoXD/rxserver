@@ -1,61 +1,132 @@
+// unix.rs
+#[cfg(unix)]
+use super::{ConnectionEvent, TransportContract, TransportKind, TransportMessage};
+#[cfg(unix)]
+use crate::server::{ConnectionHandler, state::Server};
+#[cfg(unix)]
 use anyhow::{Context, Result};
-use tokio::net::UnixListener;
+#[cfg(unix)]
+use std::sync::Arc;
+#[cfg(unix)]
+use tokio::{
+    net::UnixListener,
+    sync::{Mutex, mpsc},
+};
+#[cfg(unix)]
+use tokio_util::sync::CancellationToken;
+#[cfg(unix)]
 use tracing::{error, info};
 
-use crate::transport::TransportTrait;
-
-pub struct UnixSocketTransport {
-    listener: Arc<Mutex<UnixListener>>,
+#[cfg(unix)]
+pub struct UnixTransport {
+    listener: UnixListener,
     cancel_token: CancellationToken,
+    message_sender: mpsc::UnboundedSender<TransportMessage>,
+    server_state: Arc<Mutex<Server>>,
+    socket_path: String,
 }
 
-impl UnixSocketTransport {
-    pub fn stop(&self) {
-        self.cancel_token.cancel();
-    }
-}
+#[cfg(unix)]
+impl UnixTransport {
+    pub async fn new(
+        path: &str,
+        server_state: Arc<Mutex<Server>>,
+        tx: mpsc::UnboundedSender<TransportMessage>,
+    ) -> Result<Self> {
+        // Remove existing socket file if it exists
+        let _ = std::fs::remove_file(path);
 
-impl TransportTrait for UnixSocketTransport {
-    async fn new(addr: &str) -> Self {
-        Self {
-            listener: Arc::new(Mutex::new(
-                UnixListener::bind(addr)
-                    .await
-                    .context(format!("Failed to bind Unix socket at {}", addr))?,
-            )),
+        let listener = UnixListener::bind(path)
+            .with_context(|| format!("Failed to bind Unix socket at {}", path))?;
+
+        info!("Unix transport bound to {}", path);
+
+        Ok(Self {
+            listener,
             cancel_token: CancellationToken::new(),
-        }
+            message_sender: tx,
+            server_state,
+            socket_path: path.to_string(),
+        })
     }
 
-    async fn run(&self) -> Result<()> {
-        let cancel_token = self.cancel_token.clone();
-        let listener = self.listener.clone();
+    async fn handle_connection(&self, socket: tokio::net::UnixStream) {
+        let server_state = Arc::clone(&self.server_state);
+        let socket_path = self.socket_path.clone();
+
         tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = cancel_token.cancelled() => {
-                        info!("Cancellation requested, shutting down listener.");
-                        break;
+            match ConnectionHandler::new_unix(server_state, socket, socket_path.clone()).await {
+                Ok(handler) => {
+                    if let Err(e) = handler.handle().await {
+                        error!("Unix connection handler error: {}", e);
                     }
-                    accept_result = async {
-                        let guard = listener.lock().await;
-                        guard.accept().await
-                    } => {
-                        match accept_result {
-                            Ok((_socket, client_addr)) => {
-                                info!("Accepted connection from {}", client_addr);
-                                // TODO: Handle the socket connection here
-                            }
-                            Err(e) => {
-                                info!("Failed to accept connection: {:?}", e);
+                }
+                Err(e) => {
+                    error!("Failed to create Unix connection handler: {}", e);
+                }
+            }
+        });
+    }
+}
+
+#[cfg(unix)]
+impl TransportContract for UnixTransport {
+    async fn start(&self) -> Result<()> {
+        info!("Starting Unix transport");
+
+        loop {
+            tokio::select! {
+                _ = self.cancel_token.cancelled() => {
+                    info!("Unix transport shutdown requested");
+                    let _ = self.message_sender.send(TransportMessage::Shutdown);
+                    break;
+                }
+                accept_result = self.listener.accept() => {
+                    match accept_result {
+                        Ok((socket, _)) => {
+                            info!("Unix connection accepted");
+
+                            let event = ConnectionEvent {
+                                client_addr: self.socket_path.clone(),
+                                transport_kind: TransportKind::Unix,
+                            };
+
+                            if self.message_sender.send(TransportMessage::ConnectionAccepted(event)).is_err() {
+                                info!("Failed to send connection event, shutting down");
                                 break;
                             }
+
+                            self.handle_connection(socket).await;
+                        }
+                        Err(e) => {
+                            let error_msg = format!("Failed to accept Unix connection: {}", e);
+                            error!("{}", error_msg);
+                            let _ = self.message_sender.send(TransportMessage::Error(error_msg));
+                            break;
                         }
                     }
                 }
             }
-            info!("Unix listener stopped.");
-        });
+        }
+
         Ok(())
+    }
+
+    fn stop(&self) {
+        info!("Stopping Unix transport");
+        self.cancel_token.cancel();
+        // Clean up socket file
+        let _ = std::fs::remove_file(&self.socket_path);
+    }
+
+    fn transport_kind(&self) -> TransportKind {
+        TransportKind::Unix
+    }
+}
+
+#[cfg(unix)]
+impl Drop for UnixTransport {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.socket_path);
     }
 }

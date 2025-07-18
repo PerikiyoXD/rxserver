@@ -3,8 +3,6 @@ use std::convert::TryFrom;
 
 // ==================== SINGLE MARKER TRAIT ====================
 
-/// Marker trait for X11 protocol responses.
-/// This is purely for type identification - no compile-time guarantees.
 pub trait ProtocolResponse {}
 
 // ==================== CONNECTION SETUP (existing complex types) ====================
@@ -214,6 +212,19 @@ impl GetGeometryResponse {
         }
     }
 }
+
+// ===================== GrabPointer ================
+pub struct GrabPointerRequest {
+    pub owner_events: bool,
+    pub grab_window: WindowId,
+    pub event_mask: u32,        // SETofPOINTEREVENT
+    pub pointer_mode: u8,       // { Synchronous, Asynchronous }
+    pub keyboard_mode: u8,      // { Synchronous, Asynchronous }
+    pub confine_to: WindowId,   // WINDOW or None (0 for None)
+    pub cursor: CursorId,       // CURSOR or None (0 for None)
+    pub time: Timestamp,        // TIMESTAMP or CurrentTime
+}
+
 
 // ==================== RESPONSE ENVELOPE ====================
 

@@ -6,19 +6,14 @@ use tokio::{
     time::Instant,
 };
 use tracing::{debug, error, info};
-use winit::{
-    application::ApplicationHandler,
-    event::WindowEvent,
-    event_loop::ActiveEventLoop,
-    window::{Window, WindowId},
-};
+use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop};
 
 use crate::{
     display::{
         config::DisplayConfig,
         types::{DisplayCallbackMessage, DisplayMessage},
     },
-    server::WindowState,
+    server::window_system::Window,
 };
 
 pub struct Rect {
@@ -34,16 +29,16 @@ pub struct Rect {
 ///
 /// Handles window management, rendering, and interaction with the X11 server
 pub struct VirtualDisplayApp {
-    window: Option<Arc<Window>>,
-    context: Option<Context<Arc<Window>>>,
-    surface: Option<Surface<Arc<Window>, Arc<Window>>>,
+    window: Option<Arc<winit::window::Window>>,
+    context: Option<Context<Arc<winit::window::Window>>>,
+    surface: Option<Surface<Arc<winit::window::Window>, Arc<winit::window::Window>>>,
     framebuffer: Vec<u32>,
     config: DisplayConfig,
     last_resize_time: Instant,
     message_receiver: UnboundedReceiver<DisplayMessage>,
     callback_sender: Option<UnboundedSender<DisplayCallbackMessage>>,
     // Window rendering state
-    windows: Vec<WindowState>,
+    windows: Vec<Window>,
     mapped_windows: HashSet<u32>, // WindowId
 }
 
@@ -126,13 +121,19 @@ impl VirtualDisplayApp {
     /// Render a single window
     fn render_window(
         &mut self,
-        window: &WindowState,
+        window: &Window,
         parent_x: i32,
         parent_y: i32,
         max_width: u32,
         max_height: u32,
         is_root: bool,
     ) {
+        // Get display width/height from config
+        let (width, height) = (
+            self.config.resolution[0] as u32,
+            self.config.resolution[1] as u32,
+        );
+
         let abs_x = parent_x + window.x as i32;
         let abs_y = parent_y + window.y as i32;
 
@@ -191,10 +192,10 @@ impl VirtualDisplayApp {
                     if index < self.framebuffer.len() {
                         if !is_root
                             && window.border_width > 0
-                            && (x < window.border_width
-                                || x >= actual_width - window.border_width
-                                || y < window.border_width
-                                || y >= actual_height - window.border_width)
+                            && (x < window.border_width as u32
+                                || x >= (actual_width - window.border_width as i32) as u32
+                                || y < window.border_width as u32
+                                || y >= (actual_height - window.border_width as i32) as u32)
                         {
                             // Draw border for non-root windows
                             self.framebuffer[index] = border_color;
@@ -212,14 +213,21 @@ impl VirtualDisplayApp {
             self.draw_window_content(window, actual_x, actual_y);
         } else {
             // For root window, draw a subtle pattern to show it's active
-            self.draw_root_window_pattern(actual_x, actual_y, actual_width, actual_height);
+            self.draw_root_window_pattern(
+                actual_x,
+                actual_y,
+                actual_width.try_into().unwrap(),
+                actual_height.try_into().unwrap(),
+            );
         }
     }
 
     /// Draw content inside a window
-    fn draw_window_content(&mut self, window: &WindowState, abs_x: i32, abs_y: i32) {
-        let width = self.config.width as u32;
-        let height = self.config.height as u32;
+    fn draw_window_content(&mut self, window: &Window, abs_x: i32, abs_y: i32) {
+        let (width, height) = (
+            self.config.resolution[0] as u32,
+            self.config.resolution[1] as u32,
+        );
 
         // Draw a simple pattern to show this is a window
         let content_color = 0xD8DEE9FF; // Light gray
@@ -259,8 +267,10 @@ impl VirtualDisplayApp {
 
     /// Draw a subtle pattern for the root window to show it's active
     fn draw_root_window_pattern(&mut self, _x: i32, _y: i32, width: u16, height: u16) {
-        let display_width = self.config.width as u32;
-        let display_height = self.config.height as u32;
+        let (display_width, display_height) = (
+            self.config.resolution[0] as u32,
+            self.config.resolution[1] as u32,
+        );
 
         // Draw a subtle grid pattern on the root window
         let grid_color = 0x3B4252FF; // Slightly lighter than background
@@ -285,8 +295,10 @@ impl VirtualDisplayApp {
 
     /// Draw server information overlay
     fn draw_server_info(&mut self) {
-        let width = self.config.width as u32;
-        let height = self.config.height as u32;
+        let (width, height) = (
+            self.config.resolution[0] as u32,
+            self.config.resolution[1] as u32,
+        );
 
         // Draw RX X11 Server text in the top-left corner
         let text_color = 0xD8DEE9FF; // Light color
@@ -380,14 +392,14 @@ impl ApplicationHandler for VirtualDisplayApp {
         if self.window.is_none() {
             info!(
                 "Creating RX X11 Server virtual display window ({}x{})",
-                self.config.width, self.config.height
+                self.config.resolution[0], self.config.resolution[1]
             );
 
-            let window_attributes = Window::default_attributes()
+            let window_attributes = winit::window::Window::default_attributes()
                 .with_title("RX X11 Server - Virtual Display")
                 .with_inner_size(winit::dpi::PhysicalSize::new(
-                    self.config.width as u32,
-                    self.config.height as u32,
+                    self.config.resolution[0] as u32,
+                    self.config.resolution[1] as u32,
                 ))
                 .with_resizable(true);
 
@@ -404,8 +416,8 @@ impl ApplicationHandler for VirtualDisplayApp {
                 .expect("Failed to create softbuffer surface");
 
             // Initialize surface with current configuration
-            let width_nz = std::num::NonZeroU32::new(self.config.width as u32).unwrap();
-            let height_nz = std::num::NonZeroU32::new(self.config.height as u32).unwrap();
+            let width_nz = std::num::NonZeroU32::new(self.config.resolution[0] as u32).unwrap();
+            let height_nz = std::num::NonZeroU32::new(self.config.resolution[1] as u32).unwrap();
             surface
                 .resize(width_nz, height_nz)
                 .expect("Failed to resize surface");
@@ -424,7 +436,7 @@ impl ApplicationHandler for VirtualDisplayApp {
     fn window_event(
         &mut self,
         event_loop: &ActiveEventLoop,
-        window_id: WindowId,
+        window_id: winit::window::WindowId,
         event: WindowEvent,
     ) {
         if let Some(window) = &self.window {
@@ -450,8 +462,8 @@ impl ApplicationHandler for VirtualDisplayApp {
                         }
                     }
                     WindowEvent::Resized(size) => {
-                        let new_width = size.width;
-                        let new_height = size.height;
+                        let new_width = size.width as u32;
+                        let new_height = size.height as u32;
 
                         // Skip invalid sizes
                         if new_width == 0 || new_height == 0 {
@@ -468,10 +480,9 @@ impl ApplicationHandler for VirtualDisplayApp {
                         info!("Virtual display resized to {}x{}", new_width, new_height);
 
                         // Update configuration
-                        self.config.width = new_width as u16;
-                        self.config.height = new_height as u16;
-                        self.config.width_mm = ((new_width as f32 / 96.0) * 25.4) as u16;
-                        self.config.height_mm = ((new_height as f32 / 96.0) * 25.4) as u16;
+                        self.config.resolution = [new_width, new_height];
+                        // self.config.width_mm = ((new_width as f32 / 96.0) * 25.4) as u16;
+                        // self.config.height_mm = ((new_height as f32 / 96.0) * 25.4) as u16;
 
                         // Resize surface
                         if let Some(surface) = &mut self.surface {

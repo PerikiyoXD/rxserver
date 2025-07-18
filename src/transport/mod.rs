@@ -1,7 +1,10 @@
+// mod.rs
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use tokio::sync::{Mutex, mpsc};
 
-use crate::transport::tcp::TcpSocketTransport;
+use crate::server::state::Server;
 
 pub mod tcp;
 #[cfg(unix)]
@@ -15,31 +18,71 @@ pub enum TransportKind {
     Unix,
 }
 
-pub enum Transport {
-    TcpSocket(TcpSocketTransport),
-    #[cfg(unix)]
-    UnixSocket(UnixSocketTransport),
+#[derive(Debug, Clone)]
+pub struct ConnectionEvent {
+    pub client_addr: String,
+    pub transport_kind: TransportKind,
 }
 
-pub trait TransportTrait: Sized {
-    async fn new(addr: &str) -> Result<Self>;
-    async fn run(&self) -> Result<()>;
+#[derive(Debug)]
+pub enum TransportMessage {
+    ConnectionAccepted(ConnectionEvent),
+    Error(String),
+    Shutdown,
+}
+
+#[allow(async_fn_in_trait)]
+pub trait TransportContract: Send + Sync {
+    async fn start(&self) -> Result<()>;
+    fn stop(&self);
+    fn transport_kind(&self) -> TransportKind;
+}
+
+pub enum Transport {
+    Tcp(tcp::TcpTransport),
+    #[cfg(unix)]
+    Unix(unix::UnixTransport),
 }
 
 impl Transport {
-    pub async fn new(transport_type: TransportKind, addr: &str) -> Result<Self> {
+    pub async fn new(
+        transport_type: TransportKind,
+        addr: &str,
+        server_state: Arc<Mutex<Server>>,
+        tx: mpsc::UnboundedSender<TransportMessage>,
+    ) -> Result<Self> {
         match transport_type {
-            TransportKind::Tcp => Ok(Self::TcpSocket(TcpSocketTransport::new(addr).await?)),
+            TransportKind::Tcp => Ok(Self::Tcp(
+                tcp::TcpTransport::new(addr, server_state, tx).await?,
+            )),
             #[cfg(unix)]
-            TransportKind::Unix => Ok(Self::UnixSocket(UnixSocketTransport::new(addr).await?)),
+            TransportKind::Unix => Ok(Self::Unix(
+                unix::UnixTransport::new(addr, server_state, tx).await?,
+            )),
         }
     }
 
-    pub async fn run(&self) -> Result<()> {
+    pub async fn start(&self) -> Result<()> {
         match self {
-            Self::TcpSocket(tcp) => tcp.run().await,
+            Self::Tcp(transport) => transport.start().await,
             #[cfg(unix)]
-            Self::UnixSocket(unix) => unix.run().await,
+            Self::Unix(transport) => transport.start().await,
+        }
+    }
+
+    pub fn stop(&self) {
+        match self {
+            Self::Tcp(transport) => transport.stop(),
+            #[cfg(unix)]
+            Self::Unix(transport) => transport.stop(),
+        }
+    }
+
+    pub fn transport_kind(&self) -> TransportKind {
+        match self {
+            Self::Tcp(transport) => transport.transport_kind(),
+            #[cfg(unix)]
+            Self::Unix(transport) => transport.transport_kind(),
         }
     }
 }

@@ -7,10 +7,12 @@
 
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
-use super::{ByteOrder, Request, X11Error};
-use crate::server::state::{ClientId, ClientState, ServerState};
+use crate::server::{Server, client_system::ClientId};
+
+use super::{Request, X11Error};
 
 /// Result type for request handlers
 pub type HandlerResult<T> = Result<T, X11Error>;
@@ -35,9 +37,7 @@ pub trait RequestHandler: Send + Sync {
         &self,
         client_id: ClientId,
         request: &Request,
-        server_state: Arc<Mutex<ServerState>>,
-        client_state: Arc<Mutex<ClientState>>,
-        byte_order: ByteOrder,
+        server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>>;
 
     /// Get the opcode this handler supports
@@ -71,16 +71,12 @@ impl RequestHandlerRegistry {
         &self,
         client_id: ClientId,
         request: &Request,
-        server_state: Arc<Mutex<ServerState>>,
-        client_state: Arc<Mutex<ClientState>>,
-        byte_order: ByteOrder,
+        server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
         let opcode = request.opcode;
 
         if let Some(handler) = self.handlers.get(&opcode) {
-            handler
-                .handle_request(client_id, request, server_state, client_state, byte_order)
-                .await
+            handler.handle_request(client_id, request, server).await
         } else {
             Ok(None)
         }

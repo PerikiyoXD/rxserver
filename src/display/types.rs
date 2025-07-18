@@ -2,17 +2,17 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    display::{native::NativeDisplay, virtual_::VirtualDisplay},
+    display::{native_display::NativeDisplay, virtual_display::VirtualDisplay},
     protocol::WindowId,
-    server::WindowState,
+    server::window_system::Window,
 };
 
 /// Messages for communicating with the virtual display thread
 #[derive(Debug)]
 pub enum DisplayMessage {
     UpdateFramebuffer(Vec<u32>),
-    UpdateWindows(Vec<WindowState>), // Send all windows for re-rendering
-    WindowCreated(WindowState),
+    UpdateWindows(Vec<Window>), // Send all windows for re-rendering
+    WindowCreated(Window),
     WindowMapped(WindowId),    // WindowId
     WindowUnmapped(WindowId),  // WindowId
     WindowDestroyed(WindowId), // WindowId
@@ -30,7 +30,7 @@ pub enum DisplayCallbackMessage {
 /// Display type enum
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum DisplayType {
+pub enum DisplayKind {
     Virtual,
     Native,
 }
@@ -44,8 +44,8 @@ pub enum Display {
 pub trait DisplayTrait {
     fn start(&mut self) -> Result<()>;
     fn shutdown(&mut self) -> Result<()>;
-    fn on_update_windows(&self, windows: Vec<WindowState>) -> Result<()>;
-    fn on_window_created(&self, window: WindowState) -> Result<()>;
+    fn on_update_windows(&self, windows: Vec<Window>) -> Result<()>;
+    fn on_window_created(&self, window: Window) -> Result<()>;
     fn on_window_mapped(&self, window_id: WindowId) -> Result<()>;
     fn on_window_unmapped(&self, window_id: WindowId) -> Result<()>;
     fn on_window_destroyed(&self, window_id: WindowId) -> Result<()>;
@@ -66,14 +66,14 @@ impl DisplayTrait for Display {
         }
     }
 
-    fn on_update_windows(&self, windows: Vec<WindowState>) -> Result<()> {
+    fn on_update_windows(&self, windows: Vec<Window>) -> Result<()> {
         match self {
             Display::Virtual(display) => display.on_update_windows(windows),
             Display::Native(display) => display.on_update_windows(windows),
         }
     }
 
-    fn on_window_created(&self, window: WindowState) -> Result<()> {
+    fn on_window_created(&self, window: Window) -> Result<()> {
         match self {
             Display::Virtual(display) => display.on_window_created(window),
             Display::Native(display) => display.on_window_created(window),

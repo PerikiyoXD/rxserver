@@ -35,6 +35,7 @@ pub enum RequestKind {
     UnmapWindow(UnmapWindowRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     OpenFont(OpenFontRequest),
+    GrabPointer(GrabPointerRequest),
     NoOperation(NoOperationRequest),
 }
 
@@ -140,6 +141,21 @@ pub struct OpenFontRequest {
     pub name_len: u16, // length of name
     pub unused2: u16,  // padding
     pub name: String,  // font name
+}
+
+/// GrabCursor request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GrabPointerRequest {
+    pub opcode: u8,            // opcode (26)
+    pub owner_events: u8,      // BOOL
+    pub length: u16,           // request length
+    pub grab_window: WindowId, // grab window id
+    pub event_mask: u32,       // event mask
+    pub pointer_mode: u8,      // pointer mode (see PointerMode enum)
+    pub keyboard_mode: u8,     // keyboard mode (see KeyboardMode enum)
+    pub confine_to: WindowId,  // confine to window (0 = None)
+    pub cursor: CursorId,      // cursor id (0 = None)
+    pub time: u32,             // timestamp (0 = CurrentTime)
 }
 
 /// NoOperation request structure
@@ -669,7 +685,11 @@ impl RequestParser for X11RequestParser {
             RequestKind::CreateGlyphCursor(_) => CreateGlyphCursorParser::validate(request),
             RequestKind::OpenFont(_) => OpenFontParser::validate(request),
             RequestKind::NoOperation(_) => NoOperationParser::validate(request),
-            RequestKind::ConnectionSetup => Ok(()), // Connection setup is handled separately
+            RequestKind::ConnectionSetup => Ok(()),
+            RequestKind::GrabPointer(_) => {
+                // GrabPointer requests have their own validation logic
+                Ok(())
+            }
         }
     }
 }

@@ -1,22 +1,17 @@
-//! Integrated X11 server binary invoking the library
-
+// main.rs
 use anyhow::{Context, Result};
 use rxserver::{
-    LoggingConfig, init_logging,
     logging::init_logging,
-    server::{RX11Server, ServerConfig, config::load_config},
+    server::{RX11Server, config::load_config},
 };
-use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let config: ServerConfig = load_config(None).context("Failed to load server configuration")?;
-    init_logging(config.logging).context("Failed to initialize logging")?;
-    let mut server = RX11Server::new().context("Failed to create X11 server")?;
-    server
-        .initialize(config)
-        .await
-        .context("Failed to initialize X11 server")?;
+    let config = load_config(None).context("Failed to load server configuration")?;
+    let logging = config.logging.clone();
+    init_logging(logging).context("Failed to initialize logging")?;
+
+    let server = RX11Server::new(config).context("Failed to create X11 server")?;
     server.run().await.context("Failed to run X11 server")?;
 
     Ok(())
