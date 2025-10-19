@@ -3,6 +3,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
+use tracing::debug;
 
 use crate::server::state::Server;
 
@@ -27,6 +28,7 @@ pub struct ConnectionEvent {
 #[derive(Debug)]
 pub enum TransportMessage {
     ConnectionAccepted(ConnectionEvent),
+    ConnectionClosed(ConnectionEvent),
     Error(String),
     Shutdown,
 }
@@ -51,6 +53,7 @@ impl Transport {
         server_state: Arc<Mutex<Server>>,
         tx: mpsc::UnboundedSender<TransportMessage>,
     ) -> Result<Self> {
+        debug!("Creating transport: {:?} at {}", transport_type, addr);
         match transport_type {
             TransportKind::Tcp => Ok(Self::Tcp(
                 tcp::TcpTransport::new(addr, server_state, tx).await?,

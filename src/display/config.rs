@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::transport::TransportKind;
-
 use super::types::DisplayKind;
 
 /// Display configuration
@@ -9,7 +7,6 @@ use super::types::DisplayKind;
 pub struct DisplayConfig {
     pub id: usize,
     pub kind: DisplayKind,
-    pub transport: TransportKind,
     pub name: String,
     pub resolution: [u32; 2],
 }
@@ -20,7 +17,6 @@ impl Default for DisplayConfig {
             id: 0,
             kind: DisplayKind::Virtual,
             name: "Default Virtual Display".to_string(),
-            transport: TransportKind::Tcp,
             resolution: [640, 480],
         }
     }

@@ -1,5 +1,5 @@
 // Simple test to verify transport trait and generic handler compilation
-use rxserver::transport::{TransportContract, TransportKind};
+use rxserver::transport::TransportKind;
 
 fn main() {
     // Test that the transport types are properly defined

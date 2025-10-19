@@ -4,7 +4,7 @@
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info};
 
 use crate::protocol::{
@@ -13,12 +13,16 @@ use crate::protocol::{
 };
 use crate::server::Server;
 use crate::server::client_system::Client;
+use crate::transport::{ConnectionEvent, TransportKind, TransportMessage};
 
 pub struct ConnectionHandler<S> {
     client: Arc<Mutex<Client>>,
     server: Arc<Mutex<Server>>,
     stream: S,
     handlers: RequestHandlerRegistry,
+    client_addr: std::net::SocketAddr,
+    message_sender: Option<mpsc::UnboundedSender<TransportMessage>>,
+    transport_kind: TransportKind,
 }
 
 impl<S> ConnectionHandler<S>
@@ -37,7 +41,20 @@ where
             client,
             stream,
             handlers: create_standard_handler_registry(),
+            client_addr,
+            message_sender: None,
+            transport_kind: TransportKind::Tcp, // Default to TCP for now
         })
+    }
+
+    pub fn with_transport_info(
+        mut self,
+        message_sender: mpsc::UnboundedSender<TransportMessage>,
+        transport_kind: TransportKind,
+    ) -> Self {
+        self.message_sender = Some(message_sender);
+        self.transport_kind = transport_kind;
+        self
     }
 
     pub async fn handle(mut self) -> Result<()> {
@@ -46,44 +63,85 @@ where
         info!("Client {} connected", client_id);
         let mut buffer = vec![0u8; 4096];
 
-        loop {
-            let bytes_read = match self.stream.read(&mut buffer).await {
-                Ok(0) => {
-                    info!("Client {} disconnected", client_id);
-                    break;
-                }
-                Ok(n) => n,
-                Err(e) => {
-                    error!("IO error for client {}: {}", client_id, e);
-                    break;
-                }
-            };
+        let result = async {
+            let mut health_check_interval =
+                tokio::time::interval(std::time::Duration::from_secs(30));
 
-            let data = &buffer[..bytes_read];
-            let is_authenticated = {
-                let client = self.client.lock().await;
-                client.is_authenticated()
-            };
+            loop {
+                tokio::select! {
+                    // Try to read data from the client
+                    read_result = self.stream.read(&mut buffer) => {
+                        let bytes_read = match read_result {
+                            Ok(0) => {
+                                info!("Client {} disconnected (EOF)", client_id);
+                                break;
+                            }
+                            Ok(n) => n,
+                            Err(e) => {
+                                error!("IO error for client {}: {}", client_id, e);
+                                break;
+                            }
+                        };
 
-            if !is_authenticated {
-                if let Err(e) = self.handle_connection_setup(data).await {
-                    error!("Setup failed for client {}: {}", client_id, e);
-                    break;
-                }
-            } else {
-                if let Err(e) = self.handle_requests(data).await {
-                    error!("Request processing failed for client {}: {}", client_id, e);
+                        debug!("Client {} sent {} bytes", client_id, bytes_read);
+                        let data = &buffer[..bytes_read];
+                        let is_authenticated = {
+                            let client = self.client.lock().await;
+                            client.is_authenticated()
+                        };
+
+                        if !is_authenticated {
+                            if let Err(e) = self.handle_connection_setup(data).await {
+                                error!("Setup failed for client {}: {}", client_id, e);
+                                break;
+                            }
+                        } else {
+                            if let Err(e) = self.handle_requests(data).await {
+                                error!("Request processing failed for client {}: {}", client_id, e);
+                                break;
+                            }
+                        }
+                    }
+
+                    // Periodic health check
+                    _ = health_check_interval.tick() => {
+                        debug!("Performing health check for client {}", client_id);
+
+                        // Try to flush to check if the connection is still alive
+                        // This is more reliable than writing empty data
+                        if let Err(e) = self.stream.flush().await {
+                            error!("Health check flush failed for client {}: {}", client_id, e);
+                            break;
+                        }
+
+                        debug!("Health check passed for client {}", client_id);
+                    }
                 }
             }
+            Ok(())
         }
+        .await;
 
-        // Cleanup
+        // Cleanup - this should always run
+        info!("Starting cleanup for client {}", client_id);
         {
             let mut server = self.server.lock().await;
             server.unregister_client(client_id);
         }
 
-        Ok(())
+        // Send connection closed message
+        if let Some(sender) = &self.message_sender {
+            let event = ConnectionEvent {
+                client_addr: self.client_addr.to_string(),
+                transport_kind: self.transport_kind,
+            };
+            if let Err(e) = sender.send(TransportMessage::ConnectionClosed(event)) {
+                error!("Failed to send connection closed message: {}", e);
+            }
+        }
+
+        info!("Client {} disconnected and cleaned up", client_id);
+        result
     }
 
     async fn handle_connection_setup(&mut self, data: &[u8]) -> Result<()> {
@@ -293,6 +351,16 @@ where
             .context("Failed to send setup failure")?;
 
         Ok(())
+    }
+}
+
+impl<S> Drop for ConnectionHandler<S> {
+    fn drop(&mut self) {
+        // This will run if the connection handler is dropped without proper cleanup
+        info!(
+            "ConnectionHandler dropped for client at {}",
+            self.client_addr
+        );
     }
 }
 

@@ -2,23 +2,24 @@
 
 use rxserver::server::state::Server;
 use rxserver::transport::{Transport, TransportKind, TransportMessage};
-use std::sync::{Arc, Mutex};
+use rxserver::display::config::DisplayConfig;
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize server state
-    let server_state = Arc::new(Mutex::new(Server::new()));
+    let display_configs = vec![DisplayConfig::default()];
+    let server_state = Server::new(display_configs)?;
 
     // Create a message channel for transport events
-    let (tx, mut rx) = mpsc::unbounded_channel::<TransportMessage>();
+    let (tx, _rx) = mpsc::unbounded_channel::<TransportMessage>();
 
     // Demonstrate TCP transport
     println!("Testing TCP transport...");
     let tcp_transport = Transport::new(
         TransportKind::Tcp,
         "127.0.0.1:6000",
-        Arc::clone(&server_state),
+        server_state.clone(),
         tx.clone(),
     )
     .await?;
@@ -32,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let unix_transport = Transport::new(
             TransportKind::Unix,
             "/tmp/x11-test.sock",
-            Arc::clone(&server_state),
+            server_state,
             tx,
         )
         .await?;

@@ -6,7 +6,6 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::protocol::WindowId;
-use crate::transport::TransportInfo;
 use crate::{
     display::{
         config::DisplayConfig,
@@ -19,7 +18,7 @@ use crate::{
 /// Manages display backends and rendering notifications
 #[derive(Debug, Clone)]
 pub struct DisplaySystem {
-    displays: HashMap<TransportInfo, Arc<Mutex<Display>>>,
+    displays: HashMap<usize, Arc<Mutex<Display>>>,
 }
 
 impl DisplaySystem {
@@ -34,19 +33,19 @@ impl DisplaySystem {
         let mut displays = HashMap::new();
 
         for config in display_configs {
-            let transport_info = TransportInfo::new(config.transport, config.id);
+            let display_id = config.id;
 
-            if displays.contains_key(&transport_info) {
+            if displays.contains_key(&display_id) {
                 warn!(
-                    "Duplicate display transport {:?} for '{}', skipping",
-                    transport_info, config.name
+                    "Duplicate display ID {} for '{}', skipping",
+                    display_id, config.name
                 );
                 continue;
             }
 
             let mut display = create_display(config)?;
             display.start()?;
-            displays.insert(transport_info, Arc::new(Mutex::new(display)));
+            displays.insert(display_id, Arc::new(Mutex::new(display)));
         }
 
         debug!("Set up {} display(s)", displays.len());
@@ -59,7 +58,7 @@ impl DisplaySystem {
     }
 
     /// Get displays reference
-    pub fn displays(&self) -> &HashMap<TransportInfo, Arc<Mutex<Display>>> {
+    pub fn displays(&self) -> &HashMap<usize, Arc<Mutex<Display>>> {
         &self.displays
     }
 

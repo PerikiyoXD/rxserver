@@ -4,6 +4,32 @@ use tracing::warn;
 
 use crate::display::config::DisplayConfig;
 use crate::logging::LoggingConfig;
+use crate::transport::TransportKind;
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct TransportConfig {
+    #[serde(default = "default_transport_kind")]
+    pub kind: TransportKind,
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+}
+
+impl Default for TransportConfig {
+    fn default() -> Self {
+        Self {
+            kind: default_transport_kind(),
+            bind_address: default_bind_address(),
+        }
+    }
+}
+
+fn default_transport_kind() -> TransportKind {
+    TransportKind::Tcp
+}
+
+fn default_bind_address() -> String {
+    "127.0.0.1:6000".to_string()
+}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerConfig {
@@ -11,6 +37,8 @@ pub struct ServerConfig {
     pub logging: LoggingConfig,
     #[serde(default = "default_displays")]
     pub displays: Vec<DisplayConfig>,
+    #[serde(default = "default_transports")]
+    pub transports: Vec<TransportConfig>,
 }
 
 impl Default for ServerConfig {
@@ -18,12 +46,17 @@ impl Default for ServerConfig {
         Self {
             logging: LoggingConfig::default(),
             displays: default_displays(),
+            transports: default_transports(),
         }
     }
 }
 
 fn default_displays() -> Vec<DisplayConfig> {
     vec![DisplayConfig::default()]
+}
+
+fn default_transports() -> Vec<TransportConfig> {
+    vec![TransportConfig::default()]
 }
 
 pub fn load_config(path: Option<&str>) -> anyhow::Result<ServerConfig> {

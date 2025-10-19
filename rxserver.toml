@@ -7,16 +7,12 @@ show_file_location = false
 file = "rxserver.log"
 console = true
 
+[[transports]]
+kind = "tcp"
+bind_address = "0.0.0.0:6000"
+
 [[displays]]
 id = 0
 kind = "virtual"
 name = "Primary Monitor"
-transport = "tcp"
 resolution = [1920, 1080]
-
-# [[displays]]
-# id = 1
-# type = "virtual"
-# name = "Secondary Monitor"
-# transport = "tcp"
-# resolution = [2560, 1440]

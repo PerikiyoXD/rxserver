@@ -8,7 +8,7 @@ use tokio::{
     sync::{Mutex, mpsc},
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{error, info, Instrument};
 
 pub struct TcpTransport {
     cancel_token: CancellationToken,
@@ -37,34 +37,73 @@ impl TcpTransport {
         })
     }
 
-    async fn handle_connection(
-        &self,
-        socket: tokio::net::TcpStream,
-        client_addr: std::net::SocketAddr,
-    ) {
+    fn handle_connection(&self, socket: tokio::net::TcpStream, client_addr: std::net::SocketAddr) {
         let server = Arc::clone(&self.server);
+        let message_sender = self.message_sender.clone();
 
-        tokio::spawn(async move {
-            match ConnectionHandler::new(server, socket, client_addr).await {
+        let connection_task = async move {
+            let span = tracing::info_span!("tcp-connection", client = %client_addr);
+            let _enter = span.enter();
+
+            info!("Connection handler task started for {}", client_addr);
+
+            // Configure TCP socket options
+            if let Err(e) = socket.set_nodelay(true) {
+                error!("Failed to set TCP nodelay for {}: {}", client_addr, e);
+            }
+
+            let result = match ConnectionHandler::new(server, socket, client_addr).await {
                 Ok(handler) => {
-                    if let Err(e) = handler.handle().await {
-                        error!("Connection handler error for {}: {}", client_addr, e);
-                    }
+                    let handler =
+                        handler.with_transport_info(message_sender.clone(), TransportKind::Tcp);
+                    handler.handle().await
                 }
                 Err(e) => {
                     error!(
                         "Failed to create connection handler for {}: {}",
                         client_addr, e
                     );
+
+                    // Send connection closed event since we failed to create the handler
+                    let event = ConnectionEvent {
+                        client_addr: client_addr.to_string(),
+                        transport_kind: TransportKind::Tcp,
+                    };
+                    let _ = message_sender.send(TransportMessage::ConnectionClosed(event));
+                    return;
+                }
+            };
+
+            // Log the result and ensure cleanup happens
+            match result {
+                Ok(_) => {
+                    info!(
+                        "Connection handler completed successfully for {}",
+                        client_addr
+                    );
+                }
+                Err(e) => {
+                    error!("Connection handler error for {}: {}", client_addr, e);
                 }
             }
-        });
+
+            info!("Connection handler task finished for {}", client_addr);
+        };
+
+        // Spawn the connection task with its own isolated span
+        tokio::spawn(connection_task.instrument(tracing::info_span!("connection-task", client = %client_addr)));
+
+        info!("Connection handler spawned for {}", client_addr);
     }
 }
 
 impl TransportContract for TcpTransport {
     async fn start(&self) -> Result<()> {
+        let span = tracing::info_span!("tcp-transport", addr = %self.listener.local_addr().unwrap_or_else(|_| "unknown".parse().unwrap()));
+        let _enter = span.enter();
+
         info!("Starting TCP transport");
+        info!("Server ready to accept connections on all interfaces");
 
         loop {
             tokio::select! {
@@ -88,7 +127,7 @@ impl TransportContract for TcpTransport {
                                 break;
                             }
 
-                            self.handle_connection(socket, client_addr).await;
+                            self.handle_connection(socket, client_addr);
                         }
                         Err(e) => {
                             let error_msg = format!("Failed to accept TCP connection: {}", e);
