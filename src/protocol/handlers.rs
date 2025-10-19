@@ -319,6 +319,77 @@ impl RequestHandler for PutImageHandler {
     }
 }
 
+/// Handler for CopyArea requests (opcode 62)
+pub struct CopyAreaHandler;
+
+#[async_trait]
+impl RequestHandler for CopyAreaHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let copy_area_request = match &request.kind {
+            RequestKind::CopyArea(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for CopyArea: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        // Check if the source drawable exists
+        let src_drawable_id = copy_area_request.src_drawable;
+        if !server.get_window(src_drawable_id).is_some() {
+            return Err(X11Error::Protocol(format!(
+                "CopyArea: source drawable {} does not exist",
+                src_drawable_id
+            )));
+        }
+
+        // Check if the destination drawable exists
+        let dst_drawable_id = copy_area_request.dst_drawable;
+        if !server.get_window(dst_drawable_id).is_some() {
+            return Err(X11Error::Protocol(format!(
+                "CopyArea: destination drawable {} does not exist",
+                dst_drawable_id
+            )));
+        }
+
+        // Check if the GC exists and is owned by the client
+        let gc_id = copy_area_request.gc;
+        if let Some(gc) = server.get_gc(gc_id) {
+            if gc.owner != client_id {
+                return Err(X11Error::Protocol(format!(
+                    "CopyArea: client {} does not own graphics context {}",
+                    client_id, gc_id
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "CopyArea: graphics context {} does not exist",
+                gc_id
+            )));
+        }
+
+        // CopyArea doesn't generate a response
+        // In a real implementation, this would copy pixels from src to dst drawable
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        60
+    }
+
+    fn name(&self) -> &'static str {
+        "CopyArea"
+    }
+}
+
 /// Handler for OpenFont requests (opcode 45)
 pub struct OpenFontHandler;
 
@@ -1191,6 +1262,7 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(GetPropertyHandler);
     registry.register_handler(CreatePixmapHandler);
     registry.register_handler(PutImageHandler);
+    registry.register_handler(CopyAreaHandler);
     registry.register_handler(OpenFontHandler);
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);

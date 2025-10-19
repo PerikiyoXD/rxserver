@@ -25,6 +25,7 @@ pub mod opcodes {
     pub const CREATE_PIXMAP: u8 = 53;
     pub const CREATE_GC: u8 = 55;
     pub const POLY_ARC: u8 = 59;
+    pub const COPY_AREA: u8 = 60;
     pub const FILL_ARC: u8 = 61;
     pub const POLY_LINE: u8 = 65;
     pub const POLY_FILL_RECTANGLE: u8 = 70;
@@ -78,6 +79,7 @@ pub enum RequestKind {
     UnmapWindow(UnmapWindowRequest),
     CreateGC(CreateGCRequest),
     PolyArc(PolyArcRequest),
+    CopyArea(CopyAreaRequest),
     FillArc(FillArcRequest),
     PolyLine(PolyLineRequest),
     PolyFillRectangle(PolyFillRectangleRequest),
@@ -126,43 +128,43 @@ pub struct InternAtomRequest {
 /// GetProperty request structure matching X11 protocol
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GetPropertyRequest {
-    pub opcode: u8,         // Should be 20
-    pub delete: u8,         // BOOL: delete property
-    pub length: u16,        // Request length in 4-byte units
-    pub window: WindowId,   // Window
-    pub property: Atom,     // Property atom
-    pub r#type: Atom,       // Type atom (0 = AnyType)
-    pub long_offset: u32,   // Long offset
-    pub long_length: u32,   // Long length
+    pub opcode: u8,       // Should be 20
+    pub delete: u8,       // BOOL: delete property
+    pub length: u16,      // Request length in 4-byte units
+    pub window: WindowId, // Window
+    pub property: Atom,   // Property atom
+    pub r#type: Atom,     // Type atom (0 = AnyType)
+    pub long_offset: u32, // Long offset
+    pub long_length: u32, // Long length
 }
 
 /// CreatePixmap request structure matching X11 protocol
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatePixmapRequest {
-    pub opcode: u8,         // Should be 53
-    pub depth: u8,          // Depth
-    pub length: u16,        // Request length in 4-byte units
-    pub pid: PixmapId,      // Pixmap ID
+    pub opcode: u8,           // Should be 53
+    pub depth: u8,            // Depth
+    pub length: u16,          // Request length in 4-byte units
+    pub pid: PixmapId,        // Pixmap ID
     pub drawable: DrawableId, // Drawable
-    pub width: u16,         // Width
-    pub height: u16,        // Height
+    pub width: u16,           // Width
+    pub height: u16,          // Height
 }
 
 /// PutImage request structure matching X11 protocol
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PutImageRequest {
-    pub opcode: u8,         // Should be 72
-    pub format: u8,         // Image format (0=Bitmap, 1=XYPixmap, 2=ZPixmap)
-    pub length: u16,        // Request length in 4-byte units
+    pub opcode: u8,           // Should be 72
+    pub format: u8,           // Image format (0=Bitmap, 1=XYPixmap, 2=ZPixmap)
+    pub length: u16,          // Request length in 4-byte units
     pub drawable: DrawableId, // Drawable
-    pub gc: GContextId,     // Graphics context
-    pub width: u16,         // Width
-    pub height: u16,        // Height
-    pub dst_x: i16,         // Destination X
-    pub dst_y: i16,         // Destination Y
-    pub left_pad: u8,       // Left pad
-    pub depth: u8,          // Depth
-    pub data: Vec<u8>,      // Image data
+    pub gc: GContextId,       // Graphics context
+    pub width: u16,           // Width
+    pub height: u16,          // Height
+    pub dst_x: i16,           // Destination X
+    pub dst_y: i16,           // Destination Y
+    pub left_pad: u8,         // Left pad
+    pub depth: u8,            // Depth
+    pub data: Vec<u8>,        // Image data
 }
 
 /// CreateWindow request structure matching X11 protocol
@@ -234,6 +236,23 @@ pub struct Arc {
     pub angle2: i16, // End angle
 }
 
+/// CopyArea request structure matching X11 protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CopyAreaRequest {
+    pub opcode: u8,               // Should be 60
+    pub unused: u8,               // unused
+    pub length: u16,              // Request length in 4-byte units
+    pub src_drawable: DrawableId, // Source drawable
+    pub dst_drawable: DrawableId, // Destination drawable
+    pub gc: GContextId,           // Graphics context
+    pub src_x: i16,               // Source X
+    pub src_y: i16,               // Source Y
+    pub dst_x: i16,               // Destination X
+    pub dst_y: i16,               // Destination Y
+    pub width: u16,               // Width
+    pub height: u16,              // Height
+}
+
 /// PolyArc request structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolyArcRequest {
@@ -286,11 +305,11 @@ pub struct Rectangle {
 /// PolyFillRectangle request structure
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PolyFillRectangleRequest {
-    pub opcode: u8,           // 70: opcode
-    pub unused: u8,           // unused
-    pub length: u16,          // request length in 4-byte units
-    pub drawable: DrawableId, // drawable
-    pub gc: GContextId,       // graphics context
+    pub opcode: u8,                 // 70: opcode
+    pub unused: u8,                 // unused
+    pub length: u16,                // request length in 4-byte units
+    pub drawable: DrawableId,       // drawable
+    pub gc: GContextId,             // graphics context
     pub rectangles: Vec<Rectangle>, // list of rectangles
 }
 
@@ -361,9 +380,9 @@ pub struct QueryExtensionRequest {
 /// BigRequests request structure for BIG-REQUESTS extension
 #[derive(Debug, Clone)]
 pub struct BigRequestsRequest {
-    pub opcode: u8,      // Should be 134
-    pub unused: u8,      // unused
-    pub length: u32,     // 32-bit length in 4-byte units
+    pub opcode: u8,            // Should be 134
+    pub unused: u8,            // unused
+    pub length: u32,           // 32-bit length in 4-byte units
     pub request_data: Vec<u8>, // The wrapped request data
 }
 
@@ -419,6 +438,7 @@ pub struct MapWindowParser;
 pub struct UnmapWindowParser;
 pub struct CreateGCParser;
 pub struct PolyArcParser;
+pub struct CopyAreaParser;
 pub struct FillArcParser;
 pub struct PolyLineParser;
 pub struct PolyFillRectangleParser;
@@ -577,7 +597,9 @@ impl RequestParser for GetPropertyParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for GetPropertyParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for GetPropertyParser"
+            )),
         }
     }
 }
@@ -624,14 +646,20 @@ impl RequestParser for CreatePixmapParser {
                     return Err(anyhow::anyhow!("CreatePixmap: pixmap id must be non-zero"));
                 }
                 if req.drawable == 0 {
-                    return Err(anyhow::anyhow!("CreatePixmap: drawable id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CreatePixmap: drawable id must be non-zero"
+                    ));
                 }
                 if req.width == 0 || req.height == 0 {
-                    return Err(anyhow::anyhow!("CreatePixmap: width and height must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CreatePixmap: width and height must be non-zero"
+                    ));
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for CreatePixmapParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for CreatePixmapParser"
+            )),
         }
     }
 }
@@ -696,10 +724,14 @@ impl RequestParser for PutImageParser {
                     return Err(anyhow::anyhow!("PutImage: drawable id must be non-zero"));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("PutImage: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PutImage: graphics context id must be non-zero"
+                    ));
                 }
                 if req.width == 0 || req.height == 0 {
-                    return Err(anyhow::anyhow!("PutImage: width and height must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PutImage: width and height must be non-zero"
+                    ));
                 }
                 if req.format > 2 {
                     return Err(anyhow::anyhow!("PutImage: invalid format"));
@@ -707,6 +739,73 @@ impl RequestParser for PutImageParser {
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for PutImageParser")),
+        }
+    }
+}
+
+impl RequestParser for CopyAreaParser {
+    const OPCODE: u8 = opcodes::COPY_AREA;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 16 {
+            return Err(anyhow::anyhow!("CopyArea request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let src_drawable = read_or_err!(reader, read_u32);
+        let dst_drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+        let src_x = read_or_err!(reader, read_i16);
+        let src_y = read_or_err!(reader, read_i16);
+        let dst_x = read_or_err!(reader, read_i16);
+        let dst_y = read_or_err!(reader, read_i16);
+        let width = read_or_err!(reader, read_u16);
+        let height = read_or_err!(reader, read_u16);
+
+        let request = CopyAreaRequest {
+            opcode,
+            unused,
+            length,
+            src_drawable,
+            dst_drawable,
+            gc,
+            src_x,
+            src_y,
+            dst_x,
+            dst_y,
+            width,
+            height,
+        };
+
+        Ok(Request {
+            kind: RequestKind::CopyArea(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::CopyArea(req) => {
+                if req.src_drawable == 0 {
+                    return Err(anyhow::anyhow!("CopyArea: src_drawable id must be non-zero"));
+                }
+                if req.dst_drawable == 0 {
+                    return Err(anyhow::anyhow!("CopyArea: dst_drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("CopyArea: graphics context id must be non-zero"));
+                }
+                if req.width == 0 || req.height == 0 {
+                    return Err(anyhow::anyhow!("CopyArea: width and height must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for CopyAreaParser")),
         }
     }
 }
@@ -1008,7 +1107,14 @@ impl RequestParser for PolyArcParser {
                 let height = read_or_err!(reader, read_u16);
                 let angle1 = read_or_err!(reader, read_i16);
                 let angle2 = read_or_err!(reader, read_i16);
-                arcs.push(Arc { x, y, width, height, angle1, angle2 });
+                arcs.push(Arc {
+                    x,
+                    y,
+                    width,
+                    height,
+                    angle1,
+                    angle2,
+                });
             }
         }
 
@@ -1036,7 +1142,9 @@ impl RequestParser for PolyArcParser {
                     return Err(anyhow::anyhow!("PolyArc: drawable id must be non-zero"));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("PolyArc: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PolyArc: graphics context id must be non-zero"
+                    ));
                 }
                 Ok(())
             }
@@ -1072,7 +1180,14 @@ impl RequestParser for FillArcParser {
                 let height = read_or_err!(reader, read_u16);
                 let angle1 = read_or_err!(reader, read_i16);
                 let angle2 = read_or_err!(reader, read_i16);
-                arcs.push(Arc { x, y, width, height, angle1, angle2 });
+                arcs.push(Arc {
+                    x,
+                    y,
+                    width,
+                    height,
+                    angle1,
+                    angle2,
+                });
             }
         }
 
@@ -1100,7 +1215,9 @@ impl RequestParser for FillArcParser {
                     return Err(anyhow::anyhow!("FillArc: drawable id must be non-zero"));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("FillArc: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "FillArc: graphics context id must be non-zero"
+                    ));
                 }
                 Ok(())
             }
@@ -1160,7 +1277,9 @@ impl RequestParser for PolyLineParser {
                     return Err(anyhow::anyhow!("PolyLine: drawable id must be non-zero"));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("PolyLine: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PolyLine: graphics context id must be non-zero"
+                    ));
                 }
                 if req.points.len() < 2 {
                     return Err(anyhow::anyhow!("PolyLine: must have at least 2 points"));
@@ -1197,7 +1316,12 @@ impl RequestParser for PolyFillRectangleParser {
                 let y = read_or_err!(reader, read_i16);
                 let width = read_or_err!(reader, read_u16);
                 let height = read_or_err!(reader, read_u16);
-                rectangles.push(Rectangle { x, y, width, height });
+                rectangles.push(Rectangle {
+                    x,
+                    y,
+                    width,
+                    height,
+                });
             }
         }
 
@@ -1222,14 +1346,20 @@ impl RequestParser for PolyFillRectangleParser {
         match &request.kind {
             RequestKind::PolyFillRectangle(req) => {
                 if req.drawable == 0 {
-                    return Err(anyhow::anyhow!("PolyFillRectangle: drawable id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PolyFillRectangle: drawable id must be non-zero"
+                    ));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("PolyFillRectangle: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "PolyFillRectangle: graphics context id must be non-zero"
+                    ));
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for PolyFillRectangleParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for PolyFillRectangleParser"
+            )),
         }
     }
 }
@@ -1663,6 +1793,7 @@ impl X11RequestParser {
             opcodes::PUT_IMAGE => "PutImage",
             opcodes::CREATE_GC => "CreateGC",
             opcodes::POLY_ARC => "PolyArc",
+            opcodes::COPY_AREA => "CopyArea",
             opcodes::FILL_ARC => "FillArc",
             opcodes::POLY_LINE => "PolyLine",
             opcodes::POLY_FILL_RECTANGLE => "PolyFillRectangle",
@@ -1686,7 +1817,10 @@ impl RequestParser for X11RequestParser {
 
         let opcode = bytes[0];
         let opcode_name = X11RequestParser::opcode_name(opcode);
-        trace!("Dispatching request with opcode: {} ({})", opcode, opcode_name);
+        trace!(
+            "Dispatching request with opcode: {} ({})",
+            opcode, opcode_name
+        );
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
@@ -1699,6 +1833,7 @@ impl RequestParser for X11RequestParser {
             opcodes::UNMAP_WINDOW => UnmapWindowParser::parse(bytes),
             opcodes::CREATE_GC => CreateGCParser::parse(bytes),
             opcodes::POLY_ARC => PolyArcParser::parse(bytes),
+            opcodes::COPY_AREA => CopyAreaParser::parse(bytes),
             opcodes::FILL_ARC => FillArcParser::parse(bytes),
             opcodes::POLY_LINE => PolyLineParser::parse(bytes),
             opcodes::POLY_FILL_RECTANGLE => PolyFillRectangleParser::parse(bytes),
@@ -1724,6 +1859,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),
             RequestKind::PolyArc(_) => PolyArcParser::validate(request),
+            RequestKind::CopyArea(_) => CopyAreaParser::validate(request),
             RequestKind::FillArc(_) => FillArcParser::validate(request),
             RequestKind::PolyLine(_) => PolyLineParser::validate(request),
             RequestKind::PolyFillRectangle(_) => PolyFillRectangleParser::validate(request),
