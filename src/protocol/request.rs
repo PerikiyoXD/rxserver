@@ -29,6 +29,7 @@ pub mod opcodes {
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
     pub const NO_OPERATION: u8 = 127;
     pub const QUERY_EXTENSION: u8 = 98;
+    pub const BIG_REQUESTS: u8 = 134;
 
     // RANDR extension opcodes (major opcode will be assigned dynamically)
     pub const RANDR_QUERY_VERSION: u8 = 0;
@@ -72,11 +73,14 @@ pub enum RequestKind {
     CreateGC(CreateGCRequest),
     PolyArc(PolyArcRequest),
     FillArc(FillArcRequest),
+    PolyLine(PolyLineRequest),
+    PolyFillRectangle(PolyFillRectangleRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     OpenFont(OpenFontRequest),
     GrabPointer(GrabPointerRequest),
     NoOperation(NoOperationRequest),
     QueryExtension(QueryExtensionRequest),
+    BigRequests(BigRequestsRequest),
     // RANDR extension requests
     RandrQueryVersion(RandrQueryVersionRequest),
     RandrGetScreenResources(RandrGetScreenResourcesRequest),
@@ -306,6 +310,15 @@ pub struct QueryExtensionRequest {
     pub name: String,  // Extension name
 }
 
+/// BigRequests request structure for BIG-REQUESTS extension
+#[derive(Debug, Clone)]
+pub struct BigRequestsRequest {
+    pub opcode: u8,      // Should be 134
+    pub unused: u8,      // unused
+    pub length: u32,     // 32-bit length in 4-byte units
+    pub request_data: Vec<u8>, // The wrapped request data
+}
+
 // RANDR extension request structures
 #[derive(Debug, Clone)]
 pub struct RandrQueryVersionRequest {
@@ -356,10 +369,13 @@ pub struct UnmapWindowParser;
 pub struct CreateGCParser;
 pub struct PolyArcParser;
 pub struct FillArcParser;
+pub struct PolyLineParser;
+pub struct PolyFillRectangleParser;
 pub struct CreateGlyphCursorParser;
 pub struct OpenFontParser;
 pub struct NoOperationParser;
 pub struct QueryExtensionParser;
+pub struct BigRequestsParser;
 // RANDR parsers
 pub struct RandrQueryVersionParser;
 pub struct RandrGetScreenResourcesParser;
@@ -863,6 +879,131 @@ impl RequestParser for FillArcParser {
     }
 }
 
+impl RequestParser for PolyLineParser {
+    const OPCODE: u8 = opcodes::POLY_LINE;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("PolyLine request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let coordinate_mode = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+
+        // Parse points
+        let mut points = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let point_count = remaining_bytes / 4; // Each point is 4 bytes
+            for _ in 0..point_count {
+                let x = read_or_err!(reader, read_i16);
+                let y = read_or_err!(reader, read_i16);
+                points.push(Point { x, y });
+            }
+        }
+
+        let request = PolyLineRequest {
+            opcode,
+            coordinate_mode,
+            length,
+            drawable,
+            gc,
+            points,
+        };
+
+        Ok(Request {
+            kind: RequestKind::PolyLine(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::PolyLine(req) => {
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("PolyLine: drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("PolyLine: graphics context id must be non-zero"));
+                }
+                if req.points.len() < 2 {
+                    return Err(anyhow::anyhow!("PolyLine: must have at least 2 points"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for PolyLineParser")),
+        }
+    }
+}
+
+impl RequestParser for PolyFillRectangleParser {
+    const OPCODE: u8 = opcodes::POLY_FILL_RECTANGLE;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("PolyFillRectangle request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+
+        // Parse rectangles
+        let mut rectangles = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let rect_count = remaining_bytes / 8; // Each rectangle is 8 bytes
+            for _ in 0..rect_count {
+                let x = read_or_err!(reader, read_i16);
+                let y = read_or_err!(reader, read_i16);
+                let width = read_or_err!(reader, read_u16);
+                let height = read_or_err!(reader, read_u16);
+                rectangles.push(Rectangle { x, y, width, height });
+            }
+        }
+
+        let request = PolyFillRectangleRequest {
+            opcode,
+            unused,
+            length,
+            drawable,
+            gc,
+            rectangles,
+        };
+
+        Ok(Request {
+            kind: RequestKind::PolyFillRectangle(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::PolyFillRectangle(req) => {
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("PolyFillRectangle: drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("PolyFillRectangle: graphics context id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for PolyFillRectangleParser")),
+        }
+    }
+}
+
 impl RequestParser for CreateGlyphCursorParser {
     const OPCODE: u8 = opcodes::CREATE_GLYPH_CURSOR;
 
@@ -1022,6 +1163,40 @@ impl RequestParser for NoOperationParser {
 
     fn validate(_request: &Request) -> Result<()> {
         // NoOperation requests are always valid
+        Ok(())
+    }
+}
+
+impl RequestParser for BigRequestsParser {
+    const OPCODE: u8 = opcodes::BIG_REQUESTS;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 4 {
+            return Err(anyhow::anyhow!("BigRequests request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+
+        let request = BigRequestsRequest {
+            opcode,
+            unused,
+            length: length as u32,
+            request_data: Vec::new(), // This request doesn't wrap other data
+        };
+
+        Ok(Request {
+            kind: RequestKind::BigRequests(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        // BigRequests requests are always valid
         Ok(())
     }
 }
@@ -1263,10 +1438,13 @@ impl RequestParser for X11RequestParser {
             opcodes::CREATE_GC => CreateGCParser::parse(bytes),
             opcodes::POLY_ARC => PolyArcParser::parse(bytes),
             opcodes::FILL_ARC => FillArcParser::parse(bytes),
+            opcodes::POLY_LINE => PolyLineParser::parse(bytes),
+            opcodes::POLY_FILL_RECTANGLE => PolyFillRectangleParser::parse(bytes),
             opcodes::CREATE_GLYPH_CURSOR => CreateGlyphCursorParser::parse(bytes),
             opcodes::OPEN_FONT => OpenFontParser::parse(bytes),
             opcodes::NO_OPERATION => NoOperationParser::parse(bytes),
             opcodes::QUERY_EXTENSION => QueryExtensionParser::parse(bytes),
+            opcodes::BIG_REQUESTS => BigRequestsParser::parse(bytes),
             _ => Err(anyhow::anyhow!("Unknown opcode: {}", opcode)),
         }
     }
@@ -1282,11 +1460,14 @@ impl RequestParser for X11RequestParser {
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),
             RequestKind::PolyArc(_) => PolyArcParser::validate(request),
             RequestKind::FillArc(_) => FillArcParser::validate(request),
+            RequestKind::PolyLine(_) => PolyLineParser::validate(request),
+            RequestKind::PolyFillRectangle(_) => PolyFillRectangleParser::validate(request),
             RequestKind::CreateGlyphCursor(_) => CreateGlyphCursorParser::validate(request),
             RequestKind::OpenFont(_) => OpenFontParser::validate(request),
             RequestKind::NoOperation(_) => NoOperationParser::validate(request),
             RequestKind::ConnectionSetup => Ok(()),
             RequestKind::QueryExtension(_) => QueryExtensionParser::validate(request),
+            RequestKind::BigRequests(_) => BigRequestsParser::validate(request),
             RequestKind::RandrQueryVersion(_) => RandrQueryVersionParser::validate(request),
             RequestKind::RandrGetScreenResources(_) => {
                 RandrGetScreenResourcesParser::validate(request)

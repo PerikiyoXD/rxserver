@@ -8,9 +8,83 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::{
-    protocol::{ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error, randr::*},
-    server::{GrabResult, PointerGrab, Server, client_system::ClientId, window_system::WindowClass, graphics::{draw_arc, fill_arc}},
+    protocol::{
+        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
+        randr::*,
+    },
+    server::{
+        GrabResult, PointerGrab, Server,
+        client_system::ClientId,
+        graphics::{draw_arc, draw_line, fill_arc, fill_rectangle},
+        window_system::WindowClass,
+    },
 };
+
+/// Handler for GetGeometry requests (opcode 14)
+pub struct GetGeometryHandler;
+
+#[async_trait]
+impl RequestHandler for GetGeometryHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let get_geometry_request = match &request.kind {
+            RequestKind::GetGeometry(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for GetGeometry: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        // Get the drawable (window)
+        let drawable_id = get_geometry_request.drawable;
+
+        // Check if drawable exists
+        let window = server.get_window(drawable_id).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "GetGeometry: drawable {} does not exist",
+                drawable_id
+            ))
+        })?;
+
+        // Get the byte order from the client
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        let byte_order = client.lock().await.byte_order();
+
+        // Create response
+        let mut writer = ByteOrderWriter::new(byte_order);
+        writer.write_u8(1); // Reply
+        writer.write_u8(window.depth); // Depth
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u32(server.get_root_window().id); // Root window
+        writer.write_u16(window.x as u16); // X coordinate
+        writer.write_u16(window.y as u16); // Y coordinate
+        writer.write_u16(window.width); // Width
+        writer.write_u16(window.height); // Height
+        writer.write_u16(window.border_width); // Border width
+        writer.write_padding(10); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> u8 {
+        14
+    }
+
+    fn name(&self) -> &'static str {
+        "GetGeometry"
+    }
+}
 
 /// Handler for InternAtom requests (opcode 16)
 pub struct InternAtomHandler;
@@ -235,7 +309,21 @@ impl RequestHandler for QueryExtensionHandler {
 
         // Check if the extension name matches (trim null terminators)
         let name_trimmed = query_extension_request.name.trim_end_matches('\0');
-        let is_randr = name_trimmed == "RANDR";
+        tracing::debug!(
+            "QueryExtension: client asked for extension '{}'",
+            name_trimmed
+        );
+        let is_supported = matches!(
+            name_trimmed,
+            "RANDR" | "SHAPE" | "MIT-SHM" | "XINERAMA" | "RENDER" | "BIG-REQUESTS"
+        );
+
+        if !is_supported {
+            tracing::debug!(
+                "QueryExtension: client asked for unsupported extension '{}'",
+                name_trimmed
+            );
+        }
 
         // For now, no extensions are supported, so always return present=0
         let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
@@ -243,8 +331,17 @@ impl RequestHandler for QueryExtensionHandler {
         writer.write_u8(0); // Unused
         writer.write_u16(request.sequence_number); // Sequence number
         writer.write_u32(0); // Reply length
-        writer.write_u8(if is_randr { 1 } else { 0 }); // Present (1 = present for RANDR)
-        writer.write_u8(if is_randr { 200 } else { 0 }); // Major opcode (200 for RANDR)
+        writer.write_u8(if is_supported { 1 } else { 0 }); // Present (1 = present)
+        let major_opcode = match name_trimmed {
+            "RANDR" => 200,
+            "SHAPE" => 129,
+            "MIT-SHM" => 130,
+            "XINERAMA" => 131,
+            "RENDER" => 139,
+            "BIG-REQUESTS" => 134,
+            _ => 0,
+        };
+        writer.write_u8(major_opcode); // Major opcode
         writer.write_u8(0); // First event (unused)
         writer.write_u8(0); // First error (unused)
         writer.write_padding(20); // Padding to 32 bytes
@@ -258,6 +355,51 @@ impl RequestHandler for QueryExtensionHandler {
 
     fn name(&self) -> &'static str {
         "QueryExtension"
+    }
+}
+
+/// Handler for BigRequests requests (opcode 134)
+pub struct BigRequestsHandler;
+
+#[async_trait]
+impl RequestHandler for BigRequestsHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _big_requests_request = match &request.kind {
+            RequestKind::BigRequests(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for BigRequests: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        tracing::debug!(
+            "BigRequests: client {} enabled big requests support",
+            client_id
+        );
+
+        // Mark the client as supporting big requests
+        let server_guard = server.lock().await;
+        if let Some(client) = server_guard.get_client(client_id) {
+            client.lock().await.set_big_requests_enabled(true);
+        }
+
+        // BigRequests doesn't send a reply - it's just an enable request
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        134
+    }
+
+    fn name(&self) -> &'static str {
+        "BigRequests"
     }
 }
 
@@ -289,22 +431,30 @@ impl RequestHandler for CreateWindowHandler {
             0 => WindowClass::CopyFromParent,
             1 => WindowClass::InputOutput,
             2 => WindowClass::InputOnly,
-            _ => return Err(X11Error::Protocol(format!("Invalid window class: {}", create_window_request.class))),
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid window class: {}",
+                    create_window_request.class
+                )));
+            }
         };
 
         // Create the window
-        server.create_window(
-            create_window_request.wid,
-            create_window_request.parent,
-            create_window_request.x,
-            create_window_request.y,
-            create_window_request.width,
-            create_window_request.height,
-            create_window_request.border_width,
-            create_window_request.depth,
-            window_class,
-            client_id,
-        ).await.map_err(|e| X11Error::Protocol(format!("Failed to create window: {}", e)))?;
+        server
+            .create_window(
+                create_window_request.wid,
+                create_window_request.parent,
+                create_window_request.x,
+                create_window_request.y,
+                create_window_request.width,
+                create_window_request.height,
+                create_window_request.border_width,
+                create_window_request.depth,
+                window_class,
+                client_id,
+            )
+            .await
+            .map_err(|e| X11Error::Protocol(format!("Failed to create window: {}", e)))?;
 
         // CreateWindow doesn't generate a response
         Ok(None)
@@ -358,8 +508,10 @@ impl RequestHandler for DestroyWindowHandler {
         }
 
         // Destroy the window
-        server.destroy_window(destroy_window_request.window)
-            .await.map_err(|e| X11Error::Protocol(format!("Failed to destroy window: {}", e)))?;
+        server
+            .destroy_window(destroy_window_request.window)
+            .await
+            .map_err(|e| X11Error::Protocol(format!("Failed to destroy window: {}", e)))?;
 
         // DestroyWindow doesn't generate a response
         Ok(None)
@@ -413,8 +565,20 @@ impl RequestHandler for MapWindowHandler {
         }
 
         // Map the window
-        server.map_window(map_window_request.window)
-            .await.map_err(|e| X11Error::Protocol(format!("Failed to map window: {}", e)))?;
+        server
+            .map_window(map_window_request.window)
+            .await
+            .map_err(|e| X11Error::Protocol(format!("Failed to map window: {}", e)))?;
+
+        // Send expose event to notify client that window needs redrawing
+        // Get window info before sending event to avoid borrowing issues
+        let (window_id, width, height) = {
+            let window = server.get_window(map_window_request.window).unwrap();
+            (window.id, window.width, window.height)
+        };
+        server
+            .send_expose_event(client_id, window_id, 0, 0, width, height, 0)
+            .await;
 
         // MapWindow doesn't generate a response
         Ok(None)
@@ -468,8 +632,10 @@ impl RequestHandler for UnmapWindowHandler {
         }
 
         // Unmap the window
-        server.unmap_window(unmap_window_request.window)
-            .await.map_err(|e| X11Error::Protocol(format!("Failed to unmap window: {}", e)))?;
+        server
+            .unmap_window(unmap_window_request.window)
+            .await
+            .map_err(|e| X11Error::Protocol(format!("Failed to unmap window: {}", e)))?;
 
         // UnmapWindow doesn't generate a response
         Ok(None)
@@ -508,11 +674,9 @@ impl RequestHandler for CreateGCHandler {
         let mut server = server.lock().await;
 
         // Create the graphics context
-        server.create_gc(
-            create_gc_request.gc,
-            create_gc_request.drawable,
-            client_id,
-        ).map_err(|e| X11Error::Protocol(format!("Failed to create graphics context: {}", e)))?;
+        server
+            .create_gc(create_gc_request.gc, create_gc_request.drawable, client_id)
+            .map_err(|e| X11Error::Protocol(format!("Failed to create graphics context: {}", e)))?;
 
         // CreateGC doesn't generate a response
         Ok(None)
@@ -569,9 +733,15 @@ impl RequestHandler for PolyArcHandler {
         } // immutable borrow ends here
 
         // Get graphics context
-        let gc_foreground = server.get_gc(gc_id).ok_or_else(|| {
-            X11Error::Protocol(format!("PolyArc: graphics context {} does not exist", gc_id))
-        })?.foreground;
+        let gc_foreground = server
+            .get_gc(gc_id)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "PolyArc: graphics context {} does not exist",
+                    gc_id
+                ))
+            })?
+            .foreground;
 
         // Now get mutable window reference
         let window = server.get_window_mut(window_id).unwrap();
@@ -636,9 +806,15 @@ impl RequestHandler for FillArcHandler {
         } // immutable borrow ends here
 
         // Get graphics context
-        let gc_foreground = server.get_gc(gc_id).ok_or_else(|| {
-            X11Error::Protocol(format!("FillArc: graphics context {} does not exist", gc_id))
-        })?.foreground;
+        let gc_foreground = server
+            .get_gc(gc_id)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "FillArc: graphics context {} does not exist",
+                    gc_id
+                ))
+            })?
+            .foreground;
 
         // Now get mutable window reference
         let window = server.get_window_mut(window_id).unwrap();
@@ -661,6 +837,153 @@ impl RequestHandler for FillArcHandler {
     }
 }
 
+/// Handler for PolyLine requests (opcode 65)
+pub struct PolyLineHandler;
+
+#[async_trait]
+impl RequestHandler for PolyLineHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let poly_line_request = match &request.kind {
+            RequestKind::PolyLine(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for PolyLine: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Get the drawable (window)
+        let window_id = poly_line_request.drawable;
+        let gc_id = poly_line_request.gc;
+
+        // Check if window exists and client owns it
+        {
+            let window = server.get_window(window_id).ok_or_else(|| {
+                X11Error::Protocol(format!("PolyLine: window {} does not exist", window_id))
+            })?;
+
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "PolyLine: client {} does not own window {}",
+                    client_id, window_id
+                )));
+            }
+        } // immutable borrow ends here
+
+        // Get graphics context
+        let gc_foreground = server
+            .get_gc(gc_id)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "PolyLine: graphics context {} does not exist",
+                    gc_id
+                ))
+            })?
+            .foreground;
+
+        // Now get mutable window reference
+        let window = server.get_window_mut(window_id).unwrap();
+
+        // Draw lines
+        draw_line(window, &poly_line_request.points, gc_foreground);
+
+        // PolyLine doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        65
+    }
+
+    fn name(&self) -> &'static str {
+        "PolyLine"
+    }
+}
+
+/// Handler for PolyFillRectangle requests (opcode 70)
+pub struct PolyFillRectangleHandler;
+
+#[async_trait]
+impl RequestHandler for PolyFillRectangleHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let poly_fill_rect_request = match &request.kind {
+            RequestKind::PolyFillRectangle(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for PolyFillRectangle: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Get the drawable (window)
+        let window_id = poly_fill_rect_request.drawable;
+        let gc_id = poly_fill_rect_request.gc;
+
+        // Check if window exists and client owns it
+        {
+            let window = server.get_window(window_id).ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "PolyFillRectangle: window {} does not exist",
+                    window_id
+                ))
+            })?;
+
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "PolyFillRectangle: client {} does not own window {}",
+                    client_id, window_id
+                )));
+            }
+        } // immutable borrow ends here
+
+        // Get graphics context
+        let gc_foreground = server
+            .get_gc(gc_id)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "PolyFillRectangle: graphics context {} does not exist",
+                    gc_id
+                ))
+            })?
+            .foreground;
+
+        // Now get mutable window reference
+        let window = server.get_window_mut(window_id).unwrap();
+
+        // Fill rectangles
+        for rect in &poly_fill_rect_request.rectangles {
+            fill_rectangle(window, rect, gc_foreground);
+        }
+
+        // PolyFillRectangle doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        70
+    }
+
+    fn name(&self) -> &'static str {
+        "PolyFillRectangle"
+    }
+}
+
 /// Convenience function to create a registry with standard handlers
 pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegistry {
     let mut registry = crate::protocol::RequestHandlerRegistry::new();
@@ -670,13 +993,20 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(DestroyWindowHandler);
     registry.register_handler(MapWindowHandler);
     registry.register_handler(UnmapWindowHandler);
+    registry.register_handler(GetGeometryHandler);
     registry.register_handler(CreateGCHandler);
+
+    registry.register_handler(PolyArcHandler);
+    registry.register_handler(FillArcHandler);
+    registry.register_handler(PolyLineHandler);
+    registry.register_handler(PolyFillRectangleHandler);
 
     registry.register_handler(InternAtomHandler);
     registry.register_handler(OpenFontHandler);
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);
     registry.register_handler(QueryExtensionHandler);
+    registry.register_handler(BigRequestsHandler);
 
     // RANDR extension handlers (using major opcode 200 + minor opcode)
     registry.register_handler(RandrQueryVersionHandler);

@@ -19,6 +19,8 @@ pub struct Client {
     resource_id_mask: XId,
     sequence_number: SequenceNumber,
     owned_resources: Vec<XId>,
+    event_queue: Vec<Vec<u8>>, // Queue of serialized events to send
+    big_requests_enabled: bool,
 }
 
 /// Manages X11 client connections and authentication
@@ -62,6 +64,11 @@ impl ClientSystem {
         self.clients.get(&client_id)
     }
 
+    /// Get a mutable client by ID
+    pub fn get_client_mut(&mut self, client_id: ClientId) -> Option<&mut Arc<Mutex<Client>>> {
+        self.clients.get_mut(&client_id)
+    }
+
     /// Get the number of connected clients
     pub fn client_count(&self) -> usize {
         self.clients.len()
@@ -80,10 +87,12 @@ impl Client {
             is_authenticated: false,
             resource_id_base: 0,
             resource_id_mask: 0,
-            sequence_number: 0,
+            sequence_number: 1,
             byte_order: ByteOrder::LittleEndian,
             address,
             owned_resources: Vec::new(),
+            event_queue: Vec::new(),
+            big_requests_enabled: false,
         }
     }
 
@@ -137,6 +146,31 @@ impl Client {
     }
     pub fn owned_resources(&self) -> &[XId] {
         &self.owned_resources
+    }
+
+    /// Queue an event for this client
+    pub fn queue_event(&mut self, event_data: Vec<u8>) {
+        self.event_queue.push(event_data);
+    }
+
+    /// Get pending events for this client
+    pub fn pending_events(&mut self) -> Vec<Vec<u8>> {
+        std::mem::take(&mut self.event_queue)
+    }
+
+    /// Check if client has pending events
+    pub fn has_pending_events(&self) -> bool {
+        !self.event_queue.is_empty()
+    }
+
+    /// Enable big requests for this client
+    pub fn set_big_requests_enabled(&mut self, enabled: bool) {
+        self.big_requests_enabled = enabled;
+    }
+
+    /// Check if big requests are enabled for this client
+    pub fn big_requests_enabled(&self) -> bool {
+        self.big_requests_enabled
     }
 }
 

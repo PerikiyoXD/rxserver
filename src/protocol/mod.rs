@@ -1,4 +1,5 @@
 pub mod endianness;
+pub mod events;
 pub mod handler;
 pub mod handlers;
 pub mod randr;

@@ -185,8 +185,23 @@ where
                 break;
             }
 
-            let length_field = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
-            let request_length = (length_field as usize) * 4;
+            // Check if this client has big requests enabled
+            let big_requests_enabled = self.client.lock().await.big_requests_enabled();
+            let opcode = data[offset];
+
+            let request_length = if big_requests_enabled && opcode != 134 {
+                // Big requests enabled and this is not the BigRequests enable request itself
+                if offset + 8 > data.len() {
+                    trace!("Insufficient data for big request header, breaking");
+                    break;
+                }
+                let length_field = u32::from_le_bytes([data[offset + 2], data[offset + 3], data[offset + 4], data[offset + 5]]);
+                (length_field as usize) * 4
+            } else {
+                // Normal request or BigRequests enable request
+                let length_field = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+                (length_field as usize) * 4
+            };
 
             if offset + request_length > data.len() {
                 trace!("Incomplete request data, breaking");
@@ -227,6 +242,19 @@ where
                     .context("Failed to send response")?;
             }
 
+            // Send any pending events for this client
+            let pending_events = {
+                let mut client = self.client.lock().await;
+                client.pending_events()
+            };
+
+            for event_data in pending_events {
+                self.stream
+                    .write_all(&event_data)
+                    .await
+                    .context("Failed to send event")?;
+            }
+
             offset += request_length;
         }
 
@@ -234,14 +262,17 @@ where
     }
 
     async fn send_connection_setup_success(&mut self) -> Result<()> {
-        let (byte_order, base, mask, root_id) = {
+        let (byte_order, base, mask, root_id, screen_width, screen_height) = {
             let client = self.client.lock().await;
             let server = self.server.lock().await;
+            let (width, height) = server.get_screen_size(0);
             (
                 client.byte_order(),
                 client.resource_id_base(),
                 client.resource_id_mask(),
                 server.get_root_window().id,
+                width,
+                height,
             )
         };
 
@@ -294,8 +325,8 @@ where
         writer.write_u32(0xFFFFFF); // White pixel
         writer.write_u32(0x000000); // Black pixel
         writer.write_u32(0); // Current input masks
-        writer.write_u16(1024); // Width
-        writer.write_u16(768); // Height
+        writer.write_u16(screen_width); // Width
+        writer.write_u16(screen_height); // Height
         writer.write_u16(270); // Width in mm
         writer.write_u16(203); // Height in mm
         writer.write_u16(1); // Min installed maps

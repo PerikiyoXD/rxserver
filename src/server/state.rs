@@ -5,7 +5,7 @@ use anyhow::Result;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
 use crate::protocol::{Atom, CursorId, GContextId, WindowId, XId};
@@ -240,6 +240,16 @@ impl Server {
         self.displays.display_count()
     }
 
+    /// Get screen dimensions for display ID
+    pub fn get_screen_size(&self, display_id: usize) -> (u16, u16) {
+        if let Some(screen) = self.displays.randr_state().get_screen(display_id as u32) {
+            (screen.width, screen.height)
+        } else {
+            warn!("Display ID {} not found, returning fallback screen size", display_id);
+            (1920, 1080) // fallback
+        }
+    }
+
     pub async fn shutdown(&self) {
         self.displays.shutdown().await;
     }
@@ -279,5 +289,17 @@ impl Server {
 
     pub fn get_pointer_grab(&self) -> Option<&PointerGrab> {
         self.pointer_grab.as_ref()
+    }
+
+    /// Send an expose event to a client for a window
+    pub async fn send_expose_event(&mut self, client_id: ClientId, window_id: u32, x: i16, y: i16, width: u16, height: u16, count: u16) {
+        use crate::protocol::events::ExposeEvent;
+
+        if let Some(client_arc) = self.clients.get_client_mut(client_id) {
+            let mut client = client_arc.lock().await;
+            let event = ExposeEvent::new(window_id, x, y, width, height, count);
+            let event_data = event.serialize(client.byte_order());
+            client.queue_event(event_data);
+        }
     }
 }
