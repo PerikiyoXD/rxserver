@@ -24,6 +24,35 @@ pub mod opcodes {
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
     pub const NO_OPERATION: u8 = 127;
     pub const QUERY_EXTENSION: u8 = 98;
+
+    // RANDR extension opcodes (major opcode will be assigned dynamically)
+    pub const RANDR_QUERY_VERSION: u8 = 0;
+    pub const RANDR_GET_SCREEN_RESOURCES: u8 = 1;
+    pub const RANDR_GET_OUTPUT_INFO: u8 = 2;
+    pub const RANDR_LIST_OUTPUT_PROPERTIES: u8 = 3;
+    pub const RANDR_QUERY_OUTPUT_PROPERTY: u8 = 4;
+    pub const RANDR_CONFIGURE_OUTPUT_PROPERTY: u8 = 5;
+    pub const RANDR_CHANGE_OUTPUT_PROPERTY: u8 = 6;
+    pub const RANDR_DELETE_OUTPUT_PROPERTY: u8 = 7;
+    pub const RANDR_GET_OUTPUT_PROPERTY: u8 = 8;
+    pub const RANDR_CREATE_MODE: u8 = 9;
+    pub const RANDR_DESTROY_MODE: u8 = 10;
+    pub const RANDR_ADD_OUTPUT_MODE: u8 = 11;
+    pub const RANDR_DELETE_OUTPUT_MODE: u8 = 12;
+    pub const RANDR_GET_CRTC_INFO: u8 = 13;
+    pub const RANDR_SET_CRTC_CONFIG: u8 = 14;
+    pub const RANDR_GET_CRTC_GAMMA_SIZE: u8 = 15;
+    pub const RANDR_GET_CRTC_GAMMA: u8 = 16;
+    pub const RANDR_SET_CRTC_GAMMA: u8 = 17;
+    pub const RANDR_GET_SCREEN_SIZE_RANGE: u8 = 18;
+    pub const RANDR_SET_SCREEN_SIZE: u8 = 19;
+    pub const RANDR_GET_SCREEN_RESOURCES_CURRENT: u8 = 20;
+    pub const RANDR_SET_CRTC_TRANSFORM: u8 = 21;
+    pub const RANDR_GET_CRTC_TRANSFORM: u8 = 22;
+    pub const RANDR_GET_PANNING: u8 = 23;
+    pub const RANDR_SET_PANNING: u8 = 24;
+    pub const RANDR_SET_OUTPUT_PRIMARY: u8 = 25;
+    pub const RANDR_GET_OUTPUT_PRIMARY: u8 = 26;
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +69,12 @@ pub enum RequestKind {
     GrabPointer(GrabPointerRequest),
     NoOperation(NoOperationRequest),
     QueryExtension(QueryExtensionRequest),
+    // RANDR extension requests
+    RandrQueryVersion(RandrQueryVersionRequest),
+    RandrGetScreenResources(RandrGetScreenResourcesRequest),
+    RandrGetOutputInfo(RandrGetOutputInfoRequest),
+    RandrGetCrtcInfo(RandrGetCrtcInfoRequest),
+    RandrGetScreenSizeRange(RandrGetScreenSizeRangeRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +82,7 @@ pub struct Request {
     pub kind: RequestKind,
     pub sequence_number: SequenceNumber,
     pub opcode: u8,
+    pub minor_opcode: Option<u8>, // For extension requests
 }
 
 /// GetGeometry request structure matching X11 protocol
@@ -171,12 +207,41 @@ pub struct NoOperationRequest {
 
 #[derive(Debug, Clone)]
 pub struct QueryExtensionRequest {
-    pub opcode: u8,     // Should be 98
-    pub unused: u8,     // unused
-    pub length: u16,    // Request length in 4-byte units
-    pub name_len: u16,  // Length of extension name
-    pub unused2: u16,   // Padding
-    pub name: String,   // Extension name
+    pub opcode: u8,    // Should be 98
+    pub unused: u8,    // unused
+    pub length: u16,   // Request length in 4-byte units
+    pub name_len: u16, // Length of extension name
+    pub unused2: u16,  // Padding
+    pub name: String,  // Extension name
+}
+
+// RANDR extension request structures
+#[derive(Debug, Clone)]
+pub struct RandrQueryVersionRequest {
+    pub major_version: u32,
+    pub minor_version: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RandrGetScreenResourcesRequest {
+    pub window: u32, // Window ID
+}
+
+#[derive(Debug, Clone)]
+pub struct RandrGetOutputInfoRequest {
+    pub output: u32,           // Output ID
+    pub config_timestamp: u32, // Timestamp
+}
+
+#[derive(Debug, Clone)]
+pub struct RandrGetCrtcInfoRequest {
+    pub crtc: u32,             // CRTC ID
+    pub config_timestamp: u32, // Timestamp
+}
+
+#[derive(Debug, Clone)]
+pub struct RandrGetScreenSizeRangeRequest {
+    pub window: u32, // Window ID
 }
 
 pub trait RequestParser {
@@ -201,6 +266,12 @@ pub struct CreateGlyphCursorParser;
 pub struct OpenFontParser;
 pub struct NoOperationParser;
 pub struct QueryExtensionParser;
+// RANDR parsers
+pub struct RandrQueryVersionParser;
+pub struct RandrGetScreenResourcesParser;
+pub struct RandrGetOutputInfoParser;
+pub struct RandrGetCrtcInfoParser;
+pub struct RandrGetScreenSizeRangeParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = opcodes::GET_GEOMETRY;
@@ -227,6 +298,7 @@ impl RequestParser for GetGeometryParser {
             kind: RequestKind::GetGeometry(request),
             sequence_number: 0, // Will be set by connection handler
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -282,6 +354,7 @@ impl RequestParser for InternAtomParser {
             kind: RequestKind::InternAtom(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -352,6 +425,7 @@ impl RequestParser for CreateWindowParser {
             kind: RequestKind::CreateWindow(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -400,6 +474,7 @@ impl RequestParser for DestroyWindowParser {
             kind: RequestKind::DestroyWindow(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -443,6 +518,7 @@ impl RequestParser for MapWindowParser {
             kind: RequestKind::MapWindow(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -484,6 +560,7 @@ impl RequestParser for UnmapWindowParser {
             kind: RequestKind::UnmapWindow(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -547,6 +624,7 @@ impl RequestParser for CreateGlyphCursorParser {
             kind: RequestKind::CreateGlyphCursor(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -611,6 +689,7 @@ impl RequestParser for OpenFontParser {
             kind: RequestKind::OpenFont(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -653,6 +732,7 @@ impl RequestParser for NoOperationParser {
             kind: RequestKind::NoOperation(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -699,6 +779,7 @@ impl RequestParser for QueryExtensionParser {
             kind: RequestKind::QueryExtension(request),
             sequence_number: 0,
             opcode,
+            minor_opcode: None,
         })
     }
 
@@ -710,8 +791,168 @@ impl RequestParser for QueryExtensionParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!("Invalid request type for QueryExtensionParser")),
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for QueryExtensionParser"
+            )),
         }
+    }
+}
+
+// RANDR extension parsers
+impl RequestParser for RandrQueryVersionParser {
+    const OPCODE: u8 = opcodes::RANDR_QUERY_VERSION;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("RandrQueryVersion request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let major_version = read_or_err!(reader, read_u32);
+        let minor_version = read_or_err!(reader, read_u32);
+
+        let request = RandrQueryVersionRequest {
+            major_version,
+            minor_version,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RandrQueryVersion(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl RequestParser for RandrGetScreenResourcesParser {
+    const OPCODE: u8 = opcodes::RANDR_GET_SCREEN_RESOURCES;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("RandrGetScreenResources request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let _minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+
+        let request = RandrGetScreenResourcesRequest { window };
+
+        Ok(Request {
+            kind: RequestKind::RandrGetScreenResources(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(opcodes::RANDR_GET_SCREEN_RESOURCES),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl RequestParser for RandrGetOutputInfoParser {
+    const OPCODE: u8 = opcodes::RANDR_GET_OUTPUT_INFO;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("RandrGetOutputInfo request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let _minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let output = read_or_err!(reader, read_u32);
+        let config_timestamp = read_or_err!(reader, read_u32);
+
+        let request = RandrGetOutputInfoRequest {
+            output,
+            config_timestamp,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RandrGetOutputInfo(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(opcodes::RANDR_GET_OUTPUT_INFO),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl RequestParser for RandrGetCrtcInfoParser {
+    const OPCODE: u8 = opcodes::RANDR_GET_CRTC_INFO;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("RandrGetCrtcInfo request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let _minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let crtc = read_or_err!(reader, read_u32);
+        let config_timestamp = read_or_err!(reader, read_u32);
+
+        let request = RandrGetCrtcInfoRequest {
+            crtc,
+            config_timestamp,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RandrGetCrtcInfo(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(opcodes::RANDR_GET_CRTC_INFO),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
+impl RequestParser for RandrGetScreenSizeRangeParser {
+    const OPCODE: u8 = opcodes::RANDR_GET_SCREEN_SIZE_RANGE;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("RandrGetScreenSizeRange request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let _minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+
+        let request = RandrGetScreenSizeRangeRequest { window };
+
+        Ok(Request {
+            kind: RequestKind::RandrGetScreenSizeRange(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(opcodes::RANDR_GET_SCREEN_SIZE_RANGE),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -756,6 +997,15 @@ impl RequestParser for X11RequestParser {
             RequestKind::NoOperation(_) => NoOperationParser::validate(request),
             RequestKind::ConnectionSetup => Ok(()),
             RequestKind::QueryExtension(_) => QueryExtensionParser::validate(request),
+            RequestKind::RandrQueryVersion(_) => RandrQueryVersionParser::validate(request),
+            RequestKind::RandrGetScreenResources(_) => {
+                RandrGetScreenResourcesParser::validate(request)
+            }
+            RequestKind::RandrGetOutputInfo(_) => RandrGetOutputInfoParser::validate(request),
+            RequestKind::RandrGetCrtcInfo(_) => RandrGetCrtcInfoParser::validate(request),
+            RequestKind::RandrGetScreenSizeRange(_) => {
+                RandrGetScreenSizeRangeParser::validate(request)
+            }
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

@@ -1,6 +1,7 @@
 pub mod endianness;
 pub mod handler;
 pub mod handlers;
+pub mod randr;
 pub mod request;
 pub mod response;
 pub mod serializer;
@@ -10,6 +11,7 @@ pub mod validator;
 pub use endianness::*;
 pub use handler::*;
 pub use handlers::*;
+pub use randr::*;
 pub use request::*;
 pub use serializer::*;
 pub use types::*;

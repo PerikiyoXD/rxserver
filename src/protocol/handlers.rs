@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::{
-    protocol::{ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error},
+    protocol::{ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error, randr::*},
     server::{GrabResult, PointerGrab, Server, client_system::ClientId},
 };
 
@@ -223,7 +223,7 @@ impl RequestHandler for QueryExtensionHandler {
         request: &Request,
         _server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
-        let _query_extension_request = match &request.kind {
+        let query_extension_request = match &request.kind {
             RequestKind::QueryExtension(req) => req,
             _ => {
                 return Err(X11Error::Protocol(format!(
@@ -233,14 +233,18 @@ impl RequestHandler for QueryExtensionHandler {
             }
         };
 
+        // Check if the extension name matches (trim null terminators)
+        let name_trimmed = query_extension_request.name.trim_end_matches('\0');
+        let is_randr = name_trimmed == "RANDR";
+
         // For now, no extensions are supported, so always return present=0
         let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
         writer.write_u8(1); // Reply
         writer.write_u8(0); // Unused
         writer.write_u16(request.sequence_number); // Sequence number
         writer.write_u32(0); // Reply length
-        writer.write_u8(0); // Present (0 = not present)
-        writer.write_u8(0); // Major opcode (unused)
+        writer.write_u8(if is_randr { 1 } else { 0 }); // Present (1 = present for RANDR)
+        writer.write_u8(if is_randr { 200 } else { 0 }); // Major opcode (200 for RANDR)
         writer.write_u8(0); // First event (unused)
         writer.write_u8(0); // First error (unused)
         writer.write_padding(20); // Padding to 32 bytes
@@ -266,6 +270,13 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);
     registry.register_handler(QueryExtensionHandler);
+
+    // RANDR extension handlers (using major opcode 200 + minor opcode)
+    registry.register_handler(RandrQueryVersionHandler);
+    registry.register_handler(RandrGetScreenResourcesHandler);
+    registry.register_handler(RandrGetOutputInfoHandler);
+    registry.register_handler(RandrGetCrtcInfoHandler);
+    registry.register_handler(RandrGetScreenSizeRangeHandler);
 
     registry
 }

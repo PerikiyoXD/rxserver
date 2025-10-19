@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, mpsc};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 use crate::protocol::{
     ByteOrder, ByteOrderWriter, Request, RequestHandlerRegistry, RequestParser, X11RequestParser,
@@ -65,6 +65,7 @@ where
 
         let result = async {
             loop {
+                trace!("Waiting for data from client {}", client_id);
                 // Try to read data from the client with a longer timeout
                 let read_result = tokio::time::timeout(
                     std::time::Duration::from_secs(30), // Much longer timeout for idle connections
@@ -110,7 +111,9 @@ where
                         break;
                     }
                 }
+                trace!("Completed processing data from client {}", client_id);
             }
+            trace!("Exiting main loop for client {}", client_id);
             Ok(())
         }
         .await;
@@ -172,8 +175,13 @@ where
     async fn handle_requests(&mut self, data: &[u8]) -> Result<()> {
         let mut offset = 0;
 
+        trace!("Handling requests for client {}", self.client.lock().await.id());
+        trace!("Received {} bytes of data", data.len());
+
         while offset < data.len() {
+            trace!("Processing request at offset {}", offset);
             if offset + 4 > data.len() {
+                trace!("Insufficient data for request header, breaking");
                 break;
             }
 
@@ -181,6 +189,7 @@ where
             let request_length = (length_field as usize) * 4;
 
             if offset + request_length > data.len() {
+                trace!("Incomplete request data, breaking");
                 break;
             }
 

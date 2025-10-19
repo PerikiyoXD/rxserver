@@ -221,6 +221,15 @@ impl Server {
         self.displays.sync_windows(windows).await;
     }
 
+    // RANDR extension support
+    pub fn randr_state(&self) -> &crate::protocol::randr::RandrState {
+        self.displays.randr_state()
+    }
+
+    pub fn randr_state_mut(&mut self) -> &mut crate::protocol::randr::RandrState {
+        self.displays.randr_state_mut()
+    }
+
     //  Pointer grab management
     pub fn establish_pointer_grab(&mut self, grab: PointerGrab) -> GrabResult {
         if self.pointer_grab.is_some() {

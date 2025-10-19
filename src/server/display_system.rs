@@ -12,25 +12,29 @@ use crate::{
         create_display,
         types::{Display, DisplayTrait},
     },
+    protocol::randr::RandrState,
     server::window_system::Window,
 };
 
 /// Manages display backends and rendering notifications
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct DisplaySystem {
     displays: HashMap<usize, Arc<Mutex<Display>>>,
+    randr_state: RandrState,
 }
 
 impl DisplaySystem {
     pub fn new() -> Self {
         Self {
             displays: HashMap::new(),
+            randr_state: RandrState::new(),
         }
     }
 
     /// Create displays from configuration
     pub fn from_configs(display_configs: Vec<DisplayConfig>) -> Result<Self> {
         let mut displays = HashMap::new();
+        let mut randr_state = RandrState::new();
 
         for config in display_configs {
             let display_id = config.id;
@@ -43,13 +47,17 @@ impl DisplaySystem {
                 continue;
             }
 
-            let mut display = create_display(config)?;
+            let mut display = create_display(config.clone())?;
             display.start()?;
+
+            // Initialize RANDR state for this screen
+            randr_state.init_screen(display_id as u32, config.resolution[0] as u16, config.resolution[1] as u16);
+
             displays.insert(display_id, Arc::new(Mutex::new(display)));
         }
 
         debug!("Set up {} display(s)", displays.len());
-        Ok(Self { displays })
+        Ok(Self { displays, randr_state })
     }
 
     /// Get the number of displays
@@ -120,6 +128,16 @@ impl DisplaySystem {
                 debug!("Failed to sync windows to display: {}", e);
             }
         }
+    }
+
+    /// Get RANDR state
+    pub fn randr_state(&self) -> &RandrState {
+        &self.randr_state
+    }
+
+    /// Get mutable RANDR state
+    pub fn randr_state_mut(&mut self) -> &mut RandrState {
+        &mut self.randr_state
     }
 }
 
