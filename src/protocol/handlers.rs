@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     protocol::{ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error, randr::*},
-    server::{GrabResult, PointerGrab, Server, client_system::ClientId},
+    server::{GrabResult, PointerGrab, Server, client_system::ClientId, window_system::WindowClass, graphics::{draw_arc, fill_arc}},
 };
 
 /// Handler for InternAtom requests (opcode 16)
@@ -261,9 +261,416 @@ impl RequestHandler for QueryExtensionHandler {
     }
 }
 
+/// Handler for CreateWindow requests (opcode 1)
+pub struct CreateWindowHandler;
+
+#[async_trait]
+impl RequestHandler for CreateWindowHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let create_window_request = match &request.kind {
+            RequestKind::CreateWindow(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for CreateWindow: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Convert window class
+        let window_class = match create_window_request.class {
+            0 => WindowClass::CopyFromParent,
+            1 => WindowClass::InputOutput,
+            2 => WindowClass::InputOnly,
+            _ => return Err(X11Error::Protocol(format!("Invalid window class: {}", create_window_request.class))),
+        };
+
+        // Create the window
+        server.create_window(
+            create_window_request.wid,
+            create_window_request.parent,
+            create_window_request.x,
+            create_window_request.y,
+            create_window_request.width,
+            create_window_request.height,
+            create_window_request.border_width,
+            create_window_request.depth,
+            window_class,
+            client_id,
+        ).await.map_err(|e| X11Error::Protocol(format!("Failed to create window: {}", e)))?;
+
+        // CreateWindow doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        1
+    }
+
+    fn name(&self) -> &'static str {
+        "CreateWindow"
+    }
+}
+
+/// Handler for DestroyWindow requests (opcode 4)
+pub struct DestroyWindowHandler;
+
+#[async_trait]
+impl RequestHandler for DestroyWindowHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let destroy_window_request = match &request.kind {
+            RequestKind::DestroyWindow(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for DestroyWindow: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Check if client owns the window
+        if let Some(window) = server.get_window(destroy_window_request.window) {
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "Client {} does not own window {}",
+                    client_id, destroy_window_request.window
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "Window {} does not exist",
+                destroy_window_request.window
+            )));
+        }
+
+        // Destroy the window
+        server.destroy_window(destroy_window_request.window)
+            .await.map_err(|e| X11Error::Protocol(format!("Failed to destroy window: {}", e)))?;
+
+        // DestroyWindow doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        4
+    }
+
+    fn name(&self) -> &'static str {
+        "DestroyWindow"
+    }
+}
+
+/// Handler for MapWindow requests (opcode 8)
+pub struct MapWindowHandler;
+
+#[async_trait]
+impl RequestHandler for MapWindowHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let map_window_request = match &request.kind {
+            RequestKind::MapWindow(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for MapWindow: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Check if client owns the window
+        if let Some(window) = server.get_window(map_window_request.window) {
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "Client {} does not own window {}",
+                    client_id, map_window_request.window
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "Window {} does not exist",
+                map_window_request.window
+            )));
+        }
+
+        // Map the window
+        server.map_window(map_window_request.window)
+            .await.map_err(|e| X11Error::Protocol(format!("Failed to map window: {}", e)))?;
+
+        // MapWindow doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        8
+    }
+
+    fn name(&self) -> &'static str {
+        "MapWindow"
+    }
+}
+
+/// Handler for UnmapWindow requests (opcode 10)
+pub struct UnmapWindowHandler;
+
+#[async_trait]
+impl RequestHandler for UnmapWindowHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let unmap_window_request = match &request.kind {
+            RequestKind::UnmapWindow(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for UnmapWindow: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Check if client owns the window
+        if let Some(window) = server.get_window(unmap_window_request.window) {
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "Client {} does not own window {}",
+                    client_id, unmap_window_request.window
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "Window {} does not exist",
+                unmap_window_request.window
+            )));
+        }
+
+        // Unmap the window
+        server.unmap_window(unmap_window_request.window)
+            .await.map_err(|e| X11Error::Protocol(format!("Failed to unmap window: {}", e)))?;
+
+        // UnmapWindow doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        10
+    }
+
+    fn name(&self) -> &'static str {
+        "UnmapWindow"
+    }
+}
+
+/// Handler for CreateGC requests (opcode 55)
+pub struct CreateGCHandler;
+
+#[async_trait]
+impl RequestHandler for CreateGCHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let create_gc_request = match &request.kind {
+            RequestKind::CreateGC(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for CreateGC: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Create the graphics context
+        server.create_gc(
+            create_gc_request.gc,
+            create_gc_request.drawable,
+            client_id,
+        ).map_err(|e| X11Error::Protocol(format!("Failed to create graphics context: {}", e)))?;
+
+        // CreateGC doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        55
+    }
+
+    fn name(&self) -> &'static str {
+        "CreateGC"
+    }
+}
+
+/// Handler for PolyArc requests (opcode 59)
+pub struct PolyArcHandler;
+
+#[async_trait]
+impl RequestHandler for PolyArcHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let poly_arc_request = match &request.kind {
+            RequestKind::PolyArc(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for PolyArc: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Get the drawable (window)
+        let window_id = poly_arc_request.drawable;
+        let gc_id = poly_arc_request.gc;
+
+        // Check if window exists and client owns it
+        {
+            let window = server.get_window(window_id).ok_or_else(|| {
+                X11Error::Protocol(format!("PolyArc: window {} does not exist", window_id))
+            })?;
+
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "PolyArc: client {} does not own window {}",
+                    client_id, window_id
+                )));
+            }
+        } // immutable borrow ends here
+
+        // Get graphics context
+        let gc_foreground = server.get_gc(gc_id).ok_or_else(|| {
+            X11Error::Protocol(format!("PolyArc: graphics context {} does not exist", gc_id))
+        })?.foreground;
+
+        // Now get mutable window reference
+        let window = server.get_window_mut(window_id).unwrap();
+
+        // Draw arcs
+        for arc in &poly_arc_request.arcs {
+            draw_arc(window, arc, gc_foreground);
+        }
+
+        // PolyArc doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        59
+    }
+
+    fn name(&self) -> &'static str {
+        "PolyArc"
+    }
+}
+
+/// Handler for FillArc requests (opcode 61)
+pub struct FillArcHandler;
+
+#[async_trait]
+impl RequestHandler for FillArcHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let fill_arc_request = match &request.kind {
+            RequestKind::FillArc(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for FillArc: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        // Get the drawable (window)
+        let window_id = fill_arc_request.drawable;
+        let gc_id = fill_arc_request.gc;
+
+        // Check if window exists and client owns it
+        {
+            let window = server.get_window(window_id).ok_or_else(|| {
+                X11Error::Protocol(format!("FillArc: window {} does not exist", window_id))
+            })?;
+
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "FillArc: client {} does not own window {}",
+                    client_id, window_id
+                )));
+            }
+        } // immutable borrow ends here
+
+        // Get graphics context
+        let gc_foreground = server.get_gc(gc_id).ok_or_else(|| {
+            X11Error::Protocol(format!("FillArc: graphics context {} does not exist", gc_id))
+        })?.foreground;
+
+        // Now get mutable window reference
+        let window = server.get_window_mut(window_id).unwrap();
+
+        // Fill arcs
+        for arc in &fill_arc_request.arcs {
+            fill_arc(window, arc, gc_foreground);
+        }
+
+        // FillArc doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        61
+    }
+
+    fn name(&self) -> &'static str {
+        "FillArc"
+    }
+}
+
 /// Convenience function to create a registry with standard handlers
 pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegistry {
     let mut registry = crate::protocol::RequestHandlerRegistry::new();
+
+    // Window management handlers
+    registry.register_handler(CreateWindowHandler);
+    registry.register_handler(DestroyWindowHandler);
+    registry.register_handler(MapWindowHandler);
+    registry.register_handler(UnmapWindowHandler);
+    registry.register_handler(CreateGCHandler);
 
     registry.register_handler(InternAtomHandler);
     registry.register_handler(OpenFontHandler);

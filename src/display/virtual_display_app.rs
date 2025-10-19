@@ -212,13 +212,8 @@ impl VirtualDisplayApp {
         if !is_root {
             self.draw_window_content(window, actual_x, actual_y);
         } else {
-            // For root window, draw a subtle pattern to show it's active
-            self.draw_root_window_pattern(
-                actual_x,
-                actual_y,
-                actual_width.try_into().unwrap(),
-                actual_height.try_into().unwrap(),
-            );
+            // For root window, draw pixel data
+            self.draw_window_content(window, actual_x, actual_y);
         }
     }
 
@@ -229,17 +224,13 @@ impl VirtualDisplayApp {
             self.config.resolution[1] as u32,
         );
 
-        // Draw a simple pattern to show this is a window
-        let content_color = 0xD8DEE9FF; // Light gray
-        let pattern_color = 0x88C0D0FF; // Light blue
-
         // Calculate content area (inside border)
         let content_x = abs_x + window.border_width as i32;
         let content_y = abs_y + window.border_width as i32;
         let content_width = window.width.saturating_sub(window.border_width * 2);
         let content_height = window.height.saturating_sub(window.border_width * 2);
 
-        // Draw simple window identifier pattern
+        // Draw pixel data from the window
         for y in 0..content_height {
             for x in 0..content_width {
                 let screen_x = content_x + x as i32;
@@ -250,49 +241,17 @@ impl VirtualDisplayApp {
                     && screen_y >= 0
                     && screen_y < height as i32
                 {
-                    let index = (screen_y as u32 * width + screen_x as u32) as usize;
-                    if index < self.framebuffer.len() {
-                        // Simple checkerboard pattern for window content
-                        let color = if (x / 8 + y / 8) % 2 == 0 {
-                            content_color
-                        } else {
-                            pattern_color
-                        };
-                        self.framebuffer[index] = color;
+                    // Get pixel from window's pixel data
+                    if let Some(pixel) = window.get_pixel(x, y) {
+                        let index = (screen_y as u32 * width + screen_x as u32) as usize;
+                        if index < self.framebuffer.len() {
+                            self.framebuffer[index] = pixel;
+                        }
                     }
                 }
             }
         }
     }
-
-    /// Draw a subtle pattern for the root window to show it's active
-    fn draw_root_window_pattern(&mut self, _x: i32, _y: i32, width: u16, height: u16) {
-        let (display_width, display_height) = (
-            self.config.resolution[0] as u32,
-            self.config.resolution[1] as u32,
-        );
-
-        // Draw a subtle grid pattern on the root window
-        let grid_color = 0x3B4252FF; // Slightly lighter than background
-        let grid_size = 32;
-
-        for y in 0..height {
-            for x in 0..width {
-                if x as u32 >= display_width || y as u32 >= display_height {
-                    continue;
-                }
-
-                let index = (y as u32 * display_width + x as u32) as usize;
-                if index < self.framebuffer.len() {
-                    // Draw grid lines
-                    if x % grid_size == 0 || y % grid_size == 0 {
-                        self.framebuffer[index] = grid_color;
-                    }
-                }
-            }
-        }
-    }
-
     /// Draw server information overlay
     fn draw_server_info(&mut self) {
         let (width, height) = (

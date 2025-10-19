@@ -26,6 +26,7 @@ pub struct Window {
     pub depth: u8,
     pub class: WindowClass,
     pub owner: Option<ClientId>,
+    pub pixel_data: Vec<u32>, // ARGB pixel data
 }
 
 impl Window {
@@ -41,6 +42,9 @@ impl Window {
         class: WindowClass,
         owner: ClientId,
     ) -> Result<Self, String> {
+        let pixel_count = (width as usize) * (height as usize);
+        let pixel_data = vec![0x000000FF; pixel_count]; // Initialize with black background
+
         Ok(Self {
             id,
             parent: Some(parent),
@@ -52,11 +56,15 @@ impl Window {
             depth,
             class,
             owner: Some(owner),
+            pixel_data,
         })
     }
 
     /// Create root window (no parent, no owner)
     pub fn new_root(id: WindowId, width: u16, height: u16, depth: u8) -> Self {
+        let pixel_count = (width as usize) * (height as usize);
+        let pixel_data = vec![0x2E3440FF; pixel_count]; // Initialize with dark blue-gray background
+
         Self {
             id,
             parent: None,
@@ -68,6 +76,7 @@ impl Window {
             depth,
             class: WindowClass::InputOutput,
             owner: None,
+            pixel_data,
         }
     }
 
@@ -87,6 +96,36 @@ impl Window {
             && y >= self.y
             && x < self.x + self.width as i16
             && y < self.y + self.height as i16
+    }
+
+    /// Get pixel data
+    pub fn pixel_data(&self) -> &[u32] {
+        &self.pixel_data
+    }
+
+    /// Get mutable pixel data
+    pub fn pixel_data_mut(&mut self) -> &mut [u32] {
+        &mut self.pixel_data
+    }
+
+    /// Set a pixel at the given coordinates
+    pub fn set_pixel(&mut self, x: u16, y: u16, color: u32) {
+        if x < self.width && y < self.height {
+            let index = (y as usize * self.width as usize) + x as usize;
+            if index < self.pixel_data.len() {
+                self.pixel_data[index] = color;
+            }
+        }
+    }
+
+    /// Get a pixel at the given coordinates
+    pub fn get_pixel(&self, x: u16, y: u16) -> Option<u32> {
+        if x < self.width && y < self.height {
+            let index = (y as usize * self.width as usize) + x as usize;
+            self.pixel_data.get(index).copied()
+        } else {
+            None
+        }
     }
 }
 
@@ -169,6 +208,10 @@ impl WindowSystem {
 
     pub fn get_window(&self, window_id: WindowId) -> Option<&Window> {
         self.windows.get(&window_id)
+    }
+
+    pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
+        self.windows.get_mut(&window_id)
     }
 
     pub fn get_root_window(&self) -> &Window {

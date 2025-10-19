@@ -20,6 +20,11 @@ pub mod opcodes {
     pub const UNMAP_WINDOW: u8 = 10;
     pub const GET_GEOMETRY: u8 = 14;
     pub const INTERN_ATOM: u8 = 16;
+    pub const CREATE_GC: u8 = 55;
+    pub const POLY_ARC: u8 = 59;
+    pub const FILL_ARC: u8 = 61;
+    pub const POLY_LINE: u8 = 65;
+    pub const POLY_FILL_RECTANGLE: u8 = 70;
     pub const OPEN_FONT: u8 = 45;
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
     pub const NO_OPERATION: u8 = 127;
@@ -64,6 +69,9 @@ pub enum RequestKind {
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
     UnmapWindow(UnmapWindowRequest),
+    CreateGC(CreateGCRequest),
+    PolyArc(PolyArcRequest),
+    FillArc(FillArcRequest),
     CreateGlyphCursor(CreateGlyphCursorRequest),
     OpenFont(OpenFontRequest),
     GrabPointer(GrabPointerRequest),
@@ -149,6 +157,89 @@ pub struct UnmapWindowRequest {
     pub unused: u8,       // unused
     pub length: u16,      // request length (2)
     pub window: WindowId, // window to unmap
+}
+
+/// CreateGC request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreateGCRequest {
+    pub opcode: u8,           // 55: opcode
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units
+    pub gc: GContextId,       // graphics context id
+    pub drawable: DrawableId, // drawable
+    pub value_mask: u32,      // value mask
+    pub value_list: Vec<u32>, // variable length value list
+}
+
+/// Arc structure for PolyArc and FillArc
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Arc {
+    pub x: i16,      // X coordinate
+    pub y: i16,      // Y coordinate
+    pub width: u16,  // Width
+    pub height: u16, // Height
+    pub angle1: i16, // Start angle
+    pub angle2: i16, // End angle
+}
+
+/// PolyArc request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolyArcRequest {
+    pub opcode: u8,           // 59: opcode
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units
+    pub drawable: DrawableId, // drawable
+    pub gc: GContextId,       // graphics context
+    pub arcs: Vec<Arc>,       // list of arcs
+}
+
+/// FillArc request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FillArcRequest {
+    pub opcode: u8,           // 61: opcode
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units
+    pub drawable: DrawableId, // drawable
+    pub gc: GContextId,       // graphics context
+    pub arcs: Vec<Arc>,       // list of arcs
+}
+
+/// Point structure for PolyLine
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Point {
+    pub x: i16, // X coordinate
+    pub y: i16, // Y coordinate
+}
+
+/// PolyLine request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolyLineRequest {
+    pub opcode: u8,           // 65: opcode
+    pub coordinate_mode: u8,  // coordinate mode
+    pub length: u16,          // request length in 4-byte units
+    pub drawable: DrawableId, // drawable
+    pub gc: GContextId,       // graphics context
+    pub points: Vec<Point>,   // list of points
+}
+
+/// Rectangle structure for PolyFillRectangle
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rectangle {
+    pub x: i16,      // X coordinate
+    pub y: i16,      // Y coordinate
+    pub width: u16,  // Width
+    pub height: u16, // Height
+}
+
+/// PolyFillRectangle request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PolyFillRectangleRequest {
+    pub opcode: u8,           // 70: opcode
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units
+    pub drawable: DrawableId, // drawable
+    pub gc: GContextId,       // graphics context
+    pub rectangles: Vec<Rectangle>, // list of rectangles
 }
 
 /// CreateGlyphCursor request structure
@@ -262,6 +353,9 @@ pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
 pub struct UnmapWindowParser;
+pub struct CreateGCParser;
+pub struct PolyArcParser;
+pub struct FillArcParser;
 pub struct CreateGlyphCursorParser;
 pub struct OpenFontParser;
 pub struct NoOperationParser;
@@ -575,6 +669,196 @@ impl RequestParser for UnmapWindowParser {
             _ => Err(anyhow::anyhow!(
                 "Invalid request type for UnmapWindowParser"
             )),
+        }
+    }
+}
+
+impl RequestParser for CreateGCParser {
+    const OPCODE: u8 = opcodes::CREATE_GC;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 16 {
+            return Err(anyhow::anyhow!("CreateGC request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let gc = read_or_err!(reader, read_u32);
+        let drawable = read_or_err!(reader, read_u32);
+        let value_mask = read_or_err!(reader, read_u32);
+
+        // Parse variable length value list
+        let mut value_list = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(16);
+        if remaining_bytes > 0 {
+            let values_count = remaining_bytes / 4;
+            for _ in 0..values_count {
+                value_list.push(read_or_err!(reader, read_u32));
+            }
+        }
+
+        let request = CreateGCRequest {
+            opcode,
+            unused,
+            length,
+            gc,
+            drawable,
+            value_mask,
+            value_list,
+        };
+
+        Ok(Request {
+            kind: RequestKind::CreateGC(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::CreateGC(req) => {
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!(
+                        "CreateGC: graphics context id must be non-zero"
+                    ));
+                }
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("CreateGC: drawable id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for CreateGCParser")),
+        }
+    }
+}
+
+impl RequestParser for PolyArcParser {
+    const OPCODE: u8 = opcodes::POLY_ARC;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("PolyArc request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+
+        // Parse arcs
+        let mut arcs = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let arc_count = remaining_bytes / 12; // Each arc is 12 bytes
+            for _ in 0..arc_count {
+                let x = read_or_err!(reader, read_i16);
+                let y = read_or_err!(reader, read_i16);
+                let width = read_or_err!(reader, read_u16);
+                let height = read_or_err!(reader, read_u16);
+                let angle1 = read_or_err!(reader, read_i16);
+                let angle2 = read_or_err!(reader, read_i16);
+                arcs.push(Arc { x, y, width, height, angle1, angle2 });
+            }
+        }
+
+        let request = PolyArcRequest {
+            opcode,
+            unused,
+            length,
+            drawable,
+            gc,
+            arcs,
+        };
+
+        Ok(Request {
+            kind: RequestKind::PolyArc(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::PolyArc(req) => {
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("PolyArc: drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("PolyArc: graphics context id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for PolyArcParser")),
+        }
+    }
+}
+
+impl RequestParser for FillArcParser {
+    const OPCODE: u8 = opcodes::FILL_ARC;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("FillArc request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+
+        // Parse arcs
+        let mut arcs = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let arc_count = remaining_bytes / 12; // Each arc is 12 bytes
+            for _ in 0..arc_count {
+                let x = read_or_err!(reader, read_i16);
+                let y = read_or_err!(reader, read_i16);
+                let width = read_or_err!(reader, read_u16);
+                let height = read_or_err!(reader, read_u16);
+                let angle1 = read_or_err!(reader, read_i16);
+                let angle2 = read_or_err!(reader, read_i16);
+                arcs.push(Arc { x, y, width, height, angle1, angle2 });
+            }
+        }
+
+        let request = FillArcRequest {
+            opcode,
+            unused,
+            length,
+            drawable,
+            gc,
+            arcs,
+        };
+
+        Ok(Request {
+            kind: RequestKind::FillArc(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::FillArc(req) => {
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("FillArc: drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("FillArc: graphics context id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for FillArcParser")),
         }
     }
 }
@@ -976,6 +1260,9 @@ impl RequestParser for X11RequestParser {
             opcodes::DESTROY_WINDOW => DestroyWindowParser::parse(bytes),
             opcodes::MAP_WINDOW => MapWindowParser::parse(bytes),
             opcodes::UNMAP_WINDOW => UnmapWindowParser::parse(bytes),
+            opcodes::CREATE_GC => CreateGCParser::parse(bytes),
+            opcodes::POLY_ARC => PolyArcParser::parse(bytes),
+            opcodes::FILL_ARC => FillArcParser::parse(bytes),
             opcodes::CREATE_GLYPH_CURSOR => CreateGlyphCursorParser::parse(bytes),
             opcodes::OPEN_FONT => OpenFontParser::parse(bytes),
             opcodes::NO_OPERATION => NoOperationParser::parse(bytes),
@@ -992,6 +1279,9 @@ impl RequestParser for X11RequestParser {
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
+            RequestKind::CreateGC(_) => CreateGCParser::validate(request),
+            RequestKind::PolyArc(_) => PolyArcParser::validate(request),
+            RequestKind::FillArc(_) => FillArcParser::validate(request),
             RequestKind::CreateGlyphCursor(_) => CreateGlyphCursorParser::validate(request),
             RequestKind::OpenFont(_) => OpenFontParser::validate(request),
             RequestKind::NoOperation(_) => NoOperationParser::validate(request),

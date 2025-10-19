@@ -8,11 +8,12 @@ use tokio::sync::Mutex;
 use tracing::debug;
 
 use crate::display::config::DisplayConfig;
-use crate::protocol::{Atom, CursorId, WindowId, XId};
+use crate::protocol::{Atom, CursorId, GContextId, WindowId, XId};
 use crate::server::{
     atom_system::AtomSystem,
     client_system::{Client, ClientId, ClientSystem},
     display_system::DisplaySystem,
+    gcontext_system::{GraphicsContext, GraphicsContextSystem},
     resource_system::ResourceSystem,
     window_system::{Window, WindowClass, WindowSystem},
 };
@@ -69,6 +70,7 @@ pub struct Server {
     clients: ClientSystem,
     resources: ResourceSystem,
     displays: DisplaySystem,
+    gcontexts: GraphicsContextSystem,
     pointer_grab: Option<PointerGrab>,
 }
 
@@ -80,6 +82,7 @@ impl Server {
             clients: ClientSystem::new(),
             resources: ResourceSystem::new(),
             displays: DisplaySystem::from_configs(display_configs)?,
+            gcontexts: GraphicsContextSystem::new(),
             pointer_grab: None,
         };
         Ok(Arc::new(Mutex::new(server)))
@@ -165,6 +168,10 @@ impl Server {
         self.windows.get_window(window_id)
     }
 
+    pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
+        self.windows.get_window_mut(window_id)
+    }
+
     pub fn get_root_window(&self) -> &Window {
         self.windows.get_root_window()
     }
@@ -196,6 +203,27 @@ impl Server {
         debug!("Unmapping window {}", window_id);
         self.displays.notify_window_unmapped(window_id).await;
         Ok(())
+    }
+
+    // Graphics context management - delegate to GraphicsContextSystem
+    pub fn create_gc(&mut self, id: GContextId, drawable: u32, owner: ClientId) -> Result<(), String> {
+        self.gcontexts.create_gc(id, drawable, owner)
+    }
+
+    pub fn destroy_gc(&mut self, id: GContextId) -> Result<(), String> {
+        self.gcontexts.destroy_gc(id)
+    }
+
+    pub fn get_gc(&self, id: GContextId) -> Option<&GraphicsContext> {
+        self.gcontexts.get_gc(id)
+    }
+
+    pub fn get_gc_mut(&mut self, id: GContextId) -> Option<&mut GraphicsContext> {
+        self.gcontexts.get_gc_mut(id)
+    }
+
+    pub fn gc_exists(&self, id: GContextId) -> bool {
+        self.gcontexts.gc_exists(id)
     }
 
     // Resource management - delegate to ResourceSystem
