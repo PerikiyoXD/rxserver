@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::{
-    protocol::{ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error},
+    protocol::{ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error},
     server::{GrabResult, PointerGrab, Server, client_system::ClientId},
 };
 
@@ -212,6 +212,51 @@ impl RequestHandler for GrabPointerHandler {
     }
 }
 
+/// Handler for QueryExtension requests (opcode 98)
+pub struct QueryExtensionHandler;
+
+#[async_trait]
+impl RequestHandler for QueryExtensionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _query_extension_request = match &request.kind {
+            RequestKind::QueryExtension(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for QueryExtension: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        // For now, no extensions are supported, so always return present=0
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u8(0); // Present (0 = not present)
+        writer.write_u8(0); // Major opcode (unused)
+        writer.write_u8(0); // First event (unused)
+        writer.write_u8(0); // First error (unused)
+        writer.write_padding(20); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> u8 {
+        98
+    }
+
+    fn name(&self) -> &'static str {
+        "QueryExtension"
+    }
+}
+
 /// Convenience function to create a registry with standard handlers
 pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegistry {
     let mut registry = crate::protocol::RequestHandlerRegistry::new();
@@ -220,6 +265,7 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(OpenFontHandler);
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);
+    registry.register_handler(QueryExtensionHandler);
 
     registry
 }

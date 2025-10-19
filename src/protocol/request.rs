@@ -23,6 +23,7 @@ pub mod opcodes {
     pub const OPEN_FONT: u8 = 45;
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
     pub const NO_OPERATION: u8 = 127;
+    pub const QUERY_EXTENSION: u8 = 98;
 }
 
 #[derive(Debug, Clone)]
@@ -38,6 +39,7 @@ pub enum RequestKind {
     OpenFont(OpenFontRequest),
     GrabPointer(GrabPointerRequest),
     NoOperation(NoOperationRequest),
+    QueryExtension(QueryExtensionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +169,16 @@ pub struct NoOperationRequest {
     pub length: u16, // request length
 }
 
+#[derive(Debug, Clone)]
+pub struct QueryExtensionRequest {
+    pub opcode: u8,     // Should be 98
+    pub unused: u8,     // unused
+    pub length: u16,    // Request length in 4-byte units
+    pub name_len: u16,  // Length of extension name
+    pub unused2: u16,   // Padding
+    pub name: String,   // Extension name
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -188,6 +200,7 @@ pub struct UnmapWindowParser;
 pub struct CreateGlyphCursorParser;
 pub struct OpenFontParser;
 pub struct NoOperationParser;
+pub struct QueryExtensionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = opcodes::GET_GEOMETRY;
@@ -649,6 +662,59 @@ impl RequestParser for NoOperationParser {
     }
 }
 
+impl RequestParser for QueryExtensionParser {
+    const OPCODE: u8 = opcodes::QUERY_EXTENSION;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("QueryExtension request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let name_len = read_or_err!(reader, read_u16);
+        let unused2 = read_or_err!(reader, read_u16);
+
+        let name = if name_len > 0 {
+            let name_bytes = reader
+                .read_bytes(name_len as usize)
+                .map_err(|e| anyhow::anyhow!(e))?;
+            String::from_utf8_lossy(name_bytes).to_string()
+        } else {
+            String::new()
+        };
+
+        let request = QueryExtensionRequest {
+            opcode,
+            unused,
+            length,
+            name_len,
+            unused2,
+            name,
+        };
+
+        Ok(Request {
+            kind: RequestKind::QueryExtension(request),
+            sequence_number: 0,
+            opcode,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::QueryExtension(req) => {
+                if req.name.is_empty() {
+                    return Err(anyhow::anyhow!("QueryExtension: name must not be empty"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for QueryExtensionParser")),
+        }
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -672,6 +738,7 @@ impl RequestParser for X11RequestParser {
             opcodes::CREATE_GLYPH_CURSOR => CreateGlyphCursorParser::parse(bytes),
             opcodes::OPEN_FONT => OpenFontParser::parse(bytes),
             opcodes::NO_OPERATION => NoOperationParser::parse(bytes),
+            opcodes::QUERY_EXTENSION => QueryExtensionParser::parse(bytes),
             _ => Err(anyhow::anyhow!("Unknown opcode: {}", opcode)),
         }
     }
@@ -688,6 +755,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::OpenFont(_) => OpenFontParser::validate(request),
             RequestKind::NoOperation(_) => NoOperationParser::validate(request),
             RequestKind::ConnectionSetup => Ok(()),
+            RequestKind::QueryExtension(_) => QueryExtensionParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())
