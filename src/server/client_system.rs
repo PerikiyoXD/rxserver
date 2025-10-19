@@ -122,7 +122,7 @@ impl Client {
 
     /// Check if a resource ID belongs to this client
     pub fn owns_resource(&self, resource_id: XId) -> bool {
-        (resource_id & self.resource_id_mask) == self.resource_id_base
+        (resource_id & !self.resource_id_mask) == self.resource_id_base
     }
 
     // Getters for private fields

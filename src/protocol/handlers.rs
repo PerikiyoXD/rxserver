@@ -224,16 +224,9 @@ impl RequestHandler for CreatePixmapHandler {
 
         let server = server.lock().await;
 
-        // Check if client owns the drawable
+        // Check if the drawable exists (used to determine depth)
         let drawable_id = create_pixmap_request.drawable;
-        if let Some(window) = server.get_window(drawable_id) {
-            if window.owner != Some(client_id) {
-                return Err(X11Error::Protocol(format!(
-                    "CreatePixmap: client {} does not own drawable {}",
-                    client_id, drawable_id
-                )));
-            }
-        } else {
+        if !server.get_window(drawable_id).is_some() {
             return Err(X11Error::Protocol(format!(
                 "CreatePixmap: drawable {} does not exist",
                 drawable_id
@@ -241,9 +234,9 @@ impl RequestHandler for CreatePixmapHandler {
         }
 
         // Check if the pixmap ID is within the client's resource range
-        let client = server.get_client(client_id).ok_or_else(|| {
-            X11Error::Protocol(format!("Client {} not found", client_id))
-        })?;
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
         if !client.lock().await.owns_resource(create_pixmap_request.pid) {
             return Err(X11Error::Protocol(format!(
                 "CreatePixmap: pixmap ID {} is not within client's resource range",
