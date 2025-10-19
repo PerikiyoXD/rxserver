@@ -178,6 +178,8 @@ where
         trace!("Handling requests for client {}", self.client.lock().await.id());
         trace!("Received {} bytes of data", data.len());
 
+        let byte_order = self.client.lock().await.byte_order();
+
         while offset < data.len() {
             trace!("Processing request at offset {}", offset);
             if offset + 4 > data.len() {
@@ -185,21 +187,13 @@ where
                 break;
             }
 
-            // Check if this client has big requests enabled
-            let big_requests_enabled = self.client.lock().await.big_requests_enabled();
-            let opcode = data[offset];
-
-            let request_length = if big_requests_enabled && opcode != 134 {
-                // Big requests enabled and this is not the BigRequests enable request itself
-                if offset + 8 > data.len() {
-                    trace!("Insufficient data for big request header, breaking");
-                    break;
-                }
-                let length_field = u32::from_le_bytes([data[offset + 2], data[offset + 3], data[offset + 4], data[offset + 5]]);
-                (length_field as usize) * 4
-            } else {
-                // Normal request or BigRequests enable request
-                let length_field = u16::from_le_bytes([data[offset + 2], data[offset + 3]]);
+            let request_length = {
+                // Normal request length is always 2 bytes, regardless of big requests enabled
+                let length_field = if byte_order == ByteOrder::BigEndian {
+                    u16::from_be_bytes([data[offset + 2], data[offset + 3]])
+                } else {
+                    u16::from_le_bytes([data[offset + 2], data[offset + 3]])
+                };
                 (length_field as usize) * 4
             };
 
