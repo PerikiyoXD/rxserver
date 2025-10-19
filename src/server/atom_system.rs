@@ -141,4 +141,5 @@ const PREDEFINED_ATOMS: &[(&str, Atom)] = &[
     ("CAP_HEIGHT", 66),
     ("WM_CLASS", 67),
     ("WM_TRANSIENT_FOR", 68),
+    ("SCREEN_RESOURCES", 69),
 ];

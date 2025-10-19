@@ -148,6 +148,122 @@ impl RequestHandler for InternAtomHandler {
     }
 }
 
+/// Handler for GetProperty requests (opcode 20)
+pub struct GetPropertyHandler;
+
+#[async_trait]
+impl RequestHandler for GetPropertyHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _get_property_request = match &request.kind {
+            RequestKind::GetProperty(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for GetProperty: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        // Get the byte order from the client
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        let byte_order = client.lock().await.byte_order();
+
+        // For now, return an empty property (property doesn't exist)
+        // In a real implementation, this would look up window properties
+        let mut writer = ByteOrderWriter::new(byte_order);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Format (0 = property doesn't exist)
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u32(0); // Type (None)
+        writer.write_u32(0); // Bytes after
+        writer.write_u32(0); // Value length
+        writer.write_padding(12); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> u8 {
+        20
+    }
+
+    fn name(&self) -> &'static str {
+        "GetProperty"
+    }
+}
+
+/// Handler for CreatePixmap requests (opcode 53)
+pub struct CreatePixmapHandler;
+
+#[async_trait]
+impl RequestHandler for CreatePixmapHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let create_pixmap_request = match &request.kind {
+            RequestKind::CreatePixmap(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for CreatePixmap: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        // Check if client owns the drawable
+        let drawable_id = create_pixmap_request.drawable;
+        if let Some(window) = server.get_window(drawable_id) {
+            if window.owner != Some(client_id) {
+                return Err(X11Error::Protocol(format!(
+                    "CreatePixmap: client {} does not own drawable {}",
+                    client_id, drawable_id
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "CreatePixmap: drawable {} does not exist",
+                drawable_id
+            )));
+        }
+
+        // Check if the pixmap ID is within the client's resource range
+        let client = server.get_client(client_id).ok_or_else(|| {
+            X11Error::Protocol(format!("Client {} not found", client_id))
+        })?;
+        if !client.lock().await.owns_resource(create_pixmap_request.pid) {
+            return Err(X11Error::Protocol(format!(
+                "CreatePixmap: pixmap ID {} is not within client's resource range",
+                create_pixmap_request.pid
+            )));
+        }
+
+        // CreatePixmap doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        53
+    }
+
+    fn name(&self) -> &'static str {
+        "CreatePixmap"
+    }
+}
+
 /// Handler for OpenFont requests (opcode 45)
 pub struct OpenFontHandler;
 
@@ -1017,6 +1133,8 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(PolyFillRectangleHandler);
 
     registry.register_handler(InternAtomHandler);
+    registry.register_handler(GetPropertyHandler);
+    registry.register_handler(CreatePixmapHandler);
     registry.register_handler(OpenFontHandler);
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);

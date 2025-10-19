@@ -20,6 +20,8 @@ pub mod opcodes {
     pub const UNMAP_WINDOW: u8 = 10;
     pub const GET_GEOMETRY: u8 = 14;
     pub const INTERN_ATOM: u8 = 16;
+    pub const GET_PROPERTY: u8 = 20;
+    pub const CREATE_PIXMAP: u8 = 53;
     pub const CREATE_GC: u8 = 55;
     pub const POLY_ARC: u8 = 59;
     pub const FILL_ARC: u8 = 61;
@@ -27,8 +29,8 @@ pub mod opcodes {
     pub const POLY_FILL_RECTANGLE: u8 = 70;
     pub const OPEN_FONT: u8 = 45;
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
-    pub const NO_OPERATION: u8 = 127;
     pub const QUERY_EXTENSION: u8 = 98;
+    pub const NO_OPERATION: u8 = 127;
     pub const BIG_REQUESTS: u8 = 134;
 
     // RANDR extension opcodes (major opcode will be assigned dynamically)
@@ -66,6 +68,8 @@ pub enum RequestKind {
     ConnectionSetup,
     GetGeometry(GetGeometryRequest),
     InternAtom(InternAtomRequest),
+    GetProperty(GetPropertyRequest),
+    CreatePixmap(CreatePixmapRequest),
     CreateWindow(CreateWindowRequest),
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
@@ -115,6 +119,31 @@ pub struct InternAtomRequest {
     pub name_len: u16,      // Length of name
     pub unused: u16,        // Padding
     pub atom_name: String,  // Atom name
+}
+
+/// GetProperty request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GetPropertyRequest {
+    pub opcode: u8,         // Should be 20
+    pub delete: u8,         // BOOL: delete property
+    pub length: u16,        // Request length in 4-byte units
+    pub window: WindowId,   // Window
+    pub property: Atom,     // Property atom
+    pub r#type: Atom,       // Type atom (0 = AnyType)
+    pub long_offset: u32,   // Long offset
+    pub long_length: u32,   // Long length
+}
+
+/// CreatePixmap request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatePixmapRequest {
+    pub opcode: u8,         // Should be 53
+    pub depth: u8,          // Depth
+    pub length: u16,        // Request length in 4-byte units
+    pub pid: PixmapId,      // Pixmap ID
+    pub drawable: DrawableId, // Drawable
+    pub width: u16,         // Width
+    pub height: u16,        // Height
 }
 
 /// CreateWindow request structure matching X11 protocol
@@ -362,6 +391,8 @@ pub trait RequestParser {
 /// Individual parser implementations for each request type
 pub struct GetGeometryParser;
 pub struct InternAtomParser;
+pub struct GetPropertyParser;
+pub struct CreatePixmapParser;
 pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
@@ -477,6 +508,110 @@ impl RequestParser for InternAtomParser {
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for InternAtomParser")),
+        }
+    }
+}
+
+impl RequestParser for GetPropertyParser {
+    const OPCODE: u8 = opcodes::GET_PROPERTY;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 24 {
+            return Err(anyhow::anyhow!("GetProperty request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let delete = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+        let property = read_or_err!(reader, read_u32);
+        let r#type = read_or_err!(reader, read_u32);
+        let long_offset = read_or_err!(reader, read_u32);
+        let long_length = read_or_err!(reader, read_u32);
+
+        let request = GetPropertyRequest {
+            opcode,
+            delete,
+            length,
+            window,
+            property,
+            r#type,
+            long_offset,
+            long_length,
+        };
+
+        Ok(Request {
+            kind: RequestKind::GetProperty(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::GetProperty(req) => {
+                if req.window == 0 {
+                    return Err(anyhow::anyhow!("GetProperty: window must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for GetPropertyParser")),
+        }
+    }
+}
+
+impl RequestParser for CreatePixmapParser {
+    const OPCODE: u8 = opcodes::CREATE_PIXMAP;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 16 {
+            return Err(anyhow::anyhow!("CreatePixmap request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let depth = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let pid = read_or_err!(reader, read_u32);
+        let drawable = read_or_err!(reader, read_u32);
+        let width = read_or_err!(reader, read_u16);
+        let height = read_or_err!(reader, read_u16);
+
+        let request = CreatePixmapRequest {
+            opcode,
+            depth,
+            length,
+            pid,
+            drawable,
+            width,
+            height,
+        };
+
+        Ok(Request {
+            kind: RequestKind::CreatePixmap(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::CreatePixmap(req) => {
+                if req.pid == 0 {
+                    return Err(anyhow::anyhow!("CreatePixmap: pixmap id must be non-zero"));
+                }
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("CreatePixmap: drawable id must be non-zero"));
+                }
+                if req.width == 0 || req.height == 0 {
+                    return Err(anyhow::anyhow!("CreatePixmap: width and height must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for CreatePixmapParser")),
         }
     }
 }
@@ -1428,6 +1563,8 @@ impl X11RequestParser {
             opcodes::UNMAP_WINDOW => "UnmapWindow",
             opcodes::GET_GEOMETRY => "GetGeometry",
             opcodes::INTERN_ATOM => "InternAtom",
+            opcodes::GET_PROPERTY => "GetProperty",
+            opcodes::CREATE_PIXMAP => "CreatePixmap",
             opcodes::CREATE_GC => "CreateGC",
             opcodes::POLY_ARC => "PolyArc",
             opcodes::FILL_ARC => "FillArc",
@@ -1457,6 +1594,8 @@ impl RequestParser for X11RequestParser {
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
+            opcodes::GET_PROPERTY => GetPropertyParser::parse(bytes),
+            opcodes::CREATE_PIXMAP => CreatePixmapParser::parse(bytes),
             opcodes::CREATE_WINDOW => CreateWindowParser::parse(bytes),
             opcodes::DESTROY_WINDOW => DestroyWindowParser::parse(bytes),
             opcodes::MAP_WINDOW => MapWindowParser::parse(bytes),
@@ -1479,6 +1618,8 @@ impl RequestParser for X11RequestParser {
         match &request.kind {
             RequestKind::GetGeometry(_) => GetGeometryParser::validate(request),
             RequestKind::InternAtom(_) => InternAtomParser::validate(request),
+            RequestKind::GetProperty(_) => GetPropertyParser::validate(request),
+            RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
