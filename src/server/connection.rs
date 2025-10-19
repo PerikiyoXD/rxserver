@@ -8,7 +8,7 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, trace};
 
 use crate::protocol::{
-    ByteOrder, ByteOrderWriter, Request, RequestHandlerRegistry, RequestParser, X11RequestParser,
+    ByteOrder, ByteOrderWriter, RequestHandlerRegistry, RequestParser, X11RequestParser,
     create_standard_handler_registry,
 };
 use crate::server::Server;
@@ -220,26 +220,29 @@ where
             };
             request.sequence_number = sequence_number;
 
-            if let Ok(Some(response)) = {
-                let this = &mut *self;
-                let request: &Request = &request;
-                async move {
-                    this.handlers
-                        .handle_request(
-                            this.client.lock().await.id(),
-                            request,
-                            Arc::clone(&this.server),
-                        )
-                        .await
-                        .map_err(|e| anyhow::anyhow!("Handler error: {}", e))
-                }
-            }
-            .await
-            {
-                self.stream
-                    .write_all(&response)
+            let handler_result = {
+                let client_id = self.client.lock().await.id();
+                let server = Arc::clone(&self.server);
+                self.handlers
+                    .handle_request(client_id, &request, server)
                     .await
-                    .context("Failed to send response")?;
+            };
+
+            match handler_result {
+                Ok(Some(response)) => {
+                    debug!("Handler returned response with {} bytes", response.len());
+                    self.stream
+                        .write_all(&response)
+                        .await
+                        .context("Failed to send response")?;
+                }
+                Ok(None) => {
+                    debug!("Handler returned no response");
+                }
+                Err(e) => {
+                    error!("Handler returned error: {}", e);
+                    // Maybe send an error response here
+                }
             }
 
             // Send any pending events for this client

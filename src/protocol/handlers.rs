@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::debug;
 
 use crate::{
     protocol::{
@@ -309,7 +310,7 @@ impl RequestHandler for QueryExtensionHandler {
 
         // Check if the extension name matches (trim null terminators)
         let name_trimmed = query_extension_request.name.trim_end_matches('\0');
-        tracing::debug!(
+        debug!(
             "QueryExtension: client asked for extension '{}'",
             name_trimmed
         );
@@ -319,7 +320,7 @@ impl RequestHandler for QueryExtensionHandler {
         );
 
         if !is_supported {
-            tracing::debug!(
+            debug!(
                 "QueryExtension: client asked for unsupported extension '{}'",
                 name_trimmed
             );
@@ -379,7 +380,7 @@ impl RequestHandler for BigRequestsHandler {
             }
         };
 
-        tracing::debug!(
+        debug!(
             "BigRequests: client {} enabled big requests support",
             client_id
         );
@@ -390,15 +391,22 @@ impl RequestHandler for BigRequestsHandler {
             client.lock().await.set_big_requests_enabled(true);
         }
 
-        // Send a reply to acknowledge the enable (even though spec says no reply,
-        // some clients may expect it)
+        // Send reply with maximum request length
         let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
         writer.write_u8(1); // Reply
-        writer.write_u8(0); // Unused
+        writer.write_u8(0); // Data (unused)
         writer.write_u16(request.sequence_number); // Sequence number
-        writer.write_u32(0); // Reply length
+        writer.write_u32(1); // Reply length (1 additional 4-byte unit)
+        writer.write_u32(0x4000000); // Maximum request length (64MB in 4-byte units)
+        writer.write_padding(20); // Padding to 32 bytes total (8 + 4 + 20 = 32)
 
-        Ok(Some(writer.into_vec()))
+        let reply_bytes = writer.into_vec();
+        debug!(
+            "BigRequests: created reply with {} bytes: {:?}",
+            reply_bytes.len(),
+            &reply_bytes[..16]
+        );
+        Ok(Some(reply_bytes))
     }
 
     fn opcode(&self) -> u8 {

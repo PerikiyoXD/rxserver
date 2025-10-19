@@ -128,7 +128,7 @@ impl RX11Server {
         // Wait for shutdown signal
         tokio::signal::ctrl_c().await?;
 
-        info!("Received shutdown signal, stopping server...");
+        info!("Received shutdown signal triggered by Ctrl+C, stopping server...");
 
         // Stop all transports
         for (handle, config) in transports {
