@@ -257,6 +257,68 @@ impl RequestHandler for CreatePixmapHandler {
     }
 }
 
+/// Handler for PutImage requests (opcode 72)
+pub struct PutImageHandler;
+
+#[async_trait]
+impl RequestHandler for PutImageHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let put_image_request = match &request.kind {
+            RequestKind::PutImage(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for PutImage: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        // Check if the drawable exists
+        let drawable_id = put_image_request.drawable;
+        if !server.get_window(drawable_id).is_some() {
+            return Err(X11Error::Protocol(format!(
+                "PutImage: drawable {} does not exist",
+                drawable_id
+            )));
+        }
+
+        // Check if the GC exists and is owned by the client
+        let gc_id = put_image_request.gc;
+        if let Some(gc) = server.get_gc(gc_id) {
+            if gc.owner != client_id {
+                return Err(X11Error::Protocol(format!(
+                    "PutImage: client {} does not own graphics context {}",
+                    client_id, gc_id
+                )));
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "PutImage: graphics context {} does not exist",
+                gc_id
+            )));
+        }
+
+        // PutImage doesn't generate a response
+        // In a real implementation, this would render the image data to the drawable
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        72
+    }
+
+    fn name(&self) -> &'static str {
+        "PutImage"
+    }
+}
+
 /// Handler for OpenFont requests (opcode 45)
 pub struct OpenFontHandler;
 
@@ -1128,6 +1190,7 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(InternAtomHandler);
     registry.register_handler(GetPropertyHandler);
     registry.register_handler(CreatePixmapHandler);
+    registry.register_handler(PutImageHandler);
     registry.register_handler(OpenFontHandler);
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);

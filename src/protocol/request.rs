@@ -21,13 +21,14 @@ pub mod opcodes {
     pub const GET_GEOMETRY: u8 = 14;
     pub const INTERN_ATOM: u8 = 16;
     pub const GET_PROPERTY: u8 = 20;
+    pub const OPEN_FONT: u8 = 45;
     pub const CREATE_PIXMAP: u8 = 53;
     pub const CREATE_GC: u8 = 55;
     pub const POLY_ARC: u8 = 59;
     pub const FILL_ARC: u8 = 61;
     pub const POLY_LINE: u8 = 65;
     pub const POLY_FILL_RECTANGLE: u8 = 70;
-    pub const OPEN_FONT: u8 = 45;
+    pub const PUT_IMAGE: u8 = 72;
     pub const CREATE_GLYPH_CURSOR: u8 = 94;
     pub const QUERY_EXTENSION: u8 = 98;
     pub const NO_OPERATION: u8 = 127;
@@ -70,6 +71,7 @@ pub enum RequestKind {
     InternAtom(InternAtomRequest),
     GetProperty(GetPropertyRequest),
     CreatePixmap(CreatePixmapRequest),
+    PutImage(PutImageRequest),
     CreateWindow(CreateWindowRequest),
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
@@ -144,6 +146,23 @@ pub struct CreatePixmapRequest {
     pub drawable: DrawableId, // Drawable
     pub width: u16,         // Width
     pub height: u16,        // Height
+}
+
+/// PutImage request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PutImageRequest {
+    pub opcode: u8,         // Should be 72
+    pub format: u8,         // Image format (0=Bitmap, 1=XYPixmap, 2=ZPixmap)
+    pub length: u16,        // Request length in 4-byte units
+    pub drawable: DrawableId, // Drawable
+    pub gc: GContextId,     // Graphics context
+    pub width: u16,         // Width
+    pub height: u16,        // Height
+    pub dst_x: i16,         // Destination X
+    pub dst_y: i16,         // Destination Y
+    pub left_pad: u8,       // Left pad
+    pub depth: u8,          // Depth
+    pub data: Vec<u8>,      // Image data
 }
 
 /// CreateWindow request structure matching X11 protocol
@@ -393,6 +412,7 @@ pub struct GetGeometryParser;
 pub struct InternAtomParser;
 pub struct GetPropertyParser;
 pub struct CreatePixmapParser;
+pub struct PutImageParser;
 pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
@@ -612,6 +632,81 @@ impl RequestParser for CreatePixmapParser {
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for CreatePixmapParser")),
+        }
+    }
+}
+
+impl RequestParser for PutImageParser {
+    const OPCODE: u8 = opcodes::PUT_IMAGE;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 24 {
+            return Err(anyhow::anyhow!("PutImage request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let format = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let drawable = read_or_err!(reader, read_u32);
+        let gc = read_or_err!(reader, read_u32);
+        let width = read_or_err!(reader, read_u16);
+        let height = read_or_err!(reader, read_u16);
+        let dst_x = read_or_err!(reader, read_i16);
+        let dst_y = read_or_err!(reader, read_i16);
+        let left_pad = read_or_err!(reader, read_u8);
+        let depth = read_or_err!(reader, read_u8);
+        let _unused = read_or_err!(reader, read_u16);
+
+        // Read the remaining data as image data
+        let data_start = 24; // Fixed header size
+        let total_length = (length as usize) * 4;
+        if bytes.len() < total_length {
+            return Err(anyhow::anyhow!("PutImage request data incomplete"));
+        }
+        let data = bytes[data_start..total_length].to_vec();
+
+        let request = PutImageRequest {
+            opcode,
+            format,
+            length,
+            drawable,
+            gc,
+            width,
+            height,
+            dst_x,
+            dst_y,
+            left_pad,
+            depth,
+            data,
+        };
+
+        Ok(Request {
+            kind: RequestKind::PutImage(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::PutImage(req) => {
+                if req.drawable == 0 {
+                    return Err(anyhow::anyhow!("PutImage: drawable id must be non-zero"));
+                }
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!("PutImage: graphics context id must be non-zero"));
+                }
+                if req.width == 0 || req.height == 0 {
+                    return Err(anyhow::anyhow!("PutImage: width and height must be non-zero"));
+                }
+                if req.format > 2 {
+                    return Err(anyhow::anyhow!("PutImage: invalid format"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for PutImageParser")),
         }
     }
 }
@@ -1565,6 +1660,7 @@ impl X11RequestParser {
             opcodes::INTERN_ATOM => "InternAtom",
             opcodes::GET_PROPERTY => "GetProperty",
             opcodes::CREATE_PIXMAP => "CreatePixmap",
+            opcodes::PUT_IMAGE => "PutImage",
             opcodes::CREATE_GC => "CreateGC",
             opcodes::POLY_ARC => "PolyArc",
             opcodes::FILL_ARC => "FillArc",
@@ -1596,6 +1692,7 @@ impl RequestParser for X11RequestParser {
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
             opcodes::GET_PROPERTY => GetPropertyParser::parse(bytes),
             opcodes::CREATE_PIXMAP => CreatePixmapParser::parse(bytes),
+            opcodes::PUT_IMAGE => PutImageParser::parse(bytes),
             opcodes::CREATE_WINDOW => CreateWindowParser::parse(bytes),
             opcodes::DESTROY_WINDOW => DestroyWindowParser::parse(bytes),
             opcodes::MAP_WINDOW => MapWindowParser::parse(bytes),
@@ -1620,6 +1717,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::InternAtom(_) => InternAtomParser::validate(request),
             RequestKind::GetProperty(_) => GetPropertyParser::validate(request),
             RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
+            RequestKind::PutImage(_) => PutImageParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
