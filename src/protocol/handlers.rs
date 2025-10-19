@@ -396,9 +396,9 @@ impl RequestHandler for BigRequestsHandler {
         writer.write_u8(1); // Reply
         writer.write_u8(0); // Data (unused)
         writer.write_u16(request.sequence_number); // Sequence number
-        writer.write_u32(1); // Reply length (1 additional 4-byte unit)
+        writer.write_u32(0); // Reply length (0 additional 4-byte units)
         writer.write_u32(0x4000000); // Maximum request length (64MB in 4-byte units)
-        writer.write_padding(20); // Padding to 32 bytes total (8 + 4 + 20 = 32)
+        writer.write_padding(20); // Padding to 32 bytes total
 
         let reply_bytes = writer.into_vec();
         debug!(

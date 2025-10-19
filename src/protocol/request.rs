@@ -1418,6 +1418,31 @@ impl RequestParser for RandrGetScreenSizeRangeParser {
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
+impl X11RequestParser {
+    fn opcode_name(opcode: u8) -> &'static str {
+        match opcode {
+            opcodes::CONNECTION_SETUP => "ConnectionSetup",
+            opcodes::CREATE_WINDOW => "CreateWindow",
+            opcodes::DESTROY_WINDOW => "DestroyWindow",
+            opcodes::MAP_WINDOW => "MapWindow",
+            opcodes::UNMAP_WINDOW => "UnmapWindow",
+            opcodes::GET_GEOMETRY => "GetGeometry",
+            opcodes::INTERN_ATOM => "InternAtom",
+            opcodes::CREATE_GC => "CreateGC",
+            opcodes::POLY_ARC => "PolyArc",
+            opcodes::FILL_ARC => "FillArc",
+            opcodes::POLY_LINE => "PolyLine",
+            opcodes::POLY_FILL_RECTANGLE => "PolyFillRectangle",
+            opcodes::OPEN_FONT => "OpenFont",
+            opcodes::CREATE_GLYPH_CURSOR => "CreateGlyphCursor",
+            opcodes::NO_OPERATION => "NoOperation",
+            opcodes::QUERY_EXTENSION => "QueryExtension",
+            opcodes::BIG_REQUESTS => "BigRequests",
+            _ => "Unknown",
+        }
+    }
+}
+
 impl RequestParser for X11RequestParser {
     const OPCODE: u8 = 0; // Dispatcher doesn't have a specific opcode
 
@@ -1427,7 +1452,8 @@ impl RequestParser for X11RequestParser {
         }
 
         let opcode = bytes[0];
-        trace!("Dispatching request with opcode: {}", opcode);
+        let opcode_name = X11RequestParser::opcode_name(opcode);
+        trace!("Dispatching request with opcode: {} ({})", opcode, opcode_name);
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
