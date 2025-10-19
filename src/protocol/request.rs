@@ -1,5 +1,6 @@
 use crate::protocol::{ByteOrderReader, types::ByteOrder};
 use anyhow::Result;
+use tracing::trace;
 
 use super::types::*;
 
@@ -660,6 +661,7 @@ impl RequestParser for X11RequestParser {
         }
 
         let opcode = bytes[0];
+        trace!("Dispatching request with opcode: {}", opcode);
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),

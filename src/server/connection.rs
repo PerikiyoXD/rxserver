@@ -64,57 +64,50 @@ where
         let mut buffer = vec![0u8; 4096];
 
         let result = async {
-            let mut health_check_interval =
-                tokio::time::interval(std::time::Duration::from_secs(30));
-
             loop {
-                tokio::select! {
-                    // Try to read data from the client
-                    read_result = self.stream.read(&mut buffer) => {
-                        let bytes_read = match read_result {
-                            Ok(0) => {
-                                info!("Client {} disconnected (EOF)", client_id);
-                                break;
-                            }
-                            Ok(n) => n,
-                            Err(e) => {
-                                error!("IO error for client {}: {}", client_id, e);
-                                break;
-                            }
-                        };
+                // Try to read data from the client with a longer timeout
+                let read_result = tokio::time::timeout(
+                    std::time::Duration::from_secs(30), // Much longer timeout for idle connections
+                    self.stream.read(&mut buffer),
+                )
+                .await;
 
-                        debug!("Client {} sent {} bytes", client_id, bytes_read);
-                        let data = &buffer[..bytes_read];
-                        let is_authenticated = {
-                            let client = self.client.lock().await;
-                            client.is_authenticated()
-                        };
-
-                        if !is_authenticated {
-                            if let Err(e) = self.handle_connection_setup(data).await {
-                                error!("Setup failed for client {}: {}", client_id, e);
-                                break;
-                            }
-                        } else {
-                            if let Err(e) = self.handle_requests(data).await {
-                                error!("Request processing failed for client {}: {}", client_id, e);
-                                break;
-                            }
-                        }
+                let bytes_read = match read_result {
+                    Ok(Ok(0)) => {
+                        info!("Client {} disconnected (EOF)", client_id);
+                        break;
                     }
+                    Ok(Ok(n)) => n,
+                    Ok(Err(e)) => {
+                        error!("IO error for client {}: {}", client_id, e);
+                        break;
+                    }
+                    Err(_) => {
+                        // Timeout occurred - connection is idle but may still be alive
+                        debug!(
+                            "Read timeout for client {}, assuming idle connection",
+                            client_id
+                        );
+                        continue; // Just continue reading, don't interfere with the stream
+                    }
+                };
 
-                    // Periodic health check
-                    _ = health_check_interval.tick() => {
-                        debug!("Performing health check for client {}", client_id);
+                debug!("Client {} sent {} bytes", client_id, bytes_read);
+                let data = &buffer[..bytes_read];
+                let is_authenticated = {
+                    let client = self.client.lock().await;
+                    client.is_authenticated()
+                };
 
-                        // Try to flush to check if the connection is still alive
-                        // This is more reliable than writing empty data
-                        if let Err(e) = self.stream.flush().await {
-                            error!("Health check flush failed for client {}: {}", client_id, e);
-                            break;
-                        }
-
-                        debug!("Health check passed for client {}", client_id);
+                if !is_authenticated {
+                    if let Err(e) = self.handle_connection_setup(data).await {
+                        error!("Setup failed for client {}: {}", client_id, e);
+                        break;
+                    }
+                } else {
+                    if let Err(e) = self.handle_requests(data).await {
+                        error!("Request processing failed for client {}: \n{}", client_id, e);
+                        break;
                     }
                 }
             }
@@ -192,8 +185,10 @@ where
             }
 
             let request_data = &data[offset..offset + request_length];
-            let mut request =
-                X11RequestParser::parse(request_data).context("Failed to parse request")?;
+            let client_id = self.client.lock().await.id();
+            let mut request = X11RequestParser::parse(request_data).map_err(|e| {
+                anyhow::anyhow!("Failed to parse request from client {}: \n{}", client_id, e)
+            })?;
 
             let sequence_number = {
                 let mut client = self.client.lock().await;
