@@ -49,6 +49,12 @@ impl RX11Server {
         };
         info!("Server running with {} display(s)", display_count);
 
+        // Sync initial window state to displays
+        {
+            let server = self.state.lock().await;
+            server.sync_windows_to_displays().await;
+        }
+
         // Create transport message channel
         let (tx, mut rx) = mpsc::unbounded_channel::<TransportMessage>();
 

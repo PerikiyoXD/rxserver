@@ -390,8 +390,15 @@ impl RequestHandler for BigRequestsHandler {
             client.lock().await.set_big_requests_enabled(true);
         }
 
-        // BigRequests doesn't send a reply - it's just an enable request
-        Ok(None)
+        // Send a reply to acknowledge the enable (even though spec says no reply,
+        // some clients may expect it)
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+
+        Ok(Some(writer.into_vec()))
     }
 
     fn opcode(&self) -> u8 {
