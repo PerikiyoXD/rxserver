@@ -3,13 +3,12 @@ use std::sync::Arc;
 use anyhow::Result;
 use std::sync::Mutex;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-use tracing::{error, info, warn};
-#[cfg(target_os = "windows")]
-use winit::{event_loop::EventLoop, platform::windows::EventLoopBuilderExtWindows};
+use tracing::{info, warn};
 
 use crate::{
     display::{
         config::DisplayConfig,
+        registry,
         types::{DisplayCallbackMessage, DisplayMessage, DisplayTrait},
         virtual_display_app::VirtualDisplayApp,
     },
@@ -52,38 +51,22 @@ impl DisplayTrait for VirtualDisplay {
         self.message_sender = Some(message_sender);
         self.callback_receiver = Some(callback_receiver);
 
-        // Clone the config for the thread
+        // Clone the config for the app
         let config = {
             let config_guard = self.config.lock().unwrap();
             config_guard.clone()
         };
 
-        // Spawn the display thread
-        tokio::spawn(async move {
-            info!("Starting virtual display thread");
+        // winit's event loop must run on the real OS main thread (its Win32
+        // backend in particular does not tolerate being driven from a
+        // background thread/task, and closing such a window can take the
+        // whole process down with it). Register the app for main.rs to pick
+        // up and run instead of starting our own event loop here, so the
+        // display's lifetime stays independent of the server's.
+        let app = VirtualDisplayApp::new(config, message_receiver, Some(callback_sender));
+        registry::register(app);
 
-            // Create event loop
-            #[cfg(target_os = "windows")]
-            let event_loop = EventLoop::builder()
-                .with_any_thread(true)
-                .build()
-                .expect("Failed to create event loop");
-
-            #[cfg(not(target_os = "windows"))]
-            let event_loop = EventLoop::new().expect("Failed to create event loop");
-
-            // Create application
-            let mut app = VirtualDisplayApp::new(config, message_receiver, Some(callback_sender));
-
-            // Run the event loop
-            if let Err(e) = event_loop.run_app(&mut app) {
-                error!("Virtual display event loop error: {}", e);
-            }
-
-            info!("Virtual display thread terminated");
-        });
-
-        info!("Virtual display started successfully");
+        info!("Virtual display registered for main-thread event loop");
         Ok(())
     }
 

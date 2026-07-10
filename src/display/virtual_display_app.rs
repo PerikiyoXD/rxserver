@@ -40,6 +40,7 @@ pub struct VirtualDisplayApp {
     // Window rendering state
     windows: Vec<Window>,
     mapped_windows: HashSet<u32>, // WindowId
+    closed: bool,
 }
 
 impl VirtualDisplayApp {
@@ -66,6 +67,7 @@ impl VirtualDisplayApp {
             callback_sender,
             windows: Vec::new(),
             mapped_windows,
+            closed: false,
         }
     }
 
@@ -344,140 +346,140 @@ impl VirtualDisplayApp {
         // For backward compatibility, this now calls render_windows
         self.render_windows();
     }
-}
 
-impl ApplicationHandler for VirtualDisplayApp {
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_none() {
-            info!(
-                "Creating RX X11 Server virtual display window ({}x{})",
-                self.config.resolution[0], self.config.resolution[1]
-            );
-
-            let window_attributes = winit::window::Window::default_attributes()
-                .with_title("RX X11 Server - Virtual Display")
-                .with_inner_size(winit::dpi::PhysicalSize::new(
-                    self.config.resolution[0] as u32,
-                    self.config.resolution[1] as u32,
-                ))
-                .with_resizable(true);
-
-            let window = Arc::new(
-                event_loop
-                    .create_window(window_attributes)
-                    .expect("Failed to create virtual display window"),
-            );
-
-            // Create softbuffer context and surface for rendering
-            let context =
-                Context::new(window.clone()).expect("Failed to create softbuffer context");
-            let mut surface = Surface::new(&context, window.clone())
-                .expect("Failed to create softbuffer surface");
-
-            // Initialize surface with current configuration
-            let width_nz = std::num::NonZeroU32::new(self.config.resolution[0] as u32).unwrap();
-            let height_nz = std::num::NonZeroU32::new(self.config.resolution[1] as u32).unwrap();
-            surface
-                .resize(width_nz, height_nz)
-                .expect("Failed to resize surface");
-
-            // Draw initial test pattern
-            self.draw_test_pattern();
-
-            self.window = Some(window);
-            self.context = Some(context);
-            self.surface = Some(surface);
-
-            info!("Virtual display window created successfully");
-        }
+    /// The winit window ID for this display, once its window has been created.
+    pub fn window_id(&self) -> Option<winit::window::WindowId> {
+        self.window.as_ref().map(|w| w.id())
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        window_id: winit::window::WindowId,
-        event: WindowEvent,
-    ) {
-        if let Some(window) = &self.window {
-            if window.id() == window_id {
-                match event {
-                    WindowEvent::CloseRequested => {
-                        info!("Virtual display window close requested");
-                        if let Some(ref callback_sender) = self.callback_sender {
-                            let _ = callback_sender.send(DisplayCallbackMessage::DisplayClosed);
-                        }
-                        event_loop.exit();
-                    }
-                    WindowEvent::RedrawRequested => {
-                        // Render the current framebuffer to the window
-                        if let Some(surface) = &mut self.surface {
-                            if let Ok(mut buffer) = surface.buffer_mut() {
-                                let copy_len = std::cmp::min(self.framebuffer.len(), buffer.len());
-                                buffer[..copy_len].copy_from_slice(&self.framebuffer[..copy_len]);
-                                if let Err(e) = buffer.present() {
-                                    error!("Failed to present framebuffer: {}", e);
-                                }
-                            }
-                        }
-                    }
-                    WindowEvent::Resized(size) => {
-                        let new_width = size.width as u32;
-                        let new_height = size.height as u32;
+    /// Whether this display's window has been closed (by the user or a
+    /// shutdown message) and it no longer needs to receive events.
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
 
-                        // Skip invalid sizes
-                        if new_width == 0 || new_height == 0 {
-                            return;
-                        }
+    /// Create this display's window. Safe to call multiple times; a no-op
+    /// once the window already exists.
+    pub fn create_window(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
 
-                        // Throttle resize events
-                        let now = Instant::now();
-                        if now.duration_since(self.last_resize_time).as_millis() < 50 {
-                            return;
-                        }
-                        self.last_resize_time = now;
+        info!(
+            "Creating RX X11 Server virtual display window ({}x{})",
+            self.config.resolution[0], self.config.resolution[1]
+        );
 
-                        // nfo!("Virtual display resized to {}x{}", new_width, new_height);
+        let window_attributes = winit::window::Window::default_attributes()
+            .with_title("RX X11 Server - Virtual Display")
+            .with_inner_size(winit::dpi::PhysicalSize::new(
+                self.config.resolution[0] as u32,
+                self.config.resolution[1] as u32,
+            ))
+            .with_resizable(true);
 
-                        // Update configuration
-                        self.config.resolution = [new_width, new_height];
-                        // self.config.width_mm = ((new_width as f32 / 96.0) * 25.4) as u16;
-                        // self.config.height_mm = ((new_height as f32 / 96.0) * 25.4) as u16;
+        let window = Arc::new(
+            event_loop
+                .create_window(window_attributes)
+                .expect("Failed to create virtual display window"),
+        );
 
-                        // Resize surface
-                        if let Some(surface) = &mut self.surface {
-                            let width_nz = std::num::NonZeroU32::new(new_width).unwrap();
-                            let height_nz = std::num::NonZeroU32::new(new_height).unwrap();
-                            if let Err(e) = surface.resize(width_nz, height_nz) {
-                                error!("Failed to resize surface: {}", e);
-                                return;
-                            }
-                        } // Resize framebuffer
-                        let new_size = (new_width * new_height) as usize;
-                        self.framebuffer.resize(new_size, 0x000000FF);
+        // Create softbuffer context and surface for rendering
+        let context = Context::new(window.clone()).expect("Failed to create softbuffer context");
+        let mut surface =
+            Surface::new(&context, window.clone()).expect("Failed to create softbuffer surface");
 
-                        // Notify the server about the resize
-                        if let Some(ref callback_sender) = self.callback_sender {
-                            let _ = callback_sender
-                                .send(DisplayCallbackMessage::WindowResized(new_width, new_height));
-                        }
+        // Initialize surface with current configuration
+        let width_nz = std::num::NonZeroU32::new(self.config.resolution[0] as u32).unwrap();
+        let height_nz = std::num::NonZeroU32::new(self.config.resolution[1] as u32).unwrap();
+        surface
+            .resize(width_nz, height_nz)
+            .expect("Failed to resize surface");
 
-                        // Draw test pattern and request redraw outside the borrow scope
-                        let should_redraw = true;
-                        if should_redraw {
-                            self.draw_test_pattern();
-                            if let Some(window) = &self.window {
-                                window.request_redraw();
-                            }
+        // Draw initial test pattern
+        self.draw_test_pattern();
+
+        self.window = Some(window);
+        self.context = Some(context);
+        self.surface = Some(surface);
+
+        info!("Virtual display window created successfully");
+    }
+
+    /// Handle a window event addressed to this display's window.
+    pub fn handle_window_event(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => {
+                info!("Virtual display window close requested");
+                if let Some(ref callback_sender) = self.callback_sender {
+                    let _ = callback_sender.send(DisplayCallbackMessage::DisplayClosed);
+                }
+                self.closed = true;
+                let _ = event_loop;
+            }
+            WindowEvent::RedrawRequested => {
+                // Render the current framebuffer to the window
+                if let Some(surface) = &mut self.surface {
+                    if let Ok(mut buffer) = surface.buffer_mut() {
+                        let copy_len = std::cmp::min(self.framebuffer.len(), buffer.len());
+                        buffer[..copy_len].copy_from_slice(&self.framebuffer[..copy_len]);
+                        if let Err(e) = buffer.present() {
+                            error!("Failed to present framebuffer: {}", e);
                         }
                     }
-                    _ => {}
                 }
             }
+            WindowEvent::Resized(size) => {
+                let new_width = size.width as u32;
+                let new_height = size.height as u32;
+
+                // Skip invalid sizes
+                if new_width == 0 || new_height == 0 {
+                    return;
+                }
+
+                // Throttle resize events
+                let now = Instant::now();
+                if now.duration_since(self.last_resize_time).as_millis() < 50 {
+                    return;
+                }
+                self.last_resize_time = now;
+
+                // Update configuration
+                self.config.resolution = [new_width, new_height];
+
+                // Resize surface
+                if let Some(surface) = &mut self.surface {
+                    let width_nz = std::num::NonZeroU32::new(new_width).unwrap();
+                    let height_nz = std::num::NonZeroU32::new(new_height).unwrap();
+                    if let Err(e) = surface.resize(width_nz, height_nz) {
+                        error!("Failed to resize surface: {}", e);
+                        return;
+                    }
+                } // Resize framebuffer
+                let new_size = (new_width * new_height) as usize;
+                self.framebuffer.resize(new_size, 0x000000FF);
+
+                // Notify the server about the resize
+                if let Some(ref callback_sender) = self.callback_sender {
+                    let _ = callback_sender
+                        .send(DisplayCallbackMessage::WindowResized(new_width, new_height));
+                }
+
+                // Draw test pattern and request redraw outside the borrow scope
+                self.draw_test_pattern();
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            _ => {}
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // Process messages from the X11 server
+    /// Drain pending `DisplayMessage`s and apply them. Exposed so a
+    /// multi-display manager can pump every registered display each time the
+    /// event loop is idle.
+    pub fn pump_messages(&mut self) {
         while let Ok(message) = self.message_receiver.try_recv() {
             match message {
                 DisplayMessage::UpdateFramebuffer(new_framebuffer) => {
@@ -551,9 +553,37 @@ impl ApplicationHandler for VirtualDisplayApp {
                     if let Some(ref callback_sender) = self.callback_sender {
                         let _ = callback_sender.send(DisplayCallbackMessage::DisplayClosed);
                     }
-                    _event_loop.exit();
+                    self.closed = true;
                 }
             }
+        }
+    }
+}
+
+impl ApplicationHandler for VirtualDisplayApp {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.create_window(event_loop);
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        if self.window_id() != Some(window_id) {
+            return;
+        }
+        self.handle_window_event(event_loop, event);
+        if self.closed {
+            event_loop.exit();
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.pump_messages();
+        if self.closed {
+            event_loop.exit();
         }
     }
 }

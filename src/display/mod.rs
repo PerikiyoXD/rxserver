@@ -13,7 +13,9 @@ use crate::display::{
 };
 
 pub mod config;
+pub mod manager;
 pub mod native_display;
+pub mod registry;
 pub mod types;
 pub mod virtual_display;
 pub mod virtual_display_app;
