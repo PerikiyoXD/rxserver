@@ -8,7 +8,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
-use crate::protocol::{Atom, CursorId, GContextId, PixmapId, WindowId, XId};
+use crate::protocol::{Atom, CursorId, ExtensionRegistry, GContextId, PixmapId, WindowId, XId};
 use crate::server::{
     atom_system::AtomSystem,
     client_system::{Client, ClientId, ClientSystem},
@@ -74,6 +74,7 @@ pub struct Server {
     displays: DisplaySystem,
     gcontexts: GraphicsContextSystem,
     pointer_grab: Option<PointerGrab>,
+    extensions: ExtensionRegistry,
 }
 
 impl Server {
@@ -87,8 +88,13 @@ impl Server {
             displays: DisplaySystem::from_configs(display_configs)?,
             gcontexts: GraphicsContextSystem::new(),
             pointer_grab: None,
+            extensions: ExtensionRegistry::new(),
         };
         Ok(Arc::new(Mutex::new(server)))
+    }
+
+    pub fn extensions(&self) -> &ExtensionRegistry {
+        &self.extensions
     }
 
     // Client management - delegate to ClientSystem

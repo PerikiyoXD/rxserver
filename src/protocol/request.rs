@@ -1,4 +1,7 @@
-use crate::protocol::{ByteOrderReader, types::ByteOrder};
+use crate::protocol::{
+    ByteOrderReader, constants::FIRST_EXTENSION_OPCODE, extension_registry::ExtensionRegistry,
+    types::ByteOrder,
+};
 use anyhow::Result;
 use tracing::trace;
 
@@ -1883,10 +1886,63 @@ pub struct X11RequestParser;
 
 impl X11RequestParser {
     fn opcode_name(opcode: u8) -> String {
-        if opcode >= 128 {
+        if opcode >= FIRST_EXTENSION_OPCODE {
             Opcode::Extension(ExtensionOpcode::Unknown(opcode, 0)).name()
         } else {
             Opcode::from_u8(opcode).name()
+        }
+    }
+
+    /// Dispatch a request, resolving extension (opcode >= FIRST_EXTENSION_OPCODE) requests
+    /// against `extensions` - this server's per-session, dynamically
+    /// assigned major opcode table - rather than fixed constants. Core
+    /// protocol opcodes (< 128) dispatch identically either way, since their
+    /// numbers are fixed by the spec.
+    pub fn parse_dynamic(bytes: &[u8], extensions: &ExtensionRegistry) -> Result<Request> {
+        if bytes.is_empty() {
+            return Err(anyhow::anyhow!("Request too short"));
+        }
+
+        let opcode = bytes[0];
+        if opcode < FIRST_EXTENSION_OPCODE {
+            return Self::parse(bytes);
+        }
+
+        let opcode_name = Self::opcode_name(opcode);
+        trace!(
+            "Dispatching extension request with opcode: {} ({})",
+            opcode, opcode_name
+        );
+
+        match extensions.extension_for_opcode(opcode) {
+            Some("BIG-REQUESTS") => BigRequestsParser::parse(bytes),
+            Some("RANDR") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!("RANDR request too short"));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == RandrOpcode::QueryVersion.to_u8() {
+                    RandrQueryVersionParser::parse(bytes)
+                } else if minor_opcode == RandrOpcode::GetScreenResources.to_u8() {
+                    RandrGetScreenResourcesParser::parse(bytes)
+                } else if minor_opcode == RandrOpcode::GetOutputInfo.to_u8() {
+                    RandrGetOutputInfoParser::parse(bytes)
+                } else if minor_opcode == RandrOpcode::GetCrtcInfo.to_u8() {
+                    RandrGetCrtcInfoParser::parse(bytes)
+                } else if minor_opcode == RandrOpcode::GetScreenSizeRange.to_u8() {
+                    RandrGetScreenSizeRangeParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Unknown RANDR minor opcode: {}",
+                        minor_opcode
+                    ))
+                }
+            }
+            Some(name) => Err(anyhow::anyhow!(
+                "Extension '{}' has an assigned opcode but no request parser yet",
+                name
+            )),
+            None => Err(anyhow::anyhow!("Unknown opcode: {}", opcode)),
         }
     }
 }
@@ -1894,6 +1950,9 @@ impl X11RequestParser {
 impl RequestParser for X11RequestParser {
     const OPCODE: u8 = 0; // Dispatcher doesn't have a specific opcode
 
+    /// Dispatches core protocol requests (opcode < 128) only. Extension
+    /// requests need a per-session major opcode table to resolve, which this
+    /// trait method has no way to receive - use `parse_dynamic` for those.
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.is_empty() {
             return Err(anyhow::anyhow!("Request too short"));
@@ -1947,29 +2006,11 @@ impl RequestParser for X11RequestParser {
             NoOperationParser::parse(bytes)
         } else if opcode == Opcode::QueryExtension.to_u8() {
             QueryExtensionParser::parse(bytes)
-        } else if opcode == BIG_REQUESTS_OPCODE {
-            BigRequestsParser::parse(bytes)
-        } else if opcode == RandrOpcode::MAJOR_OPCODE {
-            if bytes.len() < 2 {
-                return Err(anyhow::anyhow!("RANDR request too short"));
-            }
-            let minor_opcode = bytes[1];
-            if minor_opcode == RandrOpcode::QueryVersion.to_u8() {
-                RandrQueryVersionParser::parse(bytes)
-            } else if minor_opcode == RandrOpcode::GetScreenResources.to_u8() {
-                RandrGetScreenResourcesParser::parse(bytes)
-            } else if minor_opcode == RandrOpcode::GetOutputInfo.to_u8() {
-                RandrGetOutputInfoParser::parse(bytes)
-            } else if minor_opcode == RandrOpcode::GetCrtcInfo.to_u8() {
-                RandrGetCrtcInfoParser::parse(bytes)
-            } else if minor_opcode == RandrOpcode::GetScreenSizeRange.to_u8() {
-                RandrGetScreenSizeRangeParser::parse(bytes)
-            } else {
-                Err(anyhow::anyhow!(
-                    "Unknown RANDR minor opcode: {}",
-                    minor_opcode
-                ))
-            }
+        } else if opcode >= FIRST_EXTENSION_OPCODE {
+            Err(anyhow::anyhow!(
+                "Extension opcode {} requires parse_dynamic (per-session major opcode table)",
+                opcode
+            ))
         } else {
             Err(anyhow::anyhow!("Unknown opcode: {}", opcode))
         }

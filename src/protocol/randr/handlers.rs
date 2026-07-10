@@ -15,7 +15,15 @@ use crate::{
 };
 
 /// Handler for RandrQueryVersion requests (minor opcode 0)
-pub struct RandrQueryVersionHandler;
+pub struct RandrQueryVersionHandler {
+    major_opcode: u8,
+}
+
+impl RandrQueryVersionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for RandrQueryVersionHandler {
@@ -52,10 +60,7 @@ impl RequestHandler for RandrQueryVersionHandler {
     }
 
     fn opcode(&self) -> (u8, Option<u8>) {
-        (
-            RandrOpcode::MAJOR_OPCODE,
-            Some(RandrOpcode::QueryVersion.to_u8()),
-        )
+        (self.major_opcode, Some(RandrOpcode::QueryVersion.to_u8()))
     }
 
     fn name(&self) -> &'static str {
@@ -64,7 +69,15 @@ impl RequestHandler for RandrQueryVersionHandler {
 }
 
 /// Handler for RandrGetScreenResources requests (minor opcode 1)
-pub struct RandrGetScreenResourcesHandler;
+pub struct RandrGetScreenResourcesHandler {
+    major_opcode: u8,
+}
+
+impl RandrGetScreenResourcesHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for RandrGetScreenResourcesHandler {
@@ -154,7 +167,7 @@ impl RequestHandler for RandrGetScreenResourcesHandler {
 
     fn opcode(&self) -> (u8, Option<u8>) {
         (
-            RandrOpcode::MAJOR_OPCODE,
+            self.major_opcode,
             Some(RandrOpcode::GetScreenResources.to_u8()),
         )
     }
@@ -165,7 +178,15 @@ impl RequestHandler for RandrGetScreenResourcesHandler {
 }
 
 /// Handler for RandrGetOutputInfo requests (minor opcode 2)
-pub struct RandrGetOutputInfoHandler;
+pub struct RandrGetOutputInfoHandler {
+    major_opcode: u8,
+}
+
+impl RandrGetOutputInfoHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for RandrGetOutputInfoHandler {
@@ -252,7 +273,7 @@ impl RequestHandler for RandrGetOutputInfoHandler {
 
     fn opcode(&self) -> (u8, Option<u8>) {
         (
-            RandrOpcode::MAJOR_OPCODE,
+            self.major_opcode,
             Some(RandrOpcode::GetOutputInfo.to_u8()),
         )
     }
@@ -263,7 +284,15 @@ impl RequestHandler for RandrGetOutputInfoHandler {
 }
 
 /// Handler for RandrGetCrtcInfo requests (minor opcode 13)
-pub struct RandrGetCrtcInfoHandler;
+pub struct RandrGetCrtcInfoHandler {
+    major_opcode: u8,
+}
+
+impl RandrGetCrtcInfoHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for RandrGetCrtcInfoHandler {
@@ -330,10 +359,7 @@ impl RequestHandler for RandrGetCrtcInfoHandler {
     }
 
     fn opcode(&self) -> (u8, Option<u8>) {
-        (
-            RandrOpcode::MAJOR_OPCODE,
-            Some(RandrOpcode::GetCrtcInfo.to_u8()),
-        )
+        (self.major_opcode, Some(RandrOpcode::GetCrtcInfo.to_u8()))
     }
 
     fn name(&self) -> &'static str {
@@ -342,7 +368,15 @@ impl RequestHandler for RandrGetCrtcInfoHandler {
 }
 
 /// Handler for RandrGetScreenSizeRange requests (minor opcode 18)
-pub struct RandrGetScreenSizeRangeHandler;
+pub struct RandrGetScreenSizeRangeHandler {
+    major_opcode: u8,
+}
+
+impl RandrGetScreenSizeRangeHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for RandrGetScreenSizeRangeHandler {
@@ -387,7 +421,7 @@ impl RequestHandler for RandrGetScreenSizeRangeHandler {
 
     fn opcode(&self) -> (u8, Option<u8>) {
         (
-            RandrOpcode::MAJOR_OPCODE,
+            self.major_opcode,
             Some(RandrOpcode::GetScreenSizeRange.to_u8()),
         )
     }

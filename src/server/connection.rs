@@ -8,7 +8,7 @@ use tokio::sync::{Mutex, mpsc};
 use tracing::{debug, error, info, trace};
 
 use crate::protocol::{
-    ByteOrder, ByteOrderWriter, RequestHandlerRegistry, RequestParser, X11RequestParser,
+    ByteOrder, ByteOrderWriter, RequestHandlerRegistry, X11RequestParser,
     create_standard_handler_registry,
 };
 use crate::server::Server;
@@ -34,13 +34,18 @@ where
         stream: S,
         client_addr: std::net::SocketAddr,
     ) -> Result<Self> {
-        let (_, client) = server.lock().await.register_client(client_addr);
+        let (client, handlers) = {
+            let mut server_guard = server.lock().await;
+            let (_, client) = server_guard.register_client(client_addr);
+            let handlers = create_standard_handler_registry(server_guard.extensions());
+            (client, handlers)
+        };
 
         Ok(Self {
             server,
             client,
             stream,
-            handlers: create_standard_handler_registry(),
+            handlers,
             client_addr,
             message_sender: None,
             transport_kind: TransportKind::Tcp, // Default to TCP for now
@@ -204,7 +209,11 @@ where
 
             let request_data = &data[offset..offset + request_length];
             let client_id = self.client.lock().await.id();
-            let mut request = X11RequestParser::parse(request_data).map_err(|e| {
+            let mut request = {
+                let server_guard = self.server.lock().await;
+                X11RequestParser::parse_dynamic(request_data, server_guard.extensions())
+            }
+            .map_err(|e| {
                 anyhow::anyhow!("Failed to parse request from client {}: \n{}", client_id, e)
             })?;
 
@@ -405,9 +414,11 @@ impl ConnectionHandler<tokio::net::UnixStream> {
     ) -> Result<Self> {
         let dummy_addr = "127.0.0.1:0".parse().unwrap();
 
-        let (client_id, client_state) = {
+        let (client_id, client_state, handler_registry) = {
             let mut server = server_state.lock().await;
-            server.register_client(dummy_addr)
+            let (client_id, client_state) = server.register_client(dummy_addr);
+            let handler_registry = create_standard_handler_registry(server.extensions());
+            (client_id, client_state, handler_registry)
         };
 
         debug!(
@@ -415,12 +426,19 @@ impl ConnectionHandler<tokio::net::UnixStream> {
             client_id, socket_path
         );
 
+        // TODO: windows/unix divergence: these field names (server_state,
+        // client_state, client_id, handler_registry) don't match
+        // ConnectionHandler<S>'s actual fields (server, client, handlers,
+        // client_addr, message_sender, transport_kind). This is gated by
+        // #[cfg(unix)] so it never builds on Windows and the mismatch has
+        // gone unnoticed; needs a real fix before this is ever built on
+        // Unix. Pre-existing, not introduced by this change.
         Ok(Self {
             server_state,
             client_state,
             client_id,
             stream,
-            handler_registry: create_standard_handler_registry(),
+            handler_registry,
         })
     }
 }

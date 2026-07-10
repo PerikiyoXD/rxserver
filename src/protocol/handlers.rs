@@ -10,8 +10,8 @@ use tracing::debug;
 
 use crate::{
     protocol::{
-        BigRequestsOpcode, ByteOrder, ByteOrderWriter, HandlerResult, RandrOpcode, Request,
-        RequestHandler, RequestKind, X11Error, randr::*,
+        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind,
+        X11Error, randr::*,
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -658,7 +658,7 @@ impl RequestHandler for QueryExtensionHandler {
         &self,
         _client_id: ClientId,
         request: &Request,
-        _server: Arc<Mutex<Server>>,
+        server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
         let query_extension_request = match &request.kind {
             RequestKind::QueryExtension(req) => req,
@@ -676,35 +676,34 @@ impl RequestHandler for QueryExtensionHandler {
             "QueryExtension: client asked for extension '{}'",
             name_trimmed
         );
-        let is_supported = matches!(
-            name_trimmed,
-            "RANDR" | "SHAPE" | "MIT-SHM" | "XINERAMA" | "RENDER" | "BIG-REQUESTS"
-        );
+
+        let server = server.lock().await;
+        let major_opcode = server.extensions().major_opcode(name_trimmed);
+        let is_supported = major_opcode.is_some();
 
         if !is_supported {
             debug!(
                 "QueryExtension: client asked for unsupported extension '{}'",
                 name_trimmed
             );
+        } else if !server.extensions().is_implemented(name_trimmed) {
+            debug!(
+                "QueryExtension: '{}' has a major opcode assigned but no request handler yet",
+                name_trimmed
+            );
         }
 
-        // For now, no extensions are supported, so always return present=0
         let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
         writer.write_u8(1); // Reply
         writer.write_u8(0); // Unused
         writer.write_u16(request.sequence_number); // Sequence number
         writer.write_u32(0); // Reply length
         writer.write_u8(if is_supported { 1 } else { 0 }); // Present (1 = present)
-        let major_opcode = match name_trimmed {
-            "RANDR" => RandrOpcode::MAJOR_OPCODE,
-            "SHAPE" => 129,
-            "MIT-SHM" => 130,
-            "XINERAMA" => 131,
-            "RENDER" => 139,
-            "BIG-REQUESTS" => BigRequestsOpcode::MAJOR_OPCODE,
-            _ => 0,
-        };
-        writer.write_u8(major_opcode); // Major opcode
+        // Per spec, major/first-event/first-error are only meaningful when
+        // present=1; major_opcode is None exactly when is_supported is
+        // false, so 0 here is a defined "don't care" placeholder, not a
+        // swallowed error.
+        writer.write_u8(major_opcode.unwrap_or(0)); // Major opcode
         writer.write_u8(0); // First event (unused)
         writer.write_u8(0); // First error (unused)
         writer.write_padding(20); // Padding to 32 bytes
@@ -722,7 +721,15 @@ impl RequestHandler for QueryExtensionHandler {
 }
 
 /// Handler for BigRequests requests (opcode 134)
-pub struct BigRequestsHandler;
+pub struct BigRequestsHandler {
+    major_opcode: u8,
+}
+
+impl BigRequestsHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
 
 #[async_trait]
 impl RequestHandler for BigRequestsHandler {
@@ -772,7 +779,7 @@ impl RequestHandler for BigRequestsHandler {
     }
 
     fn opcode(&self) -> (u8, Option<u8>) {
-        (BigRequestsOpcode::MAJOR_OPCODE, None)
+        (self.major_opcode, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1361,8 +1368,14 @@ impl RequestHandler for PolyFillRectangleHandler {
     }
 }
 
-/// Convenience function to create a registry with standard handlers
-pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegistry {
+/// Convenience function to create a registry with standard handlers.
+///
+/// `extensions` supplies this session's dynamically assigned extension major
+/// opcodes (see `ExtensionRegistry`) so extension handlers register under the
+/// same opcode `parse_dynamic` will route requests to.
+pub fn create_standard_handler_registry(
+    extensions: &crate::protocol::ExtensionRegistry,
+) -> crate::protocol::RequestHandlerRegistry {
     let mut registry = crate::protocol::RequestHandlerRegistry::new();
 
     // Window management handlers
@@ -1388,14 +1401,18 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(CreateGlyphCursorHandler);
     registry.register_handler(GrabPointerHandler);
     registry.register_handler(QueryExtensionHandler);
-    registry.register_handler(BigRequestsHandler);
 
-    // RANDR extension handlers (using major opcode 200 + minor opcode)
-    registry.register_handler(RandrQueryVersionHandler);
-    registry.register_handler(RandrGetScreenResourcesHandler);
-    registry.register_handler(RandrGetOutputInfoHandler);
-    registry.register_handler(RandrGetCrtcInfoHandler);
-    registry.register_handler(RandrGetScreenSizeRangeHandler);
+    if let Some(major) = extensions.major_opcode("BIG-REQUESTS") {
+        registry.register_handler(BigRequestsHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("RANDR") {
+        registry.register_handler(RandrQueryVersionHandler::new(major));
+        registry.register_handler(RandrGetScreenResourcesHandler::new(major));
+        registry.register_handler(RandrGetOutputInfoHandler::new(major));
+        registry.register_handler(RandrGetCrtcInfoHandler::new(major));
+        registry.register_handler(RandrGetScreenSizeRangeHandler::new(major));
+    }
 
     registry
 }

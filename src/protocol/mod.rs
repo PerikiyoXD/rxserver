@@ -1,5 +1,6 @@
 pub mod endianness;
 pub mod events;
+pub mod extension_registry;
 pub mod handler;
 pub mod handlers;
 pub mod randr;
@@ -11,6 +12,7 @@ pub mod validator;
 pub mod constants;
 
 pub use endianness::*;
+pub use extension_registry::*;
 pub use handler::*;
 pub use handlers::*;
 pub use randr::*;
