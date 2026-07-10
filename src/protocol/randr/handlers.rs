@@ -8,10 +8,10 @@ use tokio::sync::Mutex;
 
 use crate::{
     protocol::{
-        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error
+        ByteOrder, ByteOrderWriter, HandlerResult, RandrOpcode, Request, RequestHandler,
+        RequestKind, X11Error,
     },
-    server::Server,
-    server::client_system::ClientId,
+    server::{Server, client_system::ClientId},
 };
 
 /// Handler for RandrQueryVersion requests (minor opcode 0)
@@ -51,8 +51,11 @@ impl RequestHandler for RandrQueryVersionHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        200 // Major opcode for RANDR
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            RandrOpcode::MAJOR_OPCODE,
+            Some(RandrOpcode::QueryVersion.to_u8()),
+        )
     }
 
     fn name(&self) -> &'static str {
@@ -89,9 +92,9 @@ impl RequestHandler for RandrGetScreenResourcesHandler {
             Some(s) => s,
             None => {
                 // Try screen 0 as fallback
-                randr_state.get_screen(0).ok_or_else(|| {
-                    X11Error::Protocol("Screen not found".to_string())
-                })?
+                randr_state
+                    .get_screen(0)
+                    .ok_or_else(|| X11Error::Protocol("Screen not found".to_string()))?
             }
         };
 
@@ -99,7 +102,9 @@ impl RequestHandler for RandrGetScreenResourcesHandler {
         let num_crtcs = screen.crtcs.len() as u16;
         let num_outputs = screen.outputs.len() as u16;
         let num_modes = screen.modes.len() as u16;
-        let names_len: u16 = screen.outputs.iter()
+        let names_len: u16 = screen
+            .outputs
+            .iter()
             .map(|o| o.name.len() as u16 + 1) // +1 for null terminator
             .sum();
 
@@ -147,8 +152,11 @@ impl RequestHandler for RandrGetScreenResourcesHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        201 // 200 + 1 (minor opcode for GetScreenResources)
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            RandrOpcode::MAJOR_OPCODE,
+            Some(RandrOpcode::GetScreenResources.to_u8()),
+        )
     }
 
     fn name(&self) -> &'static str {
@@ -181,11 +189,14 @@ impl RequestHandler for RandrGetOutputInfoHandler {
         let randr_state = server_guard.randr_state();
 
         // Find the output (for now, assume screen 0)
-        let screen = randr_state.get_screen(0).ok_or_else(|| {
-            X11Error::Protocol("Screen not found".to_string())
-        })?;
+        let screen = randr_state
+            .get_screen(0)
+            .ok_or_else(|| X11Error::Protocol("Screen not found".to_string()))?;
 
-        let output = screen.outputs.iter().find(|o| o.id == output_request.output)
+        let output = screen
+            .outputs
+            .iter()
+            .find(|o| o.id == output_request.output)
             .ok_or_else(|| {
                 X11Error::Protocol(format!("Output {} not found", output_request.output))
             })?;
@@ -193,7 +204,11 @@ impl RequestHandler for RandrGetOutputInfoHandler {
         // Calculate reply length
         let num_crtcs = if output.crtc_id.is_some() { 1 } else { 0 };
         let num_modes = output.modes.len() as u16;
-        let num_preferred = if output.preferred_mode.is_some() { 1 } else { 0 };
+        let num_preferred = if output.preferred_mode.is_some() {
+            1
+        } else {
+            0
+        };
         let names_len = output.name.len() as u16 + 1; // +1 for null terminator
 
         let reply_length = (32 + num_crtcs * 4 + num_modes * 4 + num_preferred * 4 + names_len) / 4;
@@ -235,8 +250,11 @@ impl RequestHandler for RandrGetOutputInfoHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        202 // 200 + 2 (minor opcode for GetOutputInfo)
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            RandrOpcode::MAJOR_OPCODE,
+            Some(RandrOpcode::GetOutputInfo.to_u8()),
+        )
     }
 
     fn name(&self) -> &'static str {
@@ -269,14 +287,15 @@ impl RequestHandler for RandrGetCrtcInfoHandler {
         let randr_state = server_guard.randr_state();
 
         // Find the CRTC (for now, assume screen 0)
-        let screen = randr_state.get_screen(0).ok_or_else(|| {
-            X11Error::Protocol("Screen not found".to_string())
-        })?;
+        let screen = randr_state
+            .get_screen(0)
+            .ok_or_else(|| X11Error::Protocol("Screen not found".to_string()))?;
 
-        let crtc = screen.crtcs.iter().find(|c| c.id == crtc_request.crtc)
-            .ok_or_else(|| {
-                X11Error::Protocol(format!("CRTC {} not found", crtc_request.crtc))
-            })?;
+        let crtc = screen
+            .crtcs
+            .iter()
+            .find(|c| c.id == crtc_request.crtc)
+            .ok_or_else(|| X11Error::Protocol(format!("CRTC {} not found", crtc_request.crtc)))?;
 
         // Calculate reply length
         let num_outputs = crtc.outputs.len() as u16;
@@ -310,8 +329,11 @@ impl RequestHandler for RandrGetCrtcInfoHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        213 // 200 + 13 (minor opcode for GetCrtcInfo)
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            RandrOpcode::MAJOR_OPCODE,
+            Some(RandrOpcode::GetCrtcInfo.to_u8()),
+        )
     }
 
     fn name(&self) -> &'static str {
@@ -344,9 +366,9 @@ impl RequestHandler for RandrGetScreenSizeRangeHandler {
         let randr_state = server_guard.randr_state();
 
         // Get screen info (for now, assume screen 0)
-        let screen = randr_state.get_screen(0).ok_or_else(|| {
-            X11Error::Protocol("Screen not found".to_string())
-        })?;
+        let screen = randr_state
+            .get_screen(0)
+            .ok_or_else(|| X11Error::Protocol("Screen not found".to_string()))?;
 
         // Create response
         let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
@@ -363,8 +385,11 @@ impl RequestHandler for RandrGetScreenSizeRangeHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        218 // 200 + 18 (minor opcode for GetScreenSizeRange)
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            RandrOpcode::MAJOR_OPCODE,
+            Some(RandrOpcode::GetScreenSizeRange.to_u8()),
+        )
     }
 
     fn name(&self) -> &'static str {

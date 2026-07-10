@@ -40,16 +40,19 @@ pub trait RequestHandler: Send + Sync {
         server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>>;
 
-    /// Get the opcode this handler supports
-    fn opcode(&self) -> u8;
+    /// The (major, minor) opcode this handler supports. `minor` is `None`
+    /// for core protocol requests, and `Some(_)` for extension sub-requests
+    /// that share a major opcode (e.g. every RANDR request has major opcode
+    /// `RandrOpcode::MAJOR_OPCODE`, distinguished by minor opcode).
+    fn opcode(&self) -> (u8, Option<u8>);
 
     /// Get a human-readable name for this handler
     fn name(&self) -> &'static str;
 }
 
-/// Registry for managing request handlers by opcode
+/// Registry for managing request handlers by (major, minor) opcode
 pub struct RequestHandlerRegistry {
-    handlers: HashMap<u8, Arc<dyn RequestHandler>>,
+    handlers: HashMap<(u8, Option<u8>), Arc<dyn RequestHandler>>,
 }
 
 impl RequestHandlerRegistry {
@@ -60,10 +63,10 @@ impl RequestHandlerRegistry {
         }
     }
 
-    /// Register a handler for a specific opcode
+    /// Register a handler for its (major, minor) opcode
     pub fn register_handler<T: RequestHandler + 'static>(&mut self, handler: T) {
-        let opcode = handler.opcode();
-        self.handlers.insert(opcode, Arc::new(handler));
+        let key = handler.opcode();
+        self.handlers.insert(key, Arc::new(handler));
     }
 
     /// Handle a request by routing it to the appropriate handler
@@ -73,9 +76,9 @@ impl RequestHandlerRegistry {
         request: &Request,
         server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
-        let opcode = request.opcode;
+        let key = (request.opcode, request.minor_opcode);
 
-        if let Some(handler) = self.handlers.get(&opcode) {
+        if let Some(handler) = self.handlers.get(&key) {
             handler.handle_request(client_id, request, server).await
         } else {
             Ok(None)
@@ -87,8 +90,8 @@ impl RequestHandlerRegistry {
         self.handlers.len()
     }
 
-    /// Get all registered opcodes
-    pub fn registered_opcodes(&self) -> Vec<u8> {
+    /// Get all registered (major, minor) opcodes
+    pub fn registered_opcodes(&self) -> Vec<(u8, Option<u8>)> {
         self.handlers.keys().copied().collect()
     }
 }

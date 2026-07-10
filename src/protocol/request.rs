@@ -1,4 +1,4 @@
-use crate::protocol::{types::ByteOrder, ByteOrderReader};
+use crate::protocol::{ByteOrderReader, types::ByteOrder};
 use anyhow::Result;
 use tracing::trace;
 
@@ -11,60 +11,10 @@ macro_rules! read_or_err {
     };
 }
 
-/// X11 protocol opcodes
-pub mod opcodes {
-    pub const CONNECTION_SETUP: u8 = 0;
-    pub const CREATE_WINDOW: u8 = 1;
-    pub const DESTROY_WINDOW: u8 = 4;
-    pub const MAP_WINDOW: u8 = 8;
-    pub const UNMAP_WINDOW: u8 = 10;
-    pub const GET_GEOMETRY: u8 = 14;
-    pub const INTERN_ATOM: u8 = 16;
-    pub const CHANGE_PROPERTY: u8 = 18;
-    pub const GET_PROPERTY: u8 = 20;
-    pub const OPEN_FONT: u8 = 45;
-    pub const CREATE_PIXMAP: u8 = 53;
-    pub const CREATE_GC: u8 = 55;
-    pub const POLY_ARC: u8 = 59;
-    pub const COPY_AREA: u8 = 60;
-    pub const FILL_ARC: u8 = 61;
-    pub const POLY_LINE: u8 = 65;
-    pub const POLY_FILL_RECTANGLE: u8 = 70;
-    pub const PUT_IMAGE: u8 = 72;
-    pub const CREATE_GLYPH_CURSOR: u8 = 94;
-    pub const QUERY_EXTENSION: u8 = 98;
-    pub const NO_OPERATION: u8 = 127;
-    pub const BIG_REQUESTS: u8 = 134;
-
-    // RANDR extension opcodes (major opcode will be assigned dynamically)
-    pub const RANDR_QUERY_VERSION: u8 = 0;
-    pub const RANDR_GET_SCREEN_RESOURCES: u8 = 1;
-    pub const RANDR_GET_OUTPUT_INFO: u8 = 2;
-    pub const RANDR_LIST_OUTPUT_PROPERTIES: u8 = 3;
-    pub const RANDR_QUERY_OUTPUT_PROPERTY: u8 = 4;
-    pub const RANDR_CONFIGURE_OUTPUT_PROPERTY: u8 = 5;
-    pub const RANDR_CHANGE_OUTPUT_PROPERTY: u8 = 6;
-    pub const RANDR_DELETE_OUTPUT_PROPERTY: u8 = 7;
-    pub const RANDR_GET_OUTPUT_PROPERTY: u8 = 8;
-    pub const RANDR_CREATE_MODE: u8 = 9;
-    pub const RANDR_DESTROY_MODE: u8 = 10;
-    pub const RANDR_ADD_OUTPUT_MODE: u8 = 11;
-    pub const RANDR_DELETE_OUTPUT_MODE: u8 = 12;
-    pub const RANDR_GET_CRTC_INFO: u8 = 13;
-    pub const RANDR_SET_CRTC_CONFIG: u8 = 14;
-    pub const RANDR_GET_CRTC_GAMMA_SIZE: u8 = 15;
-    pub const RANDR_GET_CRTC_GAMMA: u8 = 16;
-    pub const RANDR_SET_CRTC_GAMMA: u8 = 17;
-    pub const RANDR_GET_SCREEN_SIZE_RANGE: u8 = 18;
-    pub const RANDR_SET_SCREEN_SIZE: u8 = 19;
-    pub const RANDR_GET_SCREEN_RESOURCES_CURRENT: u8 = 20;
-    pub const RANDR_SET_CRTC_TRANSFORM: u8 = 21;
-    pub const RANDR_GET_CRTC_TRANSFORM: u8 = 22;
-    pub const RANDR_GET_PANNING: u8 = 23;
-    pub const RANDR_SET_PANNING: u8 = 24;
-    pub const RANDR_SET_OUTPUT_PRIMARY: u8 = 25;
-    pub const RANDR_GET_OUTPUT_PRIMARY: u8 = 26;
-}
+/// BIG-REQUESTS is an extension: its major opcode isn't part of the core
+/// protocol, so it's not a variant of the core `Opcode` enum. See
+/// `BigRequestsOpcode::MAJOR_OPCODE` for why 134 specifically.
+const BIG_REQUESTS_OPCODE: u8 = BigRequestsOpcode::MAJOR_OPCODE;
 
 #[derive(Debug, Clone)]
 pub enum RequestKind {
@@ -80,6 +30,7 @@ pub enum RequestKind {
     MapWindow(MapWindowRequest),
     UnmapWindow(UnmapWindowRequest),
     CreateGC(CreateGCRequest),
+    FreeGC(FreeGCRequest),
     PolyArc(PolyArcRequest),
     CopyArea(CopyAreaRequest),
     FillArc(FillArcRequest),
@@ -238,6 +189,15 @@ pub struct CreateGCRequest {
     pub drawable: DrawableId, // drawable
     pub value_mask: u32,      // value mask
     pub value_list: Vec<u32>, // variable length value list
+}
+
+/// FreeGC request structure matching X11 protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreeGCRequest {
+    pub opcode: u8,     // 60: opcode
+    pub unused: u8,     // unused
+    pub length: u16,    // request length (2)
+    pub gc: GContextId, // graphics context id
 }
 
 /// Arc structure for PolyArc and FillArc
@@ -453,6 +413,7 @@ pub struct DestroyWindowParser;
 pub struct MapWindowParser;
 pub struct UnmapWindowParser;
 pub struct CreateGCParser;
+pub struct FreeGCParser;
 pub struct PolyArcParser;
 pub struct CopyAreaParser;
 pub struct FillArcParser;
@@ -471,7 +432,7 @@ pub struct RandrGetCrtcInfoParser;
 pub struct RandrGetScreenSizeRangeParser;
 
 impl RequestParser for GetGeometryParser {
-    const OPCODE: u8 = opcodes::GET_GEOMETRY;
+    const OPCODE: u8 = Opcode::GetGeometry.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -515,7 +476,7 @@ impl RequestParser for GetGeometryParser {
 }
 
 impl RequestParser for InternAtomParser {
-    const OPCODE: u8 = opcodes::INTERN_ATOM;
+    const OPCODE: u8 = Opcode::InternAtom.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -569,7 +530,7 @@ impl RequestParser for InternAtomParser {
 }
 
 impl RequestParser for ChangePropertyParser {
-    const OPCODE: u8 = opcodes::CHANGE_PROPERTY;
+    const OPCODE: u8 = Opcode::ChangeProperty.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 24 {
@@ -643,7 +604,7 @@ impl RequestParser for ChangePropertyParser {
 }
 
 impl RequestParser for GetPropertyParser {
-    const OPCODE: u8 = opcodes::GET_PROPERTY;
+    const OPCODE: u8 = Opcode::GetProperty.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 24 {
@@ -695,7 +656,7 @@ impl RequestParser for GetPropertyParser {
 }
 
 impl RequestParser for CreatePixmapParser {
-    const OPCODE: u8 = opcodes::CREATE_PIXMAP;
+    const OPCODE: u8 = Opcode::CreatePixmap.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 16 {
@@ -755,7 +716,7 @@ impl RequestParser for CreatePixmapParser {
 }
 
 impl RequestParser for PutImageParser {
-    const OPCODE: u8 = opcodes::PUT_IMAGE;
+    const OPCODE: u8 = Opcode::PutImage.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 24 {
@@ -834,7 +795,7 @@ impl RequestParser for PutImageParser {
 }
 
 impl RequestParser for CopyAreaParser {
-    const OPCODE: u8 = opcodes::COPY_AREA;
+    const OPCODE: u8 = Opcode::CopyArea.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 28 {
@@ -882,16 +843,24 @@ impl RequestParser for CopyAreaParser {
         match &request.kind {
             RequestKind::CopyArea(req) => {
                 if req.src_drawable == 0 {
-                    return Err(anyhow::anyhow!("CopyArea: src_drawable id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CopyArea: src_drawable id must be non-zero"
+                    ));
                 }
                 if req.dst_drawable == 0 {
-                    return Err(anyhow::anyhow!("CopyArea: dst_drawable id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CopyArea: dst_drawable id must be non-zero"
+                    ));
                 }
                 if req.gc == 0 {
-                    return Err(anyhow::anyhow!("CopyArea: graphics context id must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CopyArea: graphics context id must be non-zero"
+                    ));
                 }
                 if req.width == 0 || req.height == 0 {
-                    return Err(anyhow::anyhow!("CopyArea: width and height must be non-zero"));
+                    return Err(anyhow::anyhow!(
+                        "CopyArea: width and height must be non-zero"
+                    ));
                 }
                 Ok(())
             }
@@ -901,7 +870,7 @@ impl RequestParser for CopyAreaParser {
 }
 
 impl RequestParser for CreateWindowParser {
-    const OPCODE: u8 = opcodes::CREATE_WINDOW;
+    const OPCODE: u8 = Opcode::CreateWindow.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 32 {
@@ -979,7 +948,7 @@ impl RequestParser for CreateWindowParser {
 }
 
 impl RequestParser for DestroyWindowParser {
-    const OPCODE: u8 = opcodes::DESTROY_WINDOW;
+    const OPCODE: u8 = Opcode::DestroyWindow.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1023,7 +992,7 @@ impl RequestParser for DestroyWindowParser {
 }
 
 impl RequestParser for MapWindowParser {
-    const OPCODE: u8 = opcodes::MAP_WINDOW;
+    const OPCODE: u8 = Opcode::MapWindow.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1065,7 +1034,7 @@ impl RequestParser for MapWindowParser {
 }
 
 impl RequestParser for UnmapWindowParser {
-    const OPCODE: u8 = opcodes::UNMAP_WINDOW;
+    const OPCODE: u8 = Opcode::UnmapWindow.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1109,7 +1078,7 @@ impl RequestParser for UnmapWindowParser {
 }
 
 impl RequestParser for CreateGCParser {
-    const OPCODE: u8 = opcodes::CREATE_GC;
+    const OPCODE: u8 = Opcode::CreateGC.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 16 {
@@ -1170,8 +1139,52 @@ impl RequestParser for CreateGCParser {
     }
 }
 
+impl RequestParser for FreeGCParser {
+    const OPCODE: u8 = Opcode::FreeGC.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("FreeGC request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let gc = read_or_err!(reader, read_u32);
+
+        let request = FreeGCRequest {
+            opcode,
+            unused,
+            length,
+            gc,
+        };
+
+        Ok(Request {
+            kind: RequestKind::FreeGC(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::FreeGC(req) => {
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!(
+                        "FreeGC: graphics context id must be non-zero"
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for FreeGCParser")),
+        }
+    }
+}
+
 impl RequestParser for PolyArcParser {
-    const OPCODE: u8 = opcodes::POLY_ARC;
+    const OPCODE: u8 = Opcode::PolyArc.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1244,7 +1257,7 @@ impl RequestParser for PolyArcParser {
 }
 
 impl RequestParser for FillArcParser {
-    const OPCODE: u8 = opcodes::FILL_ARC;
+    const OPCODE: u8 = Opcode::PolyFillArc.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1317,7 +1330,7 @@ impl RequestParser for FillArcParser {
 }
 
 impl RequestParser for PolyLineParser {
-    const OPCODE: u8 = opcodes::POLY_LINE;
+    const OPCODE: u8 = Opcode::PolyLine.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1382,7 +1395,7 @@ impl RequestParser for PolyLineParser {
 }
 
 impl RequestParser for PolyFillRectangleParser {
-    const OPCODE: u8 = opcodes::POLY_FILL_RECTANGLE;
+    const OPCODE: u8 = Opcode::PolyFillRectangle.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1455,7 +1468,7 @@ impl RequestParser for PolyFillRectangleParser {
 }
 
 impl RequestParser for CreateGlyphCursorParser {
-    const OPCODE: u8 = opcodes::CREATE_GLYPH_CURSOR;
+    const OPCODE: u8 = Opcode::CreateGlyphCursor.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 32 {
@@ -1526,7 +1539,7 @@ impl RequestParser for CreateGlyphCursorParser {
 }
 
 impl RequestParser for OpenFontParser {
-    const OPCODE: u8 = opcodes::OPEN_FONT;
+    const OPCODE: u8 = Opcode::OpenFont.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1585,7 +1598,7 @@ impl RequestParser for OpenFontParser {
 }
 
 impl RequestParser for NoOperationParser {
-    const OPCODE: u8 = opcodes::NO_OPERATION;
+    const OPCODE: u8 = Opcode::NoOperation.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 4 {
@@ -1618,7 +1631,7 @@ impl RequestParser for NoOperationParser {
 }
 
 impl RequestParser for BigRequestsParser {
-    const OPCODE: u8 = opcodes::BIG_REQUESTS;
+    const OPCODE: u8 = BIG_REQUESTS_OPCODE;
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 4 {
@@ -1652,7 +1665,7 @@ impl RequestParser for BigRequestsParser {
 }
 
 impl RequestParser for QueryExtensionParser {
-    const OPCODE: u8 = opcodes::QUERY_EXTENSION;
+    const OPCODE: u8 = Opcode::QueryExtension.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1709,7 +1722,7 @@ impl RequestParser for QueryExtensionParser {
 
 // RANDR extension parsers
 impl RequestParser for RandrQueryVersionParser {
-    const OPCODE: u8 = opcodes::RANDR_QUERY_VERSION;
+    const OPCODE: u8 = RandrOpcode::QueryVersion.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1742,7 +1755,7 @@ impl RequestParser for RandrQueryVersionParser {
 }
 
 impl RequestParser for RandrGetScreenResourcesParser {
-    const OPCODE: u8 = opcodes::RANDR_GET_SCREEN_RESOURCES;
+    const OPCODE: u8 = RandrOpcode::GetScreenResources.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1761,7 +1774,7 @@ impl RequestParser for RandrGetScreenResourcesParser {
             kind: RequestKind::RandrGetScreenResources(request),
             sequence_number: 0,
             opcode: major_opcode,
-            minor_opcode: Some(opcodes::RANDR_GET_SCREEN_RESOURCES),
+            minor_opcode: Some(RandrOpcode::GetScreenResources.to_u8()),
         })
     }
 
@@ -1771,7 +1784,7 @@ impl RequestParser for RandrGetScreenResourcesParser {
 }
 
 impl RequestParser for RandrGetOutputInfoParser {
-    const OPCODE: u8 = opcodes::RANDR_GET_OUTPUT_INFO;
+    const OPCODE: u8 = RandrOpcode::GetOutputInfo.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1794,7 +1807,7 @@ impl RequestParser for RandrGetOutputInfoParser {
             kind: RequestKind::RandrGetOutputInfo(request),
             sequence_number: 0,
             opcode: major_opcode,
-            minor_opcode: Some(opcodes::RANDR_GET_OUTPUT_INFO),
+            minor_opcode: Some(RandrOpcode::GetOutputInfo.to_u8()),
         })
     }
 
@@ -1804,7 +1817,7 @@ impl RequestParser for RandrGetOutputInfoParser {
 }
 
 impl RequestParser for RandrGetCrtcInfoParser {
-    const OPCODE: u8 = opcodes::RANDR_GET_CRTC_INFO;
+    const OPCODE: u8 = RandrOpcode::GetCrtcInfo.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 12 {
@@ -1827,7 +1840,7 @@ impl RequestParser for RandrGetCrtcInfoParser {
             kind: RequestKind::RandrGetCrtcInfo(request),
             sequence_number: 0,
             opcode: major_opcode,
-            minor_opcode: Some(opcodes::RANDR_GET_CRTC_INFO),
+            minor_opcode: Some(RandrOpcode::GetCrtcInfo.to_u8()),
         })
     }
 
@@ -1837,7 +1850,7 @@ impl RequestParser for RandrGetCrtcInfoParser {
 }
 
 impl RequestParser for RandrGetScreenSizeRangeParser {
-    const OPCODE: u8 = opcodes::RANDR_GET_SCREEN_SIZE_RANGE;
+    const OPCODE: u8 = RandrOpcode::GetScreenSizeRange.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 8 {
@@ -1856,7 +1869,7 @@ impl RequestParser for RandrGetScreenSizeRangeParser {
             kind: RequestKind::RandrGetScreenSizeRange(request),
             sequence_number: 0,
             opcode: major_opcode,
-            minor_opcode: Some(opcodes::RANDR_GET_SCREEN_SIZE_RANGE),
+            minor_opcode: Some(RandrOpcode::GetScreenSizeRange.to_u8()),
         })
     }
 
@@ -1892,29 +1905,73 @@ impl RequestParser for X11RequestParser {
             "Dispatching request with opcode: {} ({})",
             opcode, opcode_name
         );
-        match opcode {
-            opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
-            opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
-            opcodes::CHANGE_PROPERTY => ChangePropertyParser::parse(bytes),
-            opcodes::GET_PROPERTY => GetPropertyParser::parse(bytes),
-            opcodes::CREATE_PIXMAP => CreatePixmapParser::parse(bytes),
-            opcodes::PUT_IMAGE => PutImageParser::parse(bytes),
-            opcodes::CREATE_WINDOW => CreateWindowParser::parse(bytes),
-            opcodes::DESTROY_WINDOW => DestroyWindowParser::parse(bytes),
-            opcodes::MAP_WINDOW => MapWindowParser::parse(bytes),
-            opcodes::UNMAP_WINDOW => UnmapWindowParser::parse(bytes),
-            opcodes::CREATE_GC => CreateGCParser::parse(bytes),
-            opcodes::POLY_ARC => PolyArcParser::parse(bytes),
-            opcodes::COPY_AREA => CopyAreaParser::parse(bytes),
-            opcodes::FILL_ARC => FillArcParser::parse(bytes),
-            opcodes::POLY_LINE => PolyLineParser::parse(bytes),
-            opcodes::POLY_FILL_RECTANGLE => PolyFillRectangleParser::parse(bytes),
-            opcodes::CREATE_GLYPH_CURSOR => CreateGlyphCursorParser::parse(bytes),
-            opcodes::OPEN_FONT => OpenFontParser::parse(bytes),
-            opcodes::NO_OPERATION => NoOperationParser::parse(bytes),
-            opcodes::QUERY_EXTENSION => QueryExtensionParser::parse(bytes),
-            opcodes::BIG_REQUESTS => BigRequestsParser::parse(bytes),
-            _ => Err(anyhow::anyhow!("Unknown opcode: {}", opcode)),
+        if opcode == Opcode::GetGeometry.to_u8() {
+            GetGeometryParser::parse(bytes)
+        } else if opcode == Opcode::InternAtom.to_u8() {
+            InternAtomParser::parse(bytes)
+        } else if opcode == Opcode::ChangeProperty.to_u8() {
+            ChangePropertyParser::parse(bytes)
+        } else if opcode == Opcode::GetProperty.to_u8() {
+            GetPropertyParser::parse(bytes)
+        } else if opcode == Opcode::CreatePixmap.to_u8() {
+            CreatePixmapParser::parse(bytes)
+        } else if opcode == Opcode::PutImage.to_u8() {
+            PutImageParser::parse(bytes)
+        } else if opcode == Opcode::CreateWindow.to_u8() {
+            CreateWindowParser::parse(bytes)
+        } else if opcode == Opcode::DestroyWindow.to_u8() {
+            DestroyWindowParser::parse(bytes)
+        } else if opcode == Opcode::MapWindow.to_u8() {
+            MapWindowParser::parse(bytes)
+        } else if opcode == Opcode::UnmapWindow.to_u8() {
+            UnmapWindowParser::parse(bytes)
+        } else if opcode == Opcode::CreateGC.to_u8() {
+            CreateGCParser::parse(bytes)
+        } else if opcode == Opcode::FreeGC.to_u8() {
+            FreeGCParser::parse(bytes)
+        } else if opcode == Opcode::PolyArc.to_u8() {
+            PolyArcParser::parse(bytes)
+        } else if opcode == Opcode::CopyArea.to_u8() {
+            CopyAreaParser::parse(bytes)
+        } else if opcode == Opcode::PolyFillArc.to_u8() {
+            FillArcParser::parse(bytes)
+        } else if opcode == Opcode::PolyLine.to_u8() {
+            PolyLineParser::parse(bytes)
+        } else if opcode == Opcode::PolyFillRectangle.to_u8() {
+            PolyFillRectangleParser::parse(bytes)
+        } else if opcode == Opcode::CreateGlyphCursor.to_u8() {
+            CreateGlyphCursorParser::parse(bytes)
+        } else if opcode == Opcode::OpenFont.to_u8() {
+            OpenFontParser::parse(bytes)
+        } else if opcode == Opcode::NoOperation.to_u8() {
+            NoOperationParser::parse(bytes)
+        } else if opcode == Opcode::QueryExtension.to_u8() {
+            QueryExtensionParser::parse(bytes)
+        } else if opcode == BIG_REQUESTS_OPCODE {
+            BigRequestsParser::parse(bytes)
+        } else if opcode == RandrOpcode::MAJOR_OPCODE {
+            if bytes.len() < 2 {
+                return Err(anyhow::anyhow!("RANDR request too short"));
+            }
+            let minor_opcode = bytes[1];
+            if minor_opcode == RandrOpcode::QueryVersion.to_u8() {
+                RandrQueryVersionParser::parse(bytes)
+            } else if minor_opcode == RandrOpcode::GetScreenResources.to_u8() {
+                RandrGetScreenResourcesParser::parse(bytes)
+            } else if minor_opcode == RandrOpcode::GetOutputInfo.to_u8() {
+                RandrGetOutputInfoParser::parse(bytes)
+            } else if minor_opcode == RandrOpcode::GetCrtcInfo.to_u8() {
+                RandrGetCrtcInfoParser::parse(bytes)
+            } else if minor_opcode == RandrOpcode::GetScreenSizeRange.to_u8() {
+                RandrGetScreenSizeRangeParser::parse(bytes)
+            } else {
+                Err(anyhow::anyhow!(
+                    "Unknown RANDR minor opcode: {}",
+                    minor_opcode
+                ))
+            }
+        } else {
+            Err(anyhow::anyhow!("Unknown opcode: {}", opcode))
         }
     }
 
@@ -1931,6 +1988,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),
+            RequestKind::FreeGC(_) => FreeGCParser::validate(request),
             RequestKind::PolyArc(_) => PolyArcParser::validate(request),
             RequestKind::CopyArea(_) => CopyAreaParser::validate(request),
             RequestKind::FillArc(_) => FillArcParser::validate(request),

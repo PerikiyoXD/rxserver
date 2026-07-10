@@ -10,8 +10,8 @@ use tracing::debug;
 
 use crate::{
     protocol::{
-        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
-        randr::*,
+        BigRequestsOpcode, ByteOrder, ByteOrderWriter, HandlerResult, RandrOpcode, Request,
+        RequestHandler, RequestKind, X11Error, randr::*,
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -78,8 +78,8 @@ impl RequestHandler for GetGeometryHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        14
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (14, None)
     }
 
     fn name(&self) -> &'static str {
@@ -142,8 +142,8 @@ impl RequestHandler for InternAtomHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        16
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (16, None)
     }
 
     fn name(&self) -> &'static str {
@@ -195,8 +195,8 @@ impl RequestHandler for ChangePropertyHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        18
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (18, None)
     }
 
     fn name(&self) -> &'static str {
@@ -298,8 +298,8 @@ impl RequestHandler for GetPropertyHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        20
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (20, None)
     }
 
     fn name(&self) -> &'static str {
@@ -365,8 +365,8 @@ impl RequestHandler for CreatePixmapHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        53
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (53, None)
     }
 
     fn name(&self) -> &'static str {
@@ -428,8 +428,8 @@ impl RequestHandler for PutImageHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        72
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (72, None)
     }
 
     fn name(&self) -> &'static str {
@@ -501,8 +501,8 @@ impl RequestHandler for CopyAreaHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        60
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (62, None)
     }
 
     fn name(&self) -> &'static str {
@@ -525,8 +525,8 @@ impl RequestHandler for OpenFontHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        45
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (45, None)
     }
 
     fn name(&self) -> &'static str {
@@ -549,8 +549,8 @@ impl RequestHandler for CreateGlyphCursorHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        94
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (94, None)
     }
 
     fn name(&self) -> &'static str {
@@ -640,8 +640,8 @@ impl RequestHandler for GrabPointerHandler {
         Ok(Some(response.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        26
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (26, None)
     }
 
     fn name(&self) -> &'static str {
@@ -696,12 +696,12 @@ impl RequestHandler for QueryExtensionHandler {
         writer.write_u32(0); // Reply length
         writer.write_u8(if is_supported { 1 } else { 0 }); // Present (1 = present)
         let major_opcode = match name_trimmed {
-            "RANDR" => 200,
+            "RANDR" => RandrOpcode::MAJOR_OPCODE,
             "SHAPE" => 129,
             "MIT-SHM" => 130,
             "XINERAMA" => 131,
             "RENDER" => 139,
-            "BIG-REQUESTS" => 134,
+            "BIG-REQUESTS" => BigRequestsOpcode::MAJOR_OPCODE,
             _ => 0,
         };
         writer.write_u8(major_opcode); // Major opcode
@@ -712,8 +712,8 @@ impl RequestHandler for QueryExtensionHandler {
         Ok(Some(writer.into_vec()))
     }
 
-    fn opcode(&self) -> u8 {
-        98
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (98, None)
     }
 
     fn name(&self) -> &'static str {
@@ -771,8 +771,8 @@ impl RequestHandler for BigRequestsHandler {
         Ok(Some(reply_bytes))
     }
 
-    fn opcode(&self) -> u8 {
-        134
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (BigRequestsOpcode::MAJOR_OPCODE, None)
     }
 
     fn name(&self) -> &'static str {
@@ -837,8 +837,8 @@ impl RequestHandler for CreateWindowHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        1
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (1, None)
     }
 
     fn name(&self) -> &'static str {
@@ -894,8 +894,8 @@ impl RequestHandler for DestroyWindowHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        4
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (4, None)
     }
 
     fn name(&self) -> &'static str {
@@ -961,8 +961,8 @@ impl RequestHandler for MapWindowHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        8
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (8, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1018,8 +1018,8 @@ impl RequestHandler for UnmapWindowHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        10
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (10, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1059,8 +1059,8 @@ impl RequestHandler for CreateGCHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        55
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (55, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1068,7 +1068,7 @@ impl RequestHandler for CreateGCHandler {
     }
 }
 
-/// Handler for PolyArc requests (opcode 59)
+/// Handler for PolyArc requests (opcode 68)
 pub struct PolyArcHandler;
 
 #[async_trait]
@@ -1132,8 +1132,8 @@ impl RequestHandler for PolyArcHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        59
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (68, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1141,7 +1141,7 @@ impl RequestHandler for PolyArcHandler {
     }
 }
 
-/// Handler for FillArc requests (opcode 61)
+/// Handler for FillArc requests (opcode 71, PolyFillArc)
 pub struct FillArcHandler;
 
 #[async_trait]
@@ -1205,8 +1205,8 @@ impl RequestHandler for FillArcHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        61
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (71, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1276,8 +1276,8 @@ impl RequestHandler for PolyLineHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        65
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (65, None)
     }
 
     fn name(&self) -> &'static str {
@@ -1352,8 +1352,8 @@ impl RequestHandler for PolyFillRectangleHandler {
         Ok(None)
     }
 
-    fn opcode(&self) -> u8 {
-        70
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (70, None)
     }
 
     fn name(&self) -> &'static str {

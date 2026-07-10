@@ -164,6 +164,11 @@ pub enum BigRequestsOpcode {
 }
 
 impl BigRequestsOpcode {
+    /// This server always answers QueryExtension for BIG-REQUESTS with major
+    /// opcode 134 (see `QueryExtensionHandler`), rather than negotiating it
+    /// dynamically per the spec's general extension mechanism.
+    pub const MAJOR_OPCODE: u8 = 134;
+
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::Enable),
@@ -206,12 +211,121 @@ impl XcMiscOpcode {
     }
 }
 
+/// RandR extension minor opcodes. This server registers RandR's major
+/// opcode as a fixed 200 (see `protocol::randr::handlers`), rather than
+/// negotiating it dynamically via QueryExtension as the spec technically
+/// allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum RandrOpcode {
+    QueryVersion = 0,
+    GetScreenResources = 1,
+    GetOutputInfo = 2,
+    ListOutputProperties = 3,
+    QueryOutputProperty = 4,
+    ConfigureOutputProperty = 5,
+    ChangeOutputProperty = 6,
+    DeleteOutputProperty = 7,
+    GetOutputProperty = 8,
+    CreateMode = 9,
+    DestroyMode = 10,
+    AddOutputMode = 11,
+    DeleteOutputMode = 12,
+    GetCrtcInfo = 13,
+    SetCrtcConfig = 14,
+    GetCrtcGammaSize = 15,
+    GetCrtcGamma = 16,
+    SetCrtcGamma = 17,
+    GetScreenSizeRange = 18,
+    SetScreenSize = 19,
+    GetScreenResourcesCurrent = 20,
+    SetCrtcTransform = 21,
+    GetCrtcTransform = 22,
+    GetPanning = 23,
+    SetPanning = 24,
+    SetOutputPrimary = 25,
+    GetOutputPrimary = 26,
+}
+
+impl RandrOpcode {
+    pub const MAJOR_OPCODE: u8 = 200;
+
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::QueryVersion),
+            1 => Some(Self::GetScreenResources),
+            2 => Some(Self::GetOutputInfo),
+            3 => Some(Self::ListOutputProperties),
+            4 => Some(Self::QueryOutputProperty),
+            5 => Some(Self::ConfigureOutputProperty),
+            6 => Some(Self::ChangeOutputProperty),
+            7 => Some(Self::DeleteOutputProperty),
+            8 => Some(Self::GetOutputProperty),
+            9 => Some(Self::CreateMode),
+            10 => Some(Self::DestroyMode),
+            11 => Some(Self::AddOutputMode),
+            12 => Some(Self::DeleteOutputMode),
+            13 => Some(Self::GetCrtcInfo),
+            14 => Some(Self::SetCrtcConfig),
+            15 => Some(Self::GetCrtcGammaSize),
+            16 => Some(Self::GetCrtcGamma),
+            17 => Some(Self::SetCrtcGamma),
+            18 => Some(Self::GetScreenSizeRange),
+            19 => Some(Self::SetScreenSize),
+            20 => Some(Self::GetScreenResourcesCurrent),
+            21 => Some(Self::SetCrtcTransform),
+            22 => Some(Self::GetCrtcTransform),
+            23 => Some(Self::GetPanning),
+            24 => Some(Self::SetPanning),
+            25 => Some(Self::SetOutputPrimary),
+            26 => Some(Self::GetOutputPrimary),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::QueryVersion => "RandrQueryVersion",
+            Self::GetScreenResources => "RandrGetScreenResources",
+            Self::GetOutputInfo => "RandrGetOutputInfo",
+            Self::ListOutputProperties => "RandrListOutputProperties",
+            Self::QueryOutputProperty => "RandrQueryOutputProperty",
+            Self::ConfigureOutputProperty => "RandrConfigureOutputProperty",
+            Self::ChangeOutputProperty => "RandrChangeOutputProperty",
+            Self::DeleteOutputProperty => "RandrDeleteOutputProperty",
+            Self::GetOutputProperty => "RandrGetOutputProperty",
+            Self::CreateMode => "RandrCreateMode",
+            Self::DestroyMode => "RandrDestroyMode",
+            Self::AddOutputMode => "RandrAddOutputMode",
+            Self::DeleteOutputMode => "RandrDeleteOutputMode",
+            Self::GetCrtcInfo => "RandrGetCrtcInfo",
+            Self::SetCrtcConfig => "RandrSetCrtcConfig",
+            Self::GetCrtcGammaSize => "RandrGetCrtcGammaSize",
+            Self::GetCrtcGamma => "RandrGetCrtcGamma",
+            Self::SetCrtcGamma => "RandrSetCrtcGamma",
+            Self::GetScreenSizeRange => "RandrGetScreenSizeRange",
+            Self::SetScreenSize => "RandrSetScreenSize",
+            Self::GetScreenResourcesCurrent => "RandrGetScreenResourcesCurrent",
+            Self::SetCrtcTransform => "RandrSetCrtcTransform",
+            Self::GetCrtcTransform => "RandrGetCrtcTransform",
+            Self::GetPanning => "RandrGetPanning",
+            Self::SetPanning => "RandrSetPanning",
+            Self::SetOutputPrimary => "RandrSetOutputPrimary",
+            Self::GetOutputPrimary => "RandrGetOutputPrimary",
+        }
+    }
+}
+
 /// Extension-specific opcodes, keyed by major opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtensionOpcode {
     BigRequests(BigRequestsOpcode),
     XcMisc(XcMiscOpcode),
-    Randr(u8),
+    Randr(RandrOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
@@ -219,7 +333,7 @@ impl ExtensionOpcode {
     /// Create extension opcode from major and minor opcode bytes
     pub fn from_opcodes(major: u8, minor: u8) -> Self {
         match major {
-            132 => {
+            BigRequestsOpcode::MAJOR_OPCODE => {
                 if let Some(bigreq_op) = BigRequestsOpcode::from_u8(minor) {
                     Self::BigRequests(bigreq_op)
                 } else {
@@ -233,7 +347,32 @@ impl ExtensionOpcode {
                     Self::Unknown(major, minor)
                 }
             }
+            RandrOpcode::MAJOR_OPCODE => {
+                if let Some(randr_op) = RandrOpcode::from_u8(minor) {
+                    Self::Randr(randr_op)
+                } else {
+                    Self::Unknown(major, minor)
+                }
+            }
             _ => Self::Unknown(major, minor),
+        }
+    }
+
+    pub fn major_opcode(self) -> u8 {
+        match self {
+            Self::BigRequests(_) => BigRequestsOpcode::MAJOR_OPCODE,
+            Self::XcMisc(_) => 133,
+            Self::Randr(_) => RandrOpcode::MAJOR_OPCODE,
+            Self::Unknown(major, _) => major,
+        }
+    }
+
+    pub fn minor_opcode(self) -> u8 {
+        match self {
+            Self::BigRequests(op) => op as u8,
+            Self::XcMisc(op) => op as u8,
+            Self::Randr(op) => op.to_u8(),
+            Self::Unknown(_, minor) => minor,
         }
     }
 
@@ -241,7 +380,7 @@ impl ExtensionOpcode {
         match self {
             Self::BigRequests(op) => op.name().to_string(),
             Self::XcMisc(op) => op.name().to_string(),
-            Self::Randr(minor) => format!("Randr({})", minor),
+            Self::Randr(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -515,6 +654,137 @@ impl Opcode {
     /// Build an `Opcode` for an extension request from its major and minor opcode.
     pub fn from_extension(major: u8, minor: u8) -> Self {
         Self::Extension(ExtensionOpcode::from_opcodes(major, minor))
+    }
+
+    /// Convert to the wire opcode byte (returns the major opcode for extensions).
+    pub const fn to_u8(self) -> u8 {
+        match self {
+            Self::ConnectionSetup => 0,
+            Self::CreateWindow => 1,
+            Self::ChangeWindowAttributes => 2,
+            Self::GetWindowAttributes => 3,
+            Self::DestroyWindow => 4,
+            Self::DestroySubwindows => 5,
+            Self::ChangeSaveSet => 6,
+            Self::ReparentWindow => 7,
+            Self::MapWindow => 8,
+            Self::MapSubwindows => 9,
+            Self::UnmapWindow => 10,
+            Self::UnmapSubwindows => 11,
+            Self::ConfigureWindow => 12,
+            Self::CirculateWindow => 13,
+            Self::GetGeometry => 14,
+            Self::QueryTree => 15,
+            Self::InternAtom => 16,
+            Self::GetAtomName => 17,
+            Self::ChangeProperty => 18,
+            Self::DeleteProperty => 19,
+            Self::GetProperty => 20,
+            Self::ListProperties => 21,
+            Self::SetSelectionOwner => 22,
+            Self::GetSelectionOwner => 23,
+            Self::ConvertSelection => 24,
+            Self::SendEvent => 25,
+            Self::GrabPointer => 26,
+            Self::UngrabPointer => 27,
+            Self::GrabButton => 28,
+            Self::UngrabButton => 29,
+            Self::ChangeActivePointerGrab => 30,
+            Self::GrabKeyboard => 31,
+            Self::UngrabKeyboard => 32,
+            Self::GrabKey => 33,
+            Self::UngrabKey => 34,
+            Self::AllowEvents => 35,
+            Self::GrabServer => 36,
+            Self::UngrabServer => 37,
+            Self::QueryPointer => 38,
+            Self::GetMotionEvents => 39,
+            Self::TranslateCoordinates => 40,
+            Self::WarpPointer => 41,
+            Self::SetInputFocus => 42,
+            Self::GetInputFocus => 43,
+            Self::QueryKeymap => 44,
+            Self::OpenFont => 45,
+            Self::CloseFont => 46,
+            Self::QueryFont => 47,
+            Self::QueryTextExtents => 48,
+            Self::ListFonts => 49,
+            Self::ListFontsWithInfo => 50,
+            Self::SetFontPath => 51,
+            Self::GetFontPath => 52,
+            Self::CreatePixmap => 53,
+            Self::FreePixmap => 54,
+            Self::CreateGC => 55,
+            Self::ChangeGC => 56,
+            Self::CopyGC => 57,
+            Self::SetDashes => 58,
+            Self::SetClipRectangles => 59,
+            Self::FreeGC => 60,
+            Self::ClearArea => 61,
+            Self::CopyArea => 62,
+            Self::CopyPlane => 63,
+            Self::PolyPoint => 64,
+            Self::PolyLine => 65,
+            Self::PolySegment => 66,
+            Self::PolyRectangle => 67,
+            Self::PolyArc => 68,
+            Self::FillPoly => 69,
+            Self::PolyFillRectangle => 70,
+            Self::PolyFillArc => 71,
+            Self::PutImage => 72,
+            Self::GetImage => 73,
+            Self::PolyText8 => 74,
+            Self::PolyText16 => 75,
+            Self::ImageText8 => 76,
+            Self::ImageText16 => 77,
+            Self::CreateColormap => 78,
+            Self::FreeColormap => 79,
+            Self::CopyColormapAndFree => 80,
+            Self::InstallColormap => 81,
+            Self::UninstallColormap => 82,
+            Self::ListInstalledColormaps => 83,
+            Self::AllocColor => 84,
+            Self::AllocNamedColor => 85,
+            Self::AllocColorCells => 86,
+            Self::AllocColorPlanes => 87,
+            Self::FreeColors => 88,
+            Self::StoreColors => 89,
+            Self::StoreNamedColor => 90,
+            Self::QueryColors => 91,
+            Self::LookupColor => 92,
+            Self::CreateCursor => 93,
+            Self::CreateGlyphCursor => 94,
+            Self::FreeCursor => 95,
+            Self::RecolorCursor => 96,
+            Self::QueryBestSize => 97,
+            Self::QueryExtension => 98,
+            Self::ListExtensions => 99,
+            Self::ChangeKeyboardMapping => 100,
+            Self::GetKeyboardMapping => 101,
+            Self::ChangeKeyboardControl => 102,
+            Self::GetKeyboardControl => 103,
+            Self::Bell => 104,
+            Self::ChangePointerControl => 105,
+            Self::GetPointerControl => 106,
+            Self::SetScreenSaver => 107,
+            Self::GetScreenSaver => 108,
+            Self::ChangeHosts => 109,
+            Self::ListHosts => 110,
+            Self::SetAccessControl => 111,
+            Self::SetCloseDownMode => 112,
+            Self::KillClient => 113,
+            Self::RotateProperties => 114,
+            Self::ForceScreenSaver => 115,
+            Self::SetPointerMapping => 116,
+            Self::GetPointerMapping => 117,
+            Self::SetModifierMapping => 118,
+            Self::GetModifierMapping => 119,
+            Self::NoOperation => 127,
+            Self::Extension(ExtensionOpcode::BigRequests(_)) => 132,
+            Self::Extension(ExtensionOpcode::XcMisc(_)) => 133,
+            Self::Extension(ExtensionOpcode::Randr(_)) => RandrOpcode::MAJOR_OPCODE,
+            Self::Extension(ExtensionOpcode::Unknown(major, _)) => major,
+        }
     }
 
     /// Get the human-readable name of this opcode.
