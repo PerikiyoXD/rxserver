@@ -60,7 +60,7 @@ impl VirtualDisplayApp {
             window: None,
             context: None,
             surface: None,
-            framebuffer: vec![0x000000FF; framebuffer_size], // Start with black background
+            framebuffer: vec![0x00000000; framebuffer_size], // Start with black background
             config,
             last_resize_time: Instant::now(),
             message_receiver,
@@ -78,7 +78,7 @@ impl VirtualDisplayApp {
         let height = dimensions[1];
 
         // Clear framebuffer with default background
-        let default_bg_color = 0x000000FF; // Black background
+        let default_bg_color = 0x00000000; // Black background
         self.framebuffer.fill(default_bg_color);
 
         // Create a list of windows to render in proper order
@@ -139,34 +139,35 @@ impl VirtualDisplayApp {
         let abs_x = parent_x + window.x as i32;
         let abs_y = parent_y + window.y as i32;
 
-        let window_rect = Rect {
-            x: abs_x,
-            y: abs_y,
-            width: window.width as u32,
-            height: window.height as u32,
-        };
-
-        // For root window, ensure it covers the entire display
-        let actual_x = if is_root { 0 } else { window_rect.x };
-        let actual_y = if is_root { 0 } else { window_rect.y };
+        // For root window, ensure it covers the entire display regardless of
+        // the window's own declared size
+        let actual_x = if is_root { 0 } else { abs_x };
+        let actual_y = if is_root { 0 } else { abs_y };
         let actual_width = if is_root {
             max_width as i32
         } else {
-            window_rect.width as i32
+            window.width as i32
         };
         let actual_height = if is_root {
             max_height as i32
         } else {
-            window_rect.height as i32
+            window.height as i32
         };
 
-        // Determine window colors based on type
+        let window_rect = Rect {
+            x: actual_x,
+            y: actual_y,
+            width: actual_width as u32,
+            height: actual_height as u32,
+        };
+
+        // Determine window colors based on type (0x00RRGGBB, softbuffer's format)
         let (bg_color, border_color) = if is_root {
             // Root window - desktop background (dark blue-gray)
-            (0x2E3440FF, 0x3B4252FF)
+            (0x002E3440, 0x003B4252)
         } else {
             // Regular window - light background with visible border
-            (0xECEFF4FF, 0x5E81ACFF) // Light gray with blue border
+            (0x00ECEFF4, 0x005E81AC) // Light gray with blue border
         };
 
         // debug!(
@@ -243,11 +244,12 @@ impl VirtualDisplayApp {
                     && screen_y >= 0
                     && screen_y < height as i32
                 {
-                    // Get pixel from window's pixel data
+                    // Get pixel from window's pixel data (0xAARRGGBB) and drop the
+                    // alpha byte to match softbuffer's 0x00RRGGBB framebuffer format
                     if let Some(pixel) = window.get_pixel(x, y) {
                         let index = (screen_y as u32 * width + screen_x as u32) as usize;
                         if index < self.framebuffer.len() {
-                            self.framebuffer[index] = pixel;
+                            self.framebuffer[index] = pixel & 0x00FF_FFFF;
                         }
                     }
                 }
@@ -261,9 +263,9 @@ impl VirtualDisplayApp {
             self.config.resolution[1] as u32,
         );
 
-        // Draw RX X11 Server text in the top-left corner
-        let text_color = 0xD8DEE9FF; // Light color
-        let text_bg = 0x2E3440CC; // Semi-transparent background
+        // Draw RX X11 Server text in the top-left corner (0x00RRGGBB, softbuffer has no alpha)
+        let text_color = 0x00D8DEE9; // Light color
+        let text_bg = 0x002E3440; // Background
 
         // Simple text rendering - draw "RX X11" as a pattern
         for y in 10..25 {
@@ -294,9 +296,9 @@ impl VirtualDisplayApp {
                 let index = (dot_y * width + dot_x) as usize;
                 if index < self.framebuffer.len() {
                     self.framebuffer[index] = if i < mapped_count {
-                        0x88C0D0FF // Bright blue for mapped windows
+                        0x0088C0D0 // Bright blue for mapped windows
                     } else {
-                        0x4C566AFF // Gray for unmapped windows
+                        0x004C566A // Gray for unmapped windows
                     };
                 }
             }
@@ -305,10 +307,10 @@ impl VirtualDisplayApp {
         // Draw status indicators for root window and children
         let status_y = 35;
         let status_colors = [
-            0x88C0D0FF, // Blue for active
-            0xBF616AFF, // Red for inactive
-            0xA3BE8CFF, // Green for mapped
-            0xEBCB8BFF, // Yellow for created
+            0x0088C0D0, // Blue for active
+            0x00BF616A, // Red for inactive
+            0x00A3BE8C, // Green for mapped
+            0x00EBCB8B, // Yellow for created
         ];
 
         // Status line: Root window indicator
@@ -458,7 +460,7 @@ impl VirtualDisplayApp {
                     }
                 } // Resize framebuffer
                 let new_size = (new_width * new_height) as usize;
-                self.framebuffer.resize(new_size, 0x000000FF);
+                self.framebuffer.resize(new_size, 0x00000000);
 
                 // Notify the server about the resize
                 if let Some(ref callback_sender) = self.callback_sender {

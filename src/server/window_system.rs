@@ -26,7 +26,7 @@ pub struct Window {
     pub depth: u8,
     pub class: WindowClass,
     pub owner: Option<ClientId>,
-    pub pixel_data: Vec<u32>, // ARGB pixel data
+    pub pixel_data: Vec<u32>, // 0xAARRGGBB pixel data
 }
 
 impl Window {
@@ -43,7 +43,7 @@ impl Window {
         owner: ClientId,
     ) -> Result<Self, String> {
         let pixel_count = (width as usize) * (height as usize);
-        let pixel_data = vec![0x000000FF; pixel_count]; // Initialize with black background
+        let pixel_data = vec![0xFF000000; pixel_count]; // Opaque black background
 
         Ok(Self {
             id,
@@ -63,7 +63,7 @@ impl Window {
     /// Create root window (no parent, no owner)
     pub fn new_root(id: WindowId, width: u16, height: u16, depth: u8) -> Self {
         let pixel_count = (width as usize) * (height as usize);
-        let pixel_data = vec![0x2E3440FF; pixel_count]; // Initialize with dark blue-gray background
+        let pixel_data = vec![0xFF2E3440; pixel_count]; // Opaque dark blue-gray background
 
         Self {
             id,
