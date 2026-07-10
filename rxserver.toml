@@ -16,3 +16,4 @@ id = 0
 kind = "virtual"
 name = "Primary Monitor"
 resolution = [1920, 1080]
+debug_overlay = false

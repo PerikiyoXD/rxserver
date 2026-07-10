@@ -116,8 +116,10 @@ impl VirtualDisplayApp {
             self.render_window(&window, parent_x, parent_y, width, height, is_root);
         }
 
-        // Draw server info overlay
-        self.draw_server_info();
+        // Draw dev-time server info overlay (window count/status dots), opt-in only
+        if self.config.debug_overlay {
+            self.draw_server_info();
+        }
     }
 
     /// Render a single window
