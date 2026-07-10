@@ -1,6 +1,7 @@
 // mod.rs - Final clean version
 pub mod atom_system;
 pub mod client_system;
+pub mod colormap_system;
 pub mod config;
 pub mod connection;
 pub mod display_system;

@@ -26,6 +26,7 @@ pub enum RequestKind {
     InternAtom(InternAtomRequest),
     ChangeProperty(ChangePropertyRequest),
     GetProperty(GetPropertyRequest),
+    QueryColors(QueryColorsRequest),
     CreatePixmap(CreatePixmapRequest),
     PutImage(PutImageRequest),
     CreateWindow(CreateWindowRequest),
@@ -105,6 +106,16 @@ pub struct GetPropertyRequest {
     pub r#type: Atom,     // Type atom (0 = AnyType)
     pub long_offset: u32, // Long offset
     pub long_length: u32, // Long length
+}
+
+/// QueryColors request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueryColorsRequest {
+    pub opcode: u8,           // Should be 91
+    pub unused: u8,           // Padding
+    pub length: u16,          // Request length in 4-byte units
+    pub colormap: ColormapId, // Colormap
+    pub pixels: Vec<u32>,     // Pixel values to look up
 }
 
 /// CreatePixmap request structure matching X11 protocol
@@ -409,6 +420,7 @@ pub struct GetGeometryParser;
 pub struct InternAtomParser;
 pub struct ChangePropertyParser;
 pub struct GetPropertyParser;
+pub struct QueryColorsParser;
 pub struct CreatePixmapParser;
 pub struct PutImageParser;
 pub struct CreateWindowParser;
@@ -653,6 +665,62 @@ impl RequestParser for GetPropertyParser {
             }
             _ => Err(anyhow::anyhow!(
                 "Invalid request type for GetPropertyParser"
+            )),
+        }
+    }
+}
+
+impl RequestParser for QueryColorsParser {
+    const OPCODE: u8 = Opcode::QueryColors.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("QueryColors request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let colormap = read_or_err!(reader, read_u32);
+
+        let expected_len = (length as usize) * 4;
+        if bytes.len() < expected_len {
+            return Err(anyhow::anyhow!("QueryColors request too short"));
+        }
+        let pixel_count = (expected_len.saturating_sub(8)) / 4;
+
+        let mut pixels = Vec::with_capacity(pixel_count);
+        for _ in 0..pixel_count {
+            pixels.push(read_or_err!(reader, read_u32));
+        }
+
+        let request = QueryColorsRequest {
+            opcode,
+            unused,
+            length,
+            colormap,
+            pixels,
+        };
+
+        Ok(Request {
+            kind: RequestKind::QueryColors(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::QueryColors(req) => {
+                if req.colormap == 0 {
+                    return Err(anyhow::anyhow!("QueryColors: colormap must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for QueryColorsParser"
             )),
         }
     }
@@ -1972,6 +2040,8 @@ impl RequestParser for X11RequestParser {
             ChangePropertyParser::parse(bytes)
         } else if opcode == Opcode::GetProperty.to_u8() {
             GetPropertyParser::parse(bytes)
+        } else if opcode == Opcode::QueryColors.to_u8() {
+            QueryColorsParser::parse(bytes)
         } else if opcode == Opcode::CreatePixmap.to_u8() {
             CreatePixmapParser::parse(bytes)
         } else if opcode == Opcode::PutImage.to_u8() {
@@ -2022,6 +2092,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::InternAtom(_) => InternAtomParser::validate(request),
             RequestKind::ChangeProperty(_) => ChangePropertyParser::validate(request),
             RequestKind::GetProperty(_) => GetPropertyParser::validate(request),
+            RequestKind::QueryColors(_) => QueryColorsParser::validate(request),
             RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
             RequestKind::PutImage(_) => PutImageParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),

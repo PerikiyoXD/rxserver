@@ -307,6 +307,79 @@ impl RequestHandler for GetPropertyHandler {
     }
 }
 
+/// Handler for QueryColors requests (opcode 91)
+pub struct QueryColorsHandler;
+
+#[async_trait]
+impl RequestHandler for QueryColorsHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let query_colors_request = match &request.kind {
+            RequestKind::QueryColors(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for QueryColors: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        let byte_order = client.lock().await.byte_order();
+
+        let colormap = server
+            .get_colormap(query_colors_request.colormap)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "QueryColors: colormap {} does not exist",
+                    query_colors_request.colormap
+                ))
+            })?;
+
+        let n = query_colors_request.pixels.len() as u32;
+
+        let mut writer = ByteOrderWriter::new(byte_order);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number);
+        writer.write_u32(n * 2); // Reply length in 4-byte units (n * 8 bytes / 4)
+        writer.write_u16(n as u16); // Number of RGB entries
+        writer.write_padding(22);
+
+        for &pixel in &query_colors_request.pixels {
+            let color = colormap.get_color(pixel).unwrap_or(
+                crate::server::colormap_system::ColorEntry {
+                    red: 0,
+                    green: 0,
+                    blue: 0,
+                },
+            );
+            writer.write_u16(color.red);
+            writer.write_u16(color.green);
+            writer.write_u16(color.blue);
+            writer.write_u16(0); // Unused
+        }
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (91, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "QueryColors"
+    }
+}
+
 /// Handler for CreatePixmap requests (opcode 53)
 pub struct CreatePixmapHandler;
 
@@ -1394,6 +1467,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(InternAtomHandler);
     registry.register_handler(ChangePropertyHandler);
     registry.register_handler(GetPropertyHandler);
+    registry.register_handler(QueryColorsHandler);
     registry.register_handler(CreatePixmapHandler);
     registry.register_handler(PutImageHandler);
     registry.register_handler(CopyAreaHandler);

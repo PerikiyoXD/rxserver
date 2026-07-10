@@ -8,10 +8,13 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
-use crate::protocol::{Atom, CursorId, ExtensionRegistry, GContextId, PixmapId, WindowId, XId};
+use crate::protocol::{
+    Atom, ColormapId, CursorId, ExtensionRegistry, GContextId, PixmapId, WindowId, XId,
+};
 use crate::server::{
     atom_system::AtomSystem,
     client_system::{Client, ClientId, ClientSystem},
+    colormap_system::{Colormap, ColormapSystem},
     display_system::DisplaySystem,
     gcontext_system::{GraphicsContext, GraphicsContextSystem},
     pixmap_system::PixmapSystem,
@@ -73,6 +76,7 @@ pub struct Server {
     resources: ResourceSystem,
     displays: DisplaySystem,
     gcontexts: GraphicsContextSystem,
+    colormaps: ColormapSystem,
     pointer_grab: Option<PointerGrab>,
     extensions: ExtensionRegistry,
 }
@@ -87,6 +91,7 @@ impl Server {
             resources: ResourceSystem::new(),
             displays: DisplaySystem::from_configs(display_configs)?,
             gcontexts: GraphicsContextSystem::new(),
+            colormaps: ColormapSystem::new(),
             pointer_grab: None,
             extensions: ExtensionRegistry::new(),
         };
@@ -199,6 +204,11 @@ impl Server {
 
     pub fn get_pixmap_mut(&mut self, pixmap_id: PixmapId) -> Option<&mut crate::server::pixmap_system::Pixmap> {
         self.pixmaps.get_pixmap_mut(pixmap_id)
+    }
+
+    // Colormap management - delegate to ColormapSystem
+    pub fn get_colormap(&self, colormap_id: ColormapId) -> Option<&Colormap> {
+        self.colormaps.get_colormap(colormap_id)
     }
 
     pub fn get_root_window(&self) -> &Window {
