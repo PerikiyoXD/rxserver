@@ -6,6 +6,7 @@ pub mod connection;
 pub mod display_system;
 pub mod gcontext_system;
 pub mod graphics;
+pub mod pixmap_system;
 pub mod resource_system;
 pub mod state;
 pub mod window_system;

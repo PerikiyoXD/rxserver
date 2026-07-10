@@ -167,15 +167,15 @@ impl VirtualDisplayApp {
             (0xECEFF4FF, 0x5E81ACFF) // Light gray with blue border
         };
 
-        debug!(
-            "Rendering {} window {} at ({},{}) size {}x{}",
-            if is_root { "root" } else { "child" },
-            window.id,
-            window_rect.x,
-            window_rect.y,
-            window_rect.width,
-            window_rect.height
-        );
+        // debug!(
+        //     "Rendering {} window {} at ({},{}) size {}x{}",
+        //     if is_root { "root" } else { "child" },
+        //     window.id,
+        //     window_rect.x,
+        //     window_rect.y,
+        //     window_rect.width,
+        //     window_rect.height
+        // );
 
         // Draw window background and border
         for y in 0..window_rect.height {
@@ -436,7 +436,7 @@ impl ApplicationHandler for VirtualDisplayApp {
                         }
                         self.last_resize_time = now;
 
-                        info!("Virtual display resized to {}x{}", new_width, new_height);
+                        // nfo!("Virtual display resized to {}x{}", new_width, new_height);
 
                         // Update configuration
                         self.config.resolution = [new_width, new_height];

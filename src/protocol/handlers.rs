@@ -222,7 +222,7 @@ impl RequestHandler for CreatePixmapHandler {
             }
         };
 
-        let server = server.lock().await;
+        let mut server = server.lock().await;
 
         // Check if the drawable exists (used to determine depth)
         let drawable_id = create_pixmap_request.drawable;
@@ -243,6 +243,17 @@ impl RequestHandler for CreatePixmapHandler {
                 create_pixmap_request.pid
             )));
         }
+
+        // Create the pixmap
+        server
+            .create_pixmap(
+                create_pixmap_request.pid,
+                create_pixmap_request.width,
+                create_pixmap_request.height,
+                create_pixmap_request.depth,
+                client_id,
+            )
+            .map_err(|e| X11Error::Protocol(format!("Failed to create pixmap: {}", e)))?;
 
         // CreatePixmap doesn't generate a response
         Ok(None)
@@ -280,9 +291,10 @@ impl RequestHandler for PutImageHandler {
 
         let server = server.lock().await;
 
-        // Check if the drawable exists
+        // Check if the drawable exists (window or pixmap)
         let drawable_id = put_image_request.drawable;
-        if !server.get_window(drawable_id).is_some() {
+        let drawable_exists = server.get_window(drawable_id).is_some() || server.get_pixmap(drawable_id).is_some();
+        if !drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "PutImage: drawable {} does not exist",
                 drawable_id
@@ -342,18 +354,20 @@ impl RequestHandler for CopyAreaHandler {
 
         let server = server.lock().await;
 
-        // Check if the source drawable exists
+        // Check if the source drawable exists (window or pixmap)
         let src_drawable_id = copy_area_request.src_drawable;
-        if !server.get_window(src_drawable_id).is_some() {
+        let src_drawable_exists = server.get_window(src_drawable_id).is_some() || server.get_pixmap(src_drawable_id).is_some();
+        if !src_drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "CopyArea: source drawable {} does not exist",
                 src_drawable_id
             )));
         }
 
-        // Check if the destination drawable exists
+        // Check if the destination drawable exists (window or pixmap)
         let dst_drawable_id = copy_area_request.dst_drawable;
-        if !server.get_window(dst_drawable_id).is_some() {
+        let dst_drawable_exists = server.get_window(dst_drawable_id).is_some() || server.get_pixmap(dst_drawable_id).is_some();
+        if !dst_drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "CopyArea: destination drawable {} does not exist",
                 dst_drawable_id

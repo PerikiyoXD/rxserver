@@ -1,4 +1,4 @@
-use crate::protocol::{ByteOrderReader, types::ByteOrder};
+use crate::protocol::{types::ByteOrder, ByteOrderReader};
 use anyhow::Result;
 use tracing::trace;
 
@@ -747,7 +747,7 @@ impl RequestParser for CopyAreaParser {
     const OPCODE: u8 = opcodes::COPY_AREA;
 
     fn parse(bytes: &[u8]) -> Result<Request> {
-        if bytes.len() < 16 {
+        if bytes.len() < 28 {
             return Err(anyhow::anyhow!("CopyArea request too short"));
         }
 

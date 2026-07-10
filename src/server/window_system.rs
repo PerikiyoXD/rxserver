@@ -1,5 +1,5 @@
 // window_system.rs
-use crate::protocol::WindowId;
+use crate::protocol::{WindowId, constants};
 use crate::server::client_system::ClientId;
 use std::collections::HashMap;
 use tracing::debug;
@@ -132,25 +132,20 @@ impl Window {
 /// Manages X11 window hierarchy and operations
 #[derive(Debug)]
 pub struct WindowSystem {
-    windows: HashMap<WindowId, Window>,
-    root_window_id: WindowId,
+    window_map: HashMap<WindowId, Window>,
 }
 
 impl WindowSystem {
     pub fn new() -> Self {
-        let root_window_id = 1;
-        let mut windows = HashMap::new();
+        let mut window_map = HashMap::new();
 
         // Create root window using the constructor
-        windows.insert(
-            root_window_id,
-            Window::new_root(root_window_id, 1024, 768, 24),
+        window_map.insert(
+            constants::WINDOW_ID_ROOT,
+            Window::new_root(constants::WINDOW_ID_ROOT, 1024, 768, 24),
         );
 
-        Self {
-            windows,
-            root_window_id,
-        }
+        Self { window_map }
     }
 
     pub fn create_window(
@@ -166,11 +161,11 @@ impl WindowSystem {
         class: WindowClass,
         owner: ClientId,
     ) -> Result<(), String> {
-        if self.windows.contains_key(&id) {
+        if self.window_map.contains_key(&id) {
             return Err(format!("Window ID {} already exists", id));
         }
 
-        if !self.windows.contains_key(&parent) {
+        if !self.window_map.contains_key(&parent) {
             return Err(format!("Parent window {} does not exist", parent));
         }
 
@@ -186,7 +181,7 @@ impl WindowSystem {
             class,
             owner,
         )?;
-        self.windows.insert(id, window);
+        self.window_map.insert(id, window);
 
         debug!(
             "Created window {} ({}x{} at {},{}) for client {} with parent {}",
@@ -197,48 +192,48 @@ impl WindowSystem {
     }
 
     pub fn destroy_window(&mut self, window_id: WindowId) -> Result<(), String> {
-        if !self.windows.contains_key(&window_id) {
+        if !self.window_map.contains_key(&window_id) {
             return Err("Window does not exist".to_string());
         }
 
-        self.windows.remove(&window_id);
+        self.window_map.remove(&window_id);
         debug!("Destroyed window {}", window_id);
         Ok(())
     }
 
     pub fn get_window(&self, window_id: WindowId) -> Option<&Window> {
-        self.windows.get(&window_id)
+        self.window_map.get(&window_id)
     }
 
     pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
-        self.windows.get_mut(&window_id)
+        self.window_map.get_mut(&window_id)
     }
 
     pub fn get_root_window(&self) -> &Window {
-        &self.windows[&self.root_window_id]
+        &self.window_map[&constants::WINDOW_ID_ROOT]
     }
 
     pub fn window_exists(&self, window_id: WindowId) -> bool {
-        self.windows.contains_key(&window_id)
+        self.window_map.contains_key(&window_id)
     }
 
     /// Remove all windows owned by a client
     pub fn cleanup_client_windows(&mut self, client_id: ClientId) {
-        let count = self.windows.len();
-        self.windows
+        let count = self.window_map.len();
+        self.window_map
             .retain(|_, window| window.owner != Some(client_id));
-        let removed = count - self.windows.len();
+        let removed = count - self.window_map.len();
         if removed > 0 {
             debug!("Removed {} windows for client {}", removed, client_id);
         }
     }
 
     pub fn windows(&self) -> &HashMap<WindowId, Window> {
-        &self.windows
+        &self.window_map
     }
 
     pub fn is_window_viewable(&self, window_id: WindowId) -> bool {
-        if let Some(window) = self.windows.get(&window_id) {
+        if let Some(window) = self.window_map.get(&window_id) {
             // A window is viewable if it has a parent and is not obscured
             window.parent.is_some() && window.width > 0 && window.height > 0
         } else {

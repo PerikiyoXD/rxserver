@@ -8,12 +8,13 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
-use crate::protocol::{Atom, CursorId, GContextId, WindowId, XId};
+use crate::protocol::{Atom, CursorId, GContextId, PixmapId, WindowId, XId};
 use crate::server::{
     atom_system::AtomSystem,
     client_system::{Client, ClientId, ClientSystem},
     display_system::DisplaySystem,
     gcontext_system::{GraphicsContext, GraphicsContextSystem},
+    pixmap_system::PixmapSystem,
     resource_system::ResourceSystem,
     window_system::{Window, WindowClass, WindowSystem},
 };
@@ -67,6 +68,7 @@ impl From<u8> for GrabResult {
 pub struct Server {
     atoms: AtomSystem,
     windows: WindowSystem,
+    pixmaps: PixmapSystem,
     clients: ClientSystem,
     resources: ResourceSystem,
     displays: DisplaySystem,
@@ -79,6 +81,7 @@ impl Server {
         let server = Self {
             atoms: AtomSystem::new(),
             windows: WindowSystem::new(),
+            pixmaps: PixmapSystem::new(),
             clients: ClientSystem::new(),
             resources: ResourceSystem::new(),
             displays: DisplaySystem::from_configs(display_configs)?,
@@ -158,6 +161,18 @@ impl Server {
         Ok(())
     }
 
+    // Pixmap management - delegate to PixmapSystem
+    pub fn create_pixmap(
+        &mut self,
+        id: PixmapId,
+        width: u16,
+        height: u16,
+        depth: u8,
+        owner: ClientId,
+    ) -> Result<(), String> {
+        self.pixmaps.create_pixmap(id, width, height, depth, owner)
+    }
+
     pub async fn destroy_window(&mut self, window_id: WindowId) -> Result<(), String> {
         self.windows.destroy_window(window_id)?;
         self.displays.notify_window_destroyed(window_id).await;
@@ -170,6 +185,14 @@ impl Server {
 
     pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
         self.windows.get_window_mut(window_id)
+    }
+
+    pub fn get_pixmap(&self, pixmap_id: PixmapId) -> Option<&crate::server::pixmap_system::Pixmap> {
+        self.pixmaps.get_pixmap(pixmap_id)
+    }
+
+    pub fn get_pixmap_mut(&mut self, pixmap_id: PixmapId) -> Option<&mut crate::server::pixmap_system::Pixmap> {
+        self.pixmaps.get_pixmap_mut(pixmap_id)
     }
 
     pub fn get_root_window(&self) -> &Window {
