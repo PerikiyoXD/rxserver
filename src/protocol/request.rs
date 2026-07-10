@@ -1779,30 +1779,11 @@ impl RequestParser for RandrGetScreenSizeRangeParser {
 pub struct X11RequestParser;
 
 impl X11RequestParser {
-    fn opcode_name(opcode: u8) -> &'static str {
-        match opcode {
-            opcodes::CONNECTION_SETUP => "ConnectionSetup",
-            opcodes::CREATE_WINDOW => "CreateWindow",
-            opcodes::DESTROY_WINDOW => "DestroyWindow",
-            opcodes::MAP_WINDOW => "MapWindow",
-            opcodes::UNMAP_WINDOW => "UnmapWindow",
-            opcodes::GET_GEOMETRY => "GetGeometry",
-            opcodes::INTERN_ATOM => "InternAtom",
-            opcodes::GET_PROPERTY => "GetProperty",
-            opcodes::CREATE_PIXMAP => "CreatePixmap",
-            opcodes::PUT_IMAGE => "PutImage",
-            opcodes::CREATE_GC => "CreateGC",
-            opcodes::POLY_ARC => "PolyArc",
-            opcodes::COPY_AREA => "CopyArea",
-            opcodes::FILL_ARC => "FillArc",
-            opcodes::POLY_LINE => "PolyLine",
-            opcodes::POLY_FILL_RECTANGLE => "PolyFillRectangle",
-            opcodes::OPEN_FONT => "OpenFont",
-            opcodes::CREATE_GLYPH_CURSOR => "CreateGlyphCursor",
-            opcodes::NO_OPERATION => "NoOperation",
-            opcodes::QUERY_EXTENSION => "QueryExtension",
-            opcodes::BIG_REQUESTS => "BigRequests",
-            _ => "Unknown",
+    fn opcode_name(opcode: u8) -> String {
+        if opcode >= 128 {
+            Opcode::Extension(ExtensionOpcode::Unknown(opcode, 0)).name()
+        } else {
+            Opcode::from_u8(opcode).name()
         }
     }
 }
