@@ -1,5 +1,5 @@
 // window_system.rs
-use crate::protocol::{WindowId, constants};
+use crate::protocol::{Atom, WindowId, constants};
 use crate::server::client_system::ClientId;
 use std::collections::HashMap;
 use tracing::debug;
@@ -11,6 +11,17 @@ pub enum WindowClass {
     CopyFromParent = 0,
     InputOutput = 1,
     InputOnly = 2,
+}
+
+/// A window property as set via ChangeProperty/read via GetProperty.
+///
+/// `data` holds the raw property value; `format` (8, 16, or 32) is the bit
+/// width of each element, needed to reply with the right unit count.
+#[derive(Debug, Clone)]
+pub struct Property {
+    pub r#type: Atom,
+    pub format: u8,
+    pub data: Vec<u8>,
 }
 
 /// Internal representation of a window in the X11 server
@@ -27,6 +38,7 @@ pub struct Window {
     pub class: WindowClass,
     pub owner: Option<ClientId>,
     pub pixel_data: Vec<u32>, // 0xAARRGGBB pixel data
+    pub properties: HashMap<Atom, Property>,
 }
 
 impl Window {
@@ -57,6 +69,7 @@ impl Window {
             class,
             owner: Some(owner),
             pixel_data,
+            properties: HashMap::new(),
         })
     }
 
@@ -77,6 +90,7 @@ impl Window {
             class: WindowClass::InputOutput,
             owner: None,
             pixel_data,
+            properties: HashMap::new(),
         }
     }
 
@@ -126,6 +140,50 @@ impl Window {
         } else {
             None
         }
+    }
+
+    /// Set (replace/prepend/append) a property, per ChangeProperty's `mode`.
+    /// `mode`: 0 = Replace, 1 = Prepend, 2 = Append.
+    pub fn change_property(&mut self, property: Atom, r#type: Atom, format: u8, mode: u8, mut data: Vec<u8>) {
+        match mode {
+            1 => {
+                // Prepend: new data goes before existing data of the same type/format
+                if let Some(existing) = self.properties.get(&property) {
+                    if existing.r#type == r#type && existing.format == format {
+                        data.extend_from_slice(&existing.data);
+                    }
+                }
+                self.properties.insert(property, Property { r#type, format, data });
+            }
+            2 => {
+                // Append: new data goes after existing data of the same type/format
+                let mut combined = if let Some(existing) = self.properties.get(&property) {
+                    if existing.r#type == r#type && existing.format == format {
+                        existing.data.clone()
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                };
+                combined.append(&mut data);
+                self.properties.insert(property, Property { r#type, format, data: combined });
+            }
+            _ => {
+                // Replace (mode 0, and the default for anything unrecognized)
+                self.properties.insert(property, Property { r#type, format, data });
+            }
+        }
+    }
+
+    /// Get a property's current value, if set.
+    pub fn get_property(&self, property: Atom) -> Option<&Property> {
+        self.properties.get(&property)
+    }
+
+    /// Delete a property. Returns true if it existed.
+    pub fn delete_property(&mut self, property: Atom) -> bool {
+        self.properties.remove(&property).is_some()
     }
 }
 
@@ -245,5 +303,63 @@ impl WindowSystem {
 impl Default for WindowSystem {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn window() -> Window {
+        Window::new(2, 1, 0, 0, 100, 100, 0, 24, WindowClass::InputOutput, 1).unwrap()
+    }
+
+    #[test]
+    fn change_property_replace_sets_value() {
+        let mut w = window();
+        w.change_property(39, 31, 8, 0, b"hello".to_vec()); // WM_NAME/STRING
+        let p = w.get_property(39).unwrap();
+        assert_eq!(p.data, b"hello");
+        assert_eq!(p.r#type, 31);
+        assert_eq!(p.format, 8);
+    }
+
+    #[test]
+    fn change_property_replace_overwrites() {
+        let mut w = window();
+        w.change_property(39, 31, 8, 0, b"first".to_vec());
+        w.change_property(39, 31, 8, 0, b"second".to_vec());
+        assert_eq!(w.get_property(39).unwrap().data, b"second");
+    }
+
+    #[test]
+    fn change_property_append() {
+        let mut w = window();
+        w.change_property(39, 31, 8, 0, b"foo".to_vec()); // Replace
+        w.change_property(39, 31, 8, 2, b"bar".to_vec()); // Append
+        assert_eq!(w.get_property(39).unwrap().data, b"foobar");
+    }
+
+    #[test]
+    fn change_property_prepend() {
+        let mut w = window();
+        w.change_property(39, 31, 8, 0, b"bar".to_vec()); // Replace
+        w.change_property(39, 31, 8, 1, b"foo".to_vec()); // Prepend
+        assert_eq!(w.get_property(39).unwrap().data, b"foobar");
+    }
+
+    #[test]
+    fn get_property_missing_returns_none() {
+        let w = window();
+        assert!(w.get_property(39).is_none());
+    }
+
+    #[test]
+    fn delete_property_removes_it() {
+        let mut w = window();
+        w.change_property(39, 31, 8, 0, b"hello".to_vec());
+        assert!(w.delete_property(39));
+        assert!(w.get_property(39).is_none());
+        assert!(!w.delete_property(39));
     }
 }

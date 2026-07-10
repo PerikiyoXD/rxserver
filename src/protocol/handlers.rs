@@ -115,19 +115,22 @@ impl RequestHandler for InternAtomHandler {
             }
         };
 
+        // With only_if_exists=true, a name that isn't already interned is not
+        // an error: the spec requires replying with atom None (0), not
+        // failing the request.
         let atom = server
             .intern_atom(
                 &intern_atom_request.atom_name,
                 intern_atom_request.only_if_exists != 0,
             )
-            .ok_or_else(|| {
-                X11Error::Protocol(format!(
-                    "Failed to intern atom {}",
+            .unwrap_or_else(|| {
+                debug!(
+                    "InternAtom: '{}' does not exist (only_if_exists=true), replying with None",
                     intern_atom_request.atom_name
-                ))
-            })?;
+                );
+                0
+            });
 
-        // Create a simple response - in a real implementation, this would look up atoms
         let mut writer = ByteOrderWriter::new(byte_order);
         writer.write_u8(1); // Reply
         writer.write_u8(0); // Unused
@@ -148,6 +151,59 @@ impl RequestHandler for InternAtomHandler {
     }
 }
 
+/// Handler for ChangeProperty requests (opcode 18)
+pub struct ChangePropertyHandler;
+
+#[async_trait]
+impl RequestHandler for ChangePropertyHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let change_property_request = match &request.kind {
+            RequestKind::ChangeProperty(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for ChangeProperty: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let window = server
+            .get_window_mut(change_property_request.window)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "ChangeProperty: window {} does not exist",
+                    change_property_request.window
+                ))
+            })?;
+
+        window.change_property(
+            change_property_request.property,
+            change_property_request.r#type,
+            change_property_request.format,
+            change_property_request.mode,
+            change_property_request.data.clone(),
+        );
+
+        // ChangeProperty does not generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> u8 {
+        18
+    }
+
+    fn name(&self) -> &'static str {
+        "ChangeProperty"
+    }
+}
+
 /// Handler for GetProperty requests (opcode 20)
 pub struct GetPropertyHandler;
 
@@ -159,7 +215,7 @@ impl RequestHandler for GetPropertyHandler {
         request: &Request,
         server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
-        let _get_property_request = match &request.kind {
+        let get_property_request = match &request.kind {
             RequestKind::GetProperty(req) => req,
             _ => {
                 return Err(X11Error::Protocol(format!(
@@ -169,7 +225,7 @@ impl RequestHandler for GetPropertyHandler {
             }
         };
 
-        let server = server.lock().await;
+        let mut server = server.lock().await;
 
         // Get the byte order from the client
         let client = server
@@ -177,17 +233,67 @@ impl RequestHandler for GetPropertyHandler {
             .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
         let byte_order = client.lock().await.byte_order();
 
-        // For now, return an empty property (property doesn't exist)
-        // In a real implementation, this would look up window properties
+        let window = server
+            .get_window_mut(get_property_request.window)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "GetProperty: window {} does not exist",
+                    get_property_request.window
+                ))
+            })?;
+
         let mut writer = ByteOrderWriter::new(byte_order);
-        writer.write_u8(1); // Reply
-        writer.write_u8(0); // Format (0 = property doesn't exist)
-        writer.write_u16(request.sequence_number); // Sequence number
-        writer.write_u32(0); // Reply length
-        writer.write_u32(0); // Type (None)
-        writer.write_u32(0); // Bytes after
-        writer.write_u32(0); // Value length
-        writer.write_padding(12); // Padding to 32 bytes
+
+        match window.get_property(get_property_request.property) {
+            Some(property)
+                if get_property_request.r#type == 0
+                    || get_property_request.r#type == property.r#type =>
+            {
+                let unit_bytes = match property.format {
+                    8 => 1,
+                    16 => 2,
+                    _ => 4,
+                };
+                let offset_bytes = (get_property_request.long_offset as usize) * 4;
+                let requested_bytes = (get_property_request.long_length as usize) * 4;
+
+                let start = offset_bytes.min(property.data.len());
+                let end = (start + requested_bytes).min(property.data.len());
+                let value = property.data[start..end].to_vec();
+                let bytes_after = property.data.len() - end;
+                let value_units = value.len() / unit_bytes;
+
+                let r#type = property.r#type;
+                let format = property.format;
+
+                writer.write_u8(1); // Reply
+                writer.write_u8(format);
+                writer.write_u16(request.sequence_number);
+                writer.write_u32((value.len() as u32 + 3) / 4); // Reply length in 4-byte units
+                writer.write_u32(r#type);
+                writer.write_u32(bytes_after as u32);
+                writer.write_u32(value_units as u32);
+                writer.write_padding(12);
+                writer.write_bytes(&value);
+                let pad = (4 - (value.len() % 4)) % 4;
+                writer.write_padding(pad);
+
+                if get_property_request.delete != 0 && bytes_after == 0 {
+                    window.delete_property(get_property_request.property);
+                }
+            }
+            _ => {
+                // Property doesn't exist, or exists with a mismatched requested type
+                writer.write_u8(1); // Reply
+                writer.write_u8(0); // Format (0 = property doesn't exist)
+                writer.write_u16(request.sequence_number);
+                writer.write_u32(0); // Reply length
+                writer.write_u32(0); // Type (None)
+                writer.write_u32(0); // Bytes after
+                writer.write_u32(0); // Value length
+                writer.write_padding(12);
+            }
+        }
 
         Ok(Some(writer.into_vec()))
     }
@@ -1273,6 +1379,7 @@ pub fn create_standard_handler_registry() -> crate::protocol::RequestHandlerRegi
     registry.register_handler(PolyFillRectangleHandler);
 
     registry.register_handler(InternAtomHandler);
+    registry.register_handler(ChangePropertyHandler);
     registry.register_handler(GetPropertyHandler);
     registry.register_handler(CreatePixmapHandler);
     registry.register_handler(PutImageHandler);

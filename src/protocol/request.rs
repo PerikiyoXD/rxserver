@@ -20,6 +20,7 @@ pub mod opcodes {
     pub const UNMAP_WINDOW: u8 = 10;
     pub const GET_GEOMETRY: u8 = 14;
     pub const INTERN_ATOM: u8 = 16;
+    pub const CHANGE_PROPERTY: u8 = 18;
     pub const GET_PROPERTY: u8 = 20;
     pub const OPEN_FONT: u8 = 45;
     pub const CREATE_PIXMAP: u8 = 53;
@@ -70,6 +71,7 @@ pub enum RequestKind {
     ConnectionSetup,
     GetGeometry(GetGeometryRequest),
     InternAtom(InternAtomRequest),
+    ChangeProperty(ChangePropertyRequest),
     GetProperty(GetPropertyRequest),
     CreatePixmap(CreatePixmapRequest),
     PutImage(PutImageRequest),
@@ -123,6 +125,19 @@ pub struct InternAtomRequest {
     pub name_len: u16,      // Length of name
     pub unused: u16,        // Padding
     pub atom_name: String,  // Atom name
+}
+
+/// ChangeProperty request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangePropertyRequest {
+    pub opcode: u8,       // Should be 18
+    pub mode: u8,         // 0 = Replace, 1 = Prepend, 2 = Append
+    pub length: u16,      // Request length in 4-byte units
+    pub window: WindowId, // Window
+    pub property: Atom,   // Property atom
+    pub r#type: Atom,     // Type atom
+    pub format: u8,       // 8, 16, or 32
+    pub data: Vec<u8>,    // Raw property data (format units, unpadded)
 }
 
 /// GetProperty request structure matching X11 protocol
@@ -429,6 +444,7 @@ pub trait RequestParser {
 /// Individual parser implementations for each request type
 pub struct GetGeometryParser;
 pub struct InternAtomParser;
+pub struct ChangePropertyParser;
 pub struct GetPropertyParser;
 pub struct CreatePixmapParser;
 pub struct PutImageParser;
@@ -548,6 +564,80 @@ impl RequestParser for InternAtomParser {
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for InternAtomParser")),
+        }
+    }
+}
+
+impl RequestParser for ChangePropertyParser {
+    const OPCODE: u8 = opcodes::CHANGE_PROPERTY;
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 24 {
+            return Err(anyhow::anyhow!("ChangeProperty request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let mode = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+        let property = read_or_err!(reader, read_u32);
+        let r#type = read_or_err!(reader, read_u32);
+        let format = read_or_err!(reader, read_u8);
+        reader
+            .read_bytes(3) // unused padding
+            .map_err(|e| anyhow::anyhow!(e))?;
+        let data_len = read_or_err!(reader, read_u32);
+
+        let unit_bytes = match format {
+            8 => 1,
+            16 => 2,
+            32 => 4,
+            _ => return Err(anyhow::anyhow!("ChangeProperty: invalid format {}", format)),
+        };
+        let byte_len = data_len as usize * unit_bytes;
+        let data = if byte_len > 0 {
+            reader
+                .read_bytes(byte_len)
+                .map_err(|e| anyhow::anyhow!(e))?
+                .to_vec()
+        } else {
+            Vec::new()
+        };
+
+        let request = ChangePropertyRequest {
+            opcode,
+            mode,
+            length,
+            window,
+            property,
+            r#type,
+            format,
+            data,
+        };
+
+        Ok(Request {
+            kind: RequestKind::ChangeProperty(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::ChangeProperty(req) => {
+                if req.window == 0 {
+                    return Err(anyhow::anyhow!("ChangeProperty: window must be non-zero"));
+                }
+                if req.property == 0 {
+                    return Err(anyhow::anyhow!("ChangeProperty: property must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for ChangePropertyParser"
+            )),
         }
     }
 }
@@ -1805,6 +1895,7 @@ impl RequestParser for X11RequestParser {
         match opcode {
             opcodes::GET_GEOMETRY => GetGeometryParser::parse(bytes),
             opcodes::INTERN_ATOM => InternAtomParser::parse(bytes),
+            opcodes::CHANGE_PROPERTY => ChangePropertyParser::parse(bytes),
             opcodes::GET_PROPERTY => GetPropertyParser::parse(bytes),
             opcodes::CREATE_PIXMAP => CreatePixmapParser::parse(bytes),
             opcodes::PUT_IMAGE => PutImageParser::parse(bytes),
@@ -1831,6 +1922,7 @@ impl RequestParser for X11RequestParser {
         match &request.kind {
             RequestKind::GetGeometry(_) => GetGeometryParser::validate(request),
             RequestKind::InternAtom(_) => InternAtomParser::validate(request),
+            RequestKind::ChangeProperty(_) => ChangePropertyParser::validate(request),
             RequestKind::GetProperty(_) => GetPropertyParser::validate(request),
             RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
             RequestKind::PutImage(_) => PutImageParser::validate(request),
