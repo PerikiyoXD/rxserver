@@ -29,6 +29,7 @@ pub enum RequestKind {
     CreateWindow(CreateWindowRequest),
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
+    MapSubwindows(MapSubwindowsRequest),
     UnmapWindow(UnmapWindowRequest),
     ClearArea(ClearAreaRequest),
     CreateGC(CreateGCRequest),
@@ -197,6 +198,15 @@ pub struct MapWindowRequest {
     pub unused: u8,       // unused
     pub length: u16,      // request length (2)
     pub window: WindowId, // window to map
+}
+
+/// MapSubwindows request structure
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapSubwindowsRequest {
+    pub opcode: u8,       // opcode (9)
+    pub unused: u8,       // unused
+    pub length: u16,      // request length (2)
+    pub window: WindowId, // window whose children to map
 }
 
 /// UnmapWindow request structure
@@ -515,6 +525,7 @@ pub struct PutImageParser;
 pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
+pub struct MapSubwindowsParser;
 pub struct UnmapWindowParser;
 pub struct ClearAreaParser;
 pub struct CreateGCParser;
@@ -1273,6 +1284,52 @@ impl RequestParser for MapWindowParser {
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for MapWindowParser")),
+        }
+    }
+}
+
+impl RequestParser for MapSubwindowsParser {
+    const OPCODE: u8 = Opcode::MapSubwindows.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("MapSubwindows request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+
+        let request = MapSubwindowsRequest {
+            opcode,
+            unused,
+            length,
+            window,
+        };
+
+        Ok(Request {
+            kind: RequestKind::MapSubwindows(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::MapSubwindows(req) => {
+                if req.window == 0 {
+                    return Err(anyhow::anyhow!(
+                        "MapSubwindows: window id must be non-zero"
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for MapSubwindowsParser"
+            )),
         }
     }
 }
@@ -2615,6 +2672,8 @@ impl RequestParser for X11RequestParser {
             DestroyWindowParser::parse(bytes)
         } else if opcode == Opcode::MapWindow.to_u8() {
             MapWindowParser::parse(bytes)
+        } else if opcode == Opcode::MapSubwindows.to_u8() {
+            MapSubwindowsParser::parse(bytes)
         } else if opcode == Opcode::UnmapWindow.to_u8() {
             UnmapWindowParser::parse(bytes)
         } else if opcode == Opcode::ClearArea.to_u8() {
@@ -2667,6 +2726,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
+            RequestKind::MapSubwindows(_) => MapSubwindowsParser::validate(request),
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
             RequestKind::ClearArea(_) => ClearAreaParser::validate(request),
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),

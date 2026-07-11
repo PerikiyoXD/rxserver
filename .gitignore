@@ -33,3 +33,6 @@ config.toml
 # Temporary files
 *.tmp
 *.temp
+
+# Script-managed process state
+scripts/*.pid

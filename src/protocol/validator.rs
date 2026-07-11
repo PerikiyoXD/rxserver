@@ -37,6 +37,13 @@ impl RequestValidator for X11RequestValidator {
                     ));
                 }
             }
+            RequestKind::MapSubwindows(ref req) => {
+                if req.window == 0 {
+                    return Err(X11Error::DetailedValue(
+                        "MapSubwindows: window id must be non-zero".to_string(),
+                    ));
+                }
+            }
             RequestKind::UnmapWindow(ref req) => {
                 if req.window == 0 {
                     return Err(X11Error::DetailedValue(

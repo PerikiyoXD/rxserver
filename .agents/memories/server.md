@@ -29,18 +29,34 @@ misrouting, a handler that never sends its reply). `cargo test` covers
 unit-level logic (e.g. the property store); it does not catch wire
 protocol bugs.
 
-To actually verify a change:
+To actually verify a change, use the scripts in `scripts/` (PowerShell)
+rather than driving this by hand - they build, launch, PID-track, and
+tear down both sides:
+
+```powershell
+./scripts/run_server.ps1          # cargo build + launch, RUST_LOG=trace by default
+./scripts/is_server_running.ps1   # exit 0 + PID if up, exit 1 otherwise
+./scripts/run_xeyes.ps1           # Cygwin xeyes against DISPLAY=127.0.0.1:0
+./scripts/is_xeyes_running.ps1
+./scripts/stop_xeyes.ps1
+./scripts/stop_server.ps1
+```
+
+Trace log: `scripts/server_trace.log`. xeyes' own stdout/stderr:
+`scripts/xeyes.log`. PID files (`scripts/.server.pid`,
+`scripts/.xeyes.pid`) are gitignored - safe to delete if stale.
+`run_xeyes.ps1` throws if xeyes exits immediately after launch (it
+gets killed by the server hitting an unimplemented request) rather
+than hanging - that's a real signal, not a script bug, so check the
+log it points at.
+
+Equivalent by hand, if you need to deviate from the scripts (Git
+Bash's `/cygdrive/...` paths do not work here - invoke Cygwin's own
+bash):
 
 ```sh
 cargo build
 ./target/debug/rxserver.exe   # reads rxserver.toml, binds :6000
-```
-
-Then connect a real X11 client. On this dev machine that means Cygwin
-(Git Bash's `/cygdrive/...` paths do not work here - invoke Cygwin's
-own bash):
-
-```sh
 "D:/cygwin64/bin/bash.exe" --login -c "DISPLAY=127.0.0.1:0 /usr/bin/xeyes > /tmp/out.log 2>&1 &"
 ```
 

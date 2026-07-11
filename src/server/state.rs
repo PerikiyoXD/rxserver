@@ -204,6 +204,10 @@ impl Server {
         self.windows.get_window_mut(window_id)
     }
 
+    pub fn windows(&self) -> &std::collections::HashMap<WindowId, Window> {
+        self.windows.windows()
+    }
+
     pub fn resolve_background(&self, window_id: WindowId) -> Option<Background> {
         self.windows.resolve_background(window_id)
     }

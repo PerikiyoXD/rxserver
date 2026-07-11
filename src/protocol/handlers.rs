@@ -1776,6 +1776,71 @@ impl RequestHandler for MapWindowHandler {
     }
 }
 
+/// Handler for MapSubwindows requests (opcode 9)
+pub struct MapSubwindowsHandler;
+
+#[async_trait]
+impl RequestHandler for MapSubwindowsHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let map_subwindows_request = match &request.kind {
+            RequestKind::MapSubwindows(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for MapSubwindows: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        if !server.window_exists(map_subwindows_request.window) {
+            return Err(X11Error::Protocol(format!(
+                "Window {} does not exist",
+                map_subwindows_request.window
+            )));
+        }
+
+        let child_ids: Vec<_> = server
+            .windows()
+            .values()
+            .filter(|w| w.parent == Some(map_subwindows_request.window))
+            .map(|w| w.id)
+            .collect();
+
+        for child_id in child_ids {
+            server
+                .map_window(child_id)
+                .await
+                .map_err(|e| X11Error::Protocol(format!("Failed to map window: {}", e)))?;
+
+            let (window_id, width, height) = {
+                let window = server.get_window(child_id).unwrap();
+                (window.id, window.width, window.height)
+            };
+            server
+                .send_expose_event(client_id, window_id, 0, 0, width, height, 0)
+                .await;
+        }
+
+        // MapSubwindows doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (9, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "MapSubwindows"
+    }
+}
+
 /// Handler for ClearArea requests (opcode 61)
 pub struct ClearAreaHandler;
 
@@ -2391,6 +2456,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(CreateWindowHandler);
     registry.register_handler(DestroyWindowHandler);
     registry.register_handler(MapWindowHandler);
+    registry.register_handler(MapSubwindowsHandler);
     registry.register_handler(ClearAreaHandler);
     registry.register_handler(UnmapWindowHandler);
     registry.register_handler(GetGeometryHandler);
