@@ -12,9 +12,10 @@ not re-derived from the code each time.
   negotiated and implemented incrementally
 - `tasks/implement_opcode/task.md` - step-by-step workflow for adding a
   missing core opcode (parser + handler)
-- `tasks/implement_xinput_extension/task.md` - next handoff task: live
-  xeyes trace now dies on Xlib's `XInputExtension` probe closing the
-  connection client-side
+- `tasks/investigate_xinput_disconnect/task.md` - next handoff task:
+  live xeyes trace completes most of setup, then Xt's deferred fatal
+  on a missing `XInputExtension` closes the connection client-side
+  after the fact
 
 If something here goes stale, fix the doc in the same commit as the
 code change. A wrong doc is worse than no doc.

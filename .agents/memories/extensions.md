@@ -1,22 +1,36 @@
 # extensions
 
-X11 extensions (BIG-REQUESTS, RANDR, SHAPE, MIT-SHM, XINERAMA, RENDER)
-are handled through `protocol::extension_registry::ExtensionRegistry`,
-built once in `Server::new()`.
+X11 extensions (BIG-REQUESTS, RANDR, SHAPE, MIT-SHM, XINERAMA, RENDER,
+XKEYBOARD) are handled through
+`protocol::extension_registry::ExtensionRegistry`, built once in
+`Server::new()`.
 
 ## What's real vs. what's just a reserved number
 
-All 6 known extensions get a major opcode assigned
+All 7 known extensions get a major opcode assigned
 (`KNOWN_EXTENSIONS` in `extension_registry.rs`, sequential from
-`FIRST_EXTENSION_OPCODE = 128`). `BIG-REQUESTS`, `RANDR`, `RENDER`, and
-`SHAPE` are in `IMPLEMENTED_EXTENSIONS` - they have real parsers and
-handlers. `MIT-SHM` and `XINERAMA` are still reserved-only.
-`QueryExtensionHandler` reports `present=1` only for implemented ones;
-the reserved-only ones get an honest `present=0` even though they
-technically have an opcode assigned. Do not flip that without also
-writing the parser/handler - a client that believes `present=1` and
-sends a real request for an unimplemented extension gets silently
-dropped.
+`FIRST_EXTENSION_OPCODE = 128`). `BIG-REQUESTS`, `RANDR`, `RENDER`,
+`SHAPE`, and `XKEYBOARD` are in `IMPLEMENTED_EXTENSIONS` - they have
+real parsers and handlers for at least one request. `MIT-SHM` and
+`XINERAMA` are still reserved-only. `QueryExtensionHandler` reports
+`present=1` only for implemented ones; the reserved-only ones get an
+honest `present=0` even though they technically have an opcode
+assigned. Do not flip that without also writing the parser/handler - a
+client that believes `present=1` and sends a real request for an
+unimplemented extension gets silently dropped.
+
+XKEYBOARD only has `XkbUseExtension` (minor opcode 0) implemented -
+the version-negotiation handshake, and the only XKB request any live
+client has been observed to send (xeyes/Xt sends it once immediately
+after `QueryExtension` reports `present=1`, then never sends another
+XKB request for the rest of the connection). `XkbOpcode` in
+`types.rs` lists the *full* XKB minor-opcode set from the protocol
+spec (Bell, GetState, GetMap, SetMap, GetControls, GetNames, indicator
+requests, per-device info, ~23 opcodes total) purely so dispatch/trace
+logging can name them if they ever show up - none of the rest have
+real handler logic, and none should be built speculatively. If a live
+trace ever shows a client sending one of them, implement that one
+opcode, verify live, stop - same discipline as RENDER/SHAPE below.
 
 RENDER and SHAPE are both implemented incrementally, one minor opcode
 at a time, same as core opcodes (`tasks/implement_opcode/task.md`) -
@@ -50,7 +64,11 @@ deliberately minimal, no region/rectangle-list math
 `RenderOpcode`/`ShapeOpcode` in `types.rs` only have variants for
 minor opcodes that are actually parsed; check there (and
 `X11RequestParser::parse_dynamic`'s `Some("RENDER")`/`Some("SHAPE")`
-branches) before assuming a request is unimplemented.
+branches) before assuming a request is unimplemented. `XkbOpcode` is
+the deliberate exception - it lists every real XKB minor opcode for
+naming purposes even though only `UseExtension` has a parser; check
+`parse_dynamic`'s `Some("XKEYBOARD")` branch (not the enum) for what's
+actually dispatchable.
 
 ## Why dynamic and not a fixed number
 
