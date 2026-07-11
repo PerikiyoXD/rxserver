@@ -11,28 +11,30 @@ use tracing::debug;
 pub struct GraphicsContext {
     pub id: GContextId,
     pub drawable: Option<u32>, // The drawable this GC is associated with
-    pub foreground: u32,      // Foreground color
-    pub background: u32,      // Background color
-    pub line_width: u16,      // Line width
-    pub line_style: u8,       // Line style
-    pub cap_style: u8,        // Cap style
-    pub join_style: u8,       // Join style
-    pub fill_style: u8,       // Fill style
-    pub fill_rule: u8,        // Fill rule
-    pub arc_mode: u8,         // Arc mode
-    pub tile: Option<u32>,    // Tile pixmap
-    pub stipple: Option<u32>, // Stipple pixmap
+    pub function: u8,          // Raster operation function
+    pub plane_mask: u32,       // Plane mask
+    pub foreground: u32,       // Foreground color
+    pub background: u32,       // Background color
+    pub line_width: u16,       // Line width
+    pub line_style: u8,        // Line style
+    pub cap_style: u8,         // Cap style
+    pub join_style: u8,        // Join style
+    pub fill_style: u8,        // Fill style
+    pub fill_rule: u8,         // Fill rule
+    pub arc_mode: u8,          // Arc mode
+    pub tile: Option<u32>,     // Tile pixmap
+    pub stipple: Option<u32>,  // Stipple pixmap
     pub tile_stipple_x_origin: i16, // Tile/stipple X origin
     pub tile_stipple_y_origin: i16, // Tile/stipple Y origin
-    pub font: Option<u32>,    // Font
-    pub subwindow_mode: u8,   // Subwindow mode
+    pub font: Option<u32>,     // Font
+    pub subwindow_mode: u8,    // Subwindow mode
     pub graphics_exposures: bool, // Graphics exposures
-    pub clip_x_origin: i16,   // Clip X origin
-    pub clip_y_origin: i16,   // Clip Y origin
+    pub clip_x_origin: i16,    // Clip X origin
+    pub clip_y_origin: i16,    // Clip Y origin
     pub clip_mask: Option<u32>, // Clip mask
-    pub dash_offset: u16,     // Dash offset
-    pub dashes: u8,           // Dashes
-    pub owner: ClientId,      // Client that owns this GC
+    pub dash_offset: u16,      // Dash offset
+    pub dashes: u8,            // Dashes
+    pub owner: ClientId,       // Client that owns this GC
 }
 
 impl GraphicsContext {
@@ -40,15 +42,17 @@ impl GraphicsContext {
         Self {
             id,
             drawable: Some(drawable),
-            foreground: 0,     // Black
+            function: 3, // Copy
+            plane_mask: 0xFFFF_FFFF,
+            foreground: 0,        // Black
             background: 0xFFFFFF, // White
             line_width: 0,
-            line_style: 0,     // Solid
-            cap_style: 1,      // Butt
-            join_style: 0,     // Miter
-            fill_style: 0,     // Solid
-            fill_rule: 0,      // EvenOdd
-            arc_mode: 0,       // Chord
+            line_style: 0, // Solid
+            cap_style: 1,  // Butt
+            join_style: 0, // Miter
+            fill_style: 0, // Solid
+            fill_rule: 0,  // EvenOdd
+            arc_mode: 0,   // Chord
             tile: None,
             stipple: None,
             tile_stipple_x_origin: 0,
@@ -79,7 +83,12 @@ impl GraphicsContextSystem {
         }
     }
 
-    pub fn create_gc(&mut self, id: GContextId, drawable: u32, owner: ClientId) -> Result<(), String> {
+    pub fn create_gc(
+        &mut self,
+        id: GContextId,
+        drawable: u32,
+        owner: ClientId,
+    ) -> Result<(), String> {
         if self.gcontexts.contains_key(&id) {
             return Err(format!("Graphics context ID {} already exists", id));
         }
@@ -87,7 +96,10 @@ impl GraphicsContextSystem {
         let gc = GraphicsContext::new(id, drawable, owner);
         self.gcontexts.insert(id, gc);
 
-        debug!("Created graphics context {} for drawable {} owned by client {}", id, drawable, owner);
+        debug!(
+            "Created graphics context {} for drawable {} owned by client {}",
+            id, drawable, owner
+        );
         Ok(())
     }
 
@@ -119,7 +131,10 @@ impl GraphicsContextSystem {
         self.gcontexts.retain(|_, gc| gc.owner != client_id);
         let removed = count - self.gcontexts.len();
         if removed > 0 {
-            debug!("Removed {} graphics contexts for client {}", removed, client_id);
+            debug!(
+                "Removed {} graphics contexts for client {}",
+                removed, client_id
+            );
         }
     }
 }

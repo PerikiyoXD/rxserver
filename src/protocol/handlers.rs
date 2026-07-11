@@ -10,14 +10,15 @@ use tracing::debug;
 
 use crate::{
     protocol::{
-        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind,
-        X11Error, randr::*,
-        types::{PixmapValue, RenderOpcode, value_mask},
+        ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
+        randr::*,
+        types::{Opcode, PixmapValue, RenderOpcode, value_mask},
     },
     server::{
         GrabResult, PointerGrab, Server,
         client_system::ClientId,
-        graphics::{draw_arc, draw_line, fill_arc, fill_rectangle, clear_area},
+        gcontext_system::GraphicsContext,
+        graphics::{clear_area, draw_arc, draw_line, fill_arc, fill_rectangle},
         window_system::{Background, WindowClass},
     },
 };
@@ -356,13 +357,14 @@ impl RequestHandler for QueryColorsHandler {
         writer.write_padding(22);
 
         for &pixel in &query_colors_request.pixels {
-            let color = colormap.get_color(pixel).unwrap_or(
-                crate::server::colormap_system::ColorEntry {
-                    red: 0,
-                    green: 0,
-                    blue: 0,
-                },
-            );
+            let color =
+                colormap
+                    .get_color(pixel)
+                    .unwrap_or(crate::server::colormap_system::ColorEntry {
+                        red: 0,
+                        green: 0,
+                        blue: 0,
+                    });
             writer.write_u16(color.red);
             writer.write_u16(color.green);
             writer.write_u16(color.blue);
@@ -568,7 +570,8 @@ impl RequestHandler for PutImageHandler {
 
         // Check if the drawable exists (window or pixmap)
         let drawable_id = put_image_request.drawable;
-        let drawable_exists = server.get_window(drawable_id).is_some() || server.get_pixmap(drawable_id).is_some();
+        let drawable_exists =
+            server.get_window(drawable_id).is_some() || server.get_pixmap(drawable_id).is_some();
         if !drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "PutImage: drawable {} does not exist",
@@ -631,7 +634,8 @@ impl RequestHandler for CopyAreaHandler {
 
         // Check if the source drawable exists (window or pixmap)
         let src_drawable_id = copy_area_request.src_drawable;
-        let src_drawable_exists = server.get_window(src_drawable_id).is_some() || server.get_pixmap(src_drawable_id).is_some();
+        let src_drawable_exists = server.get_window(src_drawable_id).is_some()
+            || server.get_pixmap(src_drawable_id).is_some();
         if !src_drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "CopyArea: source drawable {} does not exist",
@@ -641,7 +645,8 @@ impl RequestHandler for CopyAreaHandler {
 
         // Check if the destination drawable exists (window or pixmap)
         let dst_drawable_id = copy_area_request.dst_drawable;
-        let dst_drawable_exists = server.get_window(dst_drawable_id).is_some() || server.get_pixmap(dst_drawable_id).is_some();
+        let dst_drawable_exists = server.get_window(dst_drawable_id).is_some()
+            || server.get_pixmap(dst_drawable_id).is_some();
         if !dst_drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "CopyArea: destination drawable {} does not exist",
@@ -1003,10 +1008,7 @@ impl RequestHandler for RenderQueryVersionHandler {
     }
 
     fn opcode(&self) -> (u8, Option<u8>) {
-        (
-            self.major_opcode,
-            Some(RenderOpcode::QueryVersion.to_u8()),
-        )
+        (self.major_opcode, Some(RenderOpcode::QueryVersion.to_u8()))
     }
 
     fn name(&self) -> &'static str {
@@ -1117,6 +1119,95 @@ fn decode_background(value_mask: u32, value_list: &[u32]) -> Background {
     }
     // Neither bit set: spec default for CreateWindow is background None.
     Background::None
+}
+
+mod gc_value_mask {
+    pub const FUNCTION: u32 = 0x00000001;
+    pub const PLANE_MASK: u32 = 0x00000002;
+    pub const FOREGROUND: u32 = 0x00000004;
+    pub const BACKGROUND: u32 = 0x00000008;
+    pub const LINE_WIDTH: u32 = 0x00000010;
+    pub const LINE_STYLE: u32 = 0x00000020;
+    pub const CAP_STYLE: u32 = 0x00000040;
+    pub const JOIN_STYLE: u32 = 0x00000080;
+    pub const FILL_STYLE: u32 = 0x00000100;
+    pub const FILL_RULE: u32 = 0x00000200;
+    pub const TILE: u32 = 0x00000400;
+    pub const STIPPLE: u32 = 0x00000800;
+    pub const TILE_STIPPLE_X_ORIGIN: u32 = 0x00001000;
+    pub const TILE_STIPPLE_Y_ORIGIN: u32 = 0x00002000;
+    pub const FONT: u32 = 0x00004000;
+    pub const SUBWINDOW_MODE: u32 = 0x00008000;
+    pub const GRAPHICS_EXPOSURES: u32 = 0x00010000;
+    pub const CLIP_X_ORIGIN: u32 = 0x00020000;
+    pub const CLIP_Y_ORIGIN: u32 = 0x00040000;
+    pub const CLIP_MASK: u32 = 0x00080000;
+    pub const DASH_OFFSET: u32 = 0x00100000;
+    pub const DASHES: u32 = 0x00200000;
+    pub const ARC_MODE: u32 = 0x00400000;
+}
+
+fn apply_gc_values(
+    gc: &mut GraphicsContext,
+    value_mask: u32,
+    value_list: &[u32],
+) -> HandlerResult<()> {
+    let mut values = value_list.iter().copied();
+
+    macro_rules! apply_if_set {
+        ($bit:expr, $body:expr) => {
+            if value_mask & $bit != 0 {
+                let value = values.next().ok_or_else(|| {
+                    X11Error::Protocol("GC value-list ended before value-mask was satisfied".into())
+                })?;
+                ($body)(value);
+            }
+        };
+    }
+
+    apply_if_set!(gc_value_mask::FUNCTION, |value| gc.function = value as u8);
+    apply_if_set!(gc_value_mask::PLANE_MASK, |value| gc.plane_mask = value);
+    apply_if_set!(gc_value_mask::FOREGROUND, |value| gc.foreground = value);
+    apply_if_set!(gc_value_mask::BACKGROUND, |value| gc.background = value);
+    apply_if_set!(gc_value_mask::LINE_WIDTH, |value| gc.line_width =
+        value as u16);
+    apply_if_set!(gc_value_mask::LINE_STYLE, |value| gc.line_style =
+        value as u8);
+    apply_if_set!(gc_value_mask::CAP_STYLE, |value| gc.cap_style = value as u8);
+    apply_if_set!(gc_value_mask::JOIN_STYLE, |value| gc.join_style =
+        value as u8);
+    apply_if_set!(gc_value_mask::FILL_STYLE, |value| gc.fill_style =
+        value as u8);
+    apply_if_set!(gc_value_mask::FILL_RULE, |value| gc.fill_rule = value as u8);
+    apply_if_set!(gc_value_mask::TILE, |value| gc.tile = Some(value));
+    apply_if_set!(gc_value_mask::STIPPLE, |value| gc.stipple = Some(value));
+    apply_if_set!(gc_value_mask::TILE_STIPPLE_X_ORIGIN, |value| {
+        gc.tile_stipple_x_origin = value as u16 as i16;
+    });
+    apply_if_set!(gc_value_mask::TILE_STIPPLE_Y_ORIGIN, |value| {
+        gc.tile_stipple_y_origin = value as u16 as i16;
+    });
+    apply_if_set!(gc_value_mask::FONT, |value| gc.font = Some(value));
+    apply_if_set!(gc_value_mask::SUBWINDOW_MODE, |value| gc.subwindow_mode =
+        value as u8);
+    apply_if_set!(gc_value_mask::GRAPHICS_EXPOSURES, |value| {
+        gc.graphics_exposures = value != 0;
+    });
+    apply_if_set!(gc_value_mask::CLIP_X_ORIGIN, |value| {
+        gc.clip_x_origin = value as u16 as i16;
+    });
+    apply_if_set!(gc_value_mask::CLIP_Y_ORIGIN, |value| {
+        gc.clip_y_origin = value as u16 as i16;
+    });
+    apply_if_set!(gc_value_mask::CLIP_MASK, |value| {
+        gc.clip_mask = (value != 0).then_some(value);
+    });
+    apply_if_set!(gc_value_mask::DASH_OFFSET, |value| gc.dash_offset =
+        value as u16);
+    apply_if_set!(gc_value_mask::DASHES, |value| gc.dashes = value as u8);
+    apply_if_set!(gc_value_mask::ARC_MODE, |value| gc.arc_mode = value as u8);
+
+    Ok(())
 }
 
 #[async_trait]
@@ -1346,12 +1437,14 @@ impl RequestHandler for ClearAreaHandler {
 
         let mut server = server.lock().await;
 
-        let window = server.get_window(clear_area_request.window).ok_or_else(|| {
-            X11Error::Protocol(format!(
-                "ClearArea: window {} does not exist",
-                clear_area_request.window
-            ))
-        })?;
+        let window = server
+            .get_window(clear_area_request.window)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "ClearArea: window {} does not exist",
+                    clear_area_request.window
+                ))
+            })?;
 
         if window.class == crate::server::window_system::WindowClass::InputOnly {
             return Err(X11Error::Protocol(format!(
@@ -1508,6 +1601,14 @@ impl RequestHandler for CreateGCHandler {
             .create_gc(create_gc_request.gc, create_gc_request.drawable, client_id)
             .map_err(|e| X11Error::Protocol(format!("Failed to create graphics context: {}", e)))?;
 
+        if let Some(gc) = server.get_gc_mut(create_gc_request.gc) {
+            apply_gc_values(
+                gc,
+                create_gc_request.value_mask,
+                &create_gc_request.value_list,
+            )?;
+        }
+
         // CreateGC doesn't generate a response
         Ok(None)
     }
@@ -1518,6 +1619,61 @@ impl RequestHandler for CreateGCHandler {
 
     fn name(&self) -> &'static str {
         "CreateGC"
+    }
+}
+
+/// Handler for ChangeGC requests (opcode 56)
+pub struct ChangeGCHandler;
+
+#[async_trait]
+impl RequestHandler for ChangeGCHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let change_gc_request = match &request.kind {
+            RequestKind::ChangeGC(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for ChangeGC: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+        let gc = server.get_gc_mut(change_gc_request.gc).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "ChangeGC: graphics context {} does not exist",
+                change_gc_request.gc
+            ))
+        })?;
+
+        if gc.owner != client_id {
+            return Err(X11Error::Protocol(format!(
+                "ChangeGC: client {} does not own graphics context {}",
+                client_id, change_gc_request.gc
+            )));
+        }
+
+        apply_gc_values(
+            gc,
+            change_gc_request.value_mask,
+            &change_gc_request.value_list,
+        )?;
+
+        // ChangeGC doesn't generate a response.
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (Opcode::ChangeGC.to_u8(), None)
+    }
+
+    fn name(&self) -> &'static str {
+        "ChangeGC"
     }
 }
 
@@ -1853,6 +2009,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(UnmapWindowHandler);
     registry.register_handler(GetGeometryHandler);
     registry.register_handler(CreateGCHandler);
+    registry.register_handler(ChangeGCHandler);
 
     registry.register_handler(PolyArcHandler);
     registry.register_handler(FillArcHandler);

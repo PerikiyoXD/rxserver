@@ -32,6 +32,7 @@ pub enum RequestKind {
     UnmapWindow(UnmapWindowRequest),
     ClearArea(ClearAreaRequest),
     CreateGC(CreateGCRequest),
+    ChangeGC(ChangeGCRequest),
     FreeGC(FreeGCRequest),
     PolyArc(PolyArcRequest),
     CopyArea(CopyAreaRequest),
@@ -224,6 +225,17 @@ pub struct CreateGCRequest {
     pub length: u16,          // request length in 4-byte units
     pub gc: GContextId,       // graphics context id
     pub drawable: DrawableId, // drawable
+    pub value_mask: u32,      // value mask
+    pub value_list: Vec<u32>, // variable length value list
+}
+
+/// ChangeGC request structure matching X11 protocol
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeGCRequest {
+    pub opcode: u8,           // 56: opcode
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units
+    pub gc: GContextId,       // graphics context id
     pub value_mask: u32,      // value mask
     pub value_list: Vec<u32>, // variable length value list
 }
@@ -478,6 +490,7 @@ pub struct MapWindowParser;
 pub struct UnmapWindowParser;
 pub struct ClearAreaParser;
 pub struct CreateGCParser;
+pub struct ChangeGCParser;
 pub struct FreeGCParser;
 pub struct PolyArcParser;
 pub struct CopyAreaParser;
@@ -876,9 +889,7 @@ impl RequestParser for FreePixmapParser {
                 }
                 Ok(())
             }
-            _ => Err(anyhow::anyhow!(
-                "Invalid request type for FreePixmapParser"
-            )),
+            _ => Err(anyhow::anyhow!("Invalid request type for FreePixmapParser")),
         }
     }
 }
@@ -1373,6 +1384,8 @@ impl RequestParser for CreateGCParser {
     }
 
     fn validate(request: &Request) -> Result<()> {
+        const KNOWN_GC_VALUE_MASK: u32 = 0x007F_FFFF;
+
         match &request.kind {
             RequestKind::CreateGC(req) => {
                 if req.gc == 0 {
@@ -1383,9 +1396,95 @@ impl RequestParser for CreateGCParser {
                 if req.drawable == 0 {
                     return Err(anyhow::anyhow!("CreateGC: drawable id must be non-zero"));
                 }
+                if req.value_mask & !KNOWN_GC_VALUE_MASK != 0 {
+                    return Err(anyhow::anyhow!(
+                        "CreateGC: value mask has unsupported bits set: 0x{:08x}",
+                        req.value_mask
+                    ));
+                }
+                let expected_values = req.value_mask.count_ones() as usize;
+                if req.value_list.len() != expected_values {
+                    return Err(anyhow::anyhow!(
+                        "CreateGC: value-list length {} does not match value-mask count {}",
+                        req.value_list.len(),
+                        expected_values
+                    ));
+                }
                 Ok(())
             }
             _ => Err(anyhow::anyhow!("Invalid request type for CreateGCParser")),
+        }
+    }
+}
+
+impl RequestParser for ChangeGCParser {
+    const OPCODE: u8 = Opcode::ChangeGC.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("ChangeGC request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let gc = read_or_err!(reader, read_u32);
+        let value_mask = read_or_err!(reader, read_u32);
+
+        let mut value_list = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let values_count = remaining_bytes / 4;
+            for _ in 0..values_count {
+                value_list.push(read_or_err!(reader, read_u32));
+            }
+        }
+
+        let request = ChangeGCRequest {
+            opcode,
+            unused,
+            length,
+            gc,
+            value_mask,
+            value_list,
+        };
+
+        Ok(Request {
+            kind: RequestKind::ChangeGC(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        const KNOWN_GC_VALUE_MASK: u32 = 0x007F_FFFF;
+
+        match &request.kind {
+            RequestKind::ChangeGC(req) => {
+                if req.gc == 0 {
+                    return Err(anyhow::anyhow!(
+                        "ChangeGC: graphics context id must be non-zero"
+                    ));
+                }
+                if req.value_mask & !KNOWN_GC_VALUE_MASK != 0 {
+                    return Err(anyhow::anyhow!(
+                        "ChangeGC: value mask has unsupported bits set: 0x{:08x}",
+                        req.value_mask
+                    ));
+                }
+                let expected_values = req.value_mask.count_ones() as usize;
+                if req.value_list.len() != expected_values {
+                    return Err(anyhow::anyhow!(
+                        "ChangeGC: value-list length {} does not match value-mask count {}",
+                        req.value_list.len(),
+                        expected_values
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for ChangeGCParser")),
         }
     }
 }
@@ -2341,6 +2440,8 @@ impl RequestParser for X11RequestParser {
             ClearAreaParser::parse(bytes)
         } else if opcode == Opcode::CreateGC.to_u8() {
             CreateGCParser::parse(bytes)
+        } else if opcode == Opcode::ChangeGC.to_u8() {
+            ChangeGCParser::parse(bytes)
         } else if opcode == Opcode::FreeGC.to_u8() {
             FreeGCParser::parse(bytes)
         } else if opcode == Opcode::PolyArc.to_u8() {
@@ -2388,6 +2489,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
             RequestKind::ClearArea(_) => ClearAreaParser::validate(request),
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),
+            RequestKind::ChangeGC(_) => ChangeGCParser::validate(request),
             RequestKind::FreeGC(_) => FreeGCParser::validate(request),
             RequestKind::PolyArc(_) => PolyArcParser::validate(request),
             RequestKind::CopyArea(_) => CopyAreaParser::validate(request),
@@ -2410,9 +2512,7 @@ impl RequestParser for X11RequestParser {
                 RandrGetScreenSizeRangeParser::validate(request)
             }
             RequestKind::RenderQueryVersion(_) => RenderQueryVersionParser::validate(request),
-            RequestKind::RenderCreateSolidFill(_) => {
-                RenderCreateSolidFillParser::validate(request)
-            }
+            RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())
