@@ -1640,6 +1640,73 @@ impl RequestHandler for XIQueryVersionHandler {
     }
 }
 
+/// Handler for XISelectEvents requests (XInputExtension minor opcode 46).
+/// Has no reply per the XI2 spec - a one-way event-selection request, same
+/// shape as core `ChangeWindowAttributes`'s EVENT_MASK.
+pub struct XISelectEventsHandler {
+    major_opcode: u8,
+}
+
+impl XISelectEventsHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for XISelectEventsHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let select_events_request = match &request.kind {
+            RequestKind::XISelectEvents(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for XISelectEvents: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let window = server
+            .get_window_mut(select_events_request.window)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "XISelectEvents: window {} does not exist",
+                    select_events_request.window
+                ))
+            })?;
+
+        for mask in &select_events_request.masks {
+            if let Some(entry) = window
+                .xi_event_masks
+                .iter_mut()
+                .find(|(deviceid, _)| *deviceid == mask.deviceid)
+            {
+                entry.1 = mask.mask;
+            } else {
+                window.xi_event_masks.push((mask.deviceid, mask.mask));
+            }
+        }
+
+        // XISelectEvents doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(XInputOpcode::XISelectEvents.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "XISelectEvents"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -2921,6 +2988,7 @@ pub fn create_standard_handler_registry(
     if let Some(major) = extensions.major_opcode("XInputExtension") {
         registry.register_handler(XInputGetExtensionVersionHandler::new(major));
         registry.register_handler(XIQueryVersionHandler::new(major));
+        registry.register_handler(XISelectEventsHandler::new(major));
     }
 
     registry

@@ -556,6 +556,9 @@ pub enum XInputOpcode {
     /// above (introduced when XI2 superseded XI1 in 2009), but still on the
     /// same XInputExtension major opcode.
     XIQueryVersion = 47,
+    /// XI2's event-selection request - not the same opcode as XI1's
+    /// SelectExtensionEvent (6) above, despite the similar name.
+    XISelectEvents = 46,
 }
 
 impl XInputOpcode {
@@ -596,6 +599,7 @@ impl XInputOpcode {
             33 => Some(Self::SetDeviceValuators),
             34 => Some(Self::GetDeviceControl),
             35 => Some(Self::ChangeDeviceControl),
+            46 => Some(Self::XISelectEvents),
             47 => Some(Self::XIQueryVersion),
             _ => None,
         }
@@ -643,6 +647,7 @@ impl XInputOpcode {
             Self::GetDeviceControl => "XInputGetDeviceControl",
             Self::ChangeDeviceControl => "XInputChangeDeviceControl",
             Self::XIQueryVersion => "XIQueryVersion",
+            Self::XISelectEvents => "XISelectEvents",
         }
     }
 }

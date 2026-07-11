@@ -65,6 +65,7 @@ pub enum RequestKind {
     // XInputExtension requests
     XInputGetExtensionVersion(XInputGetExtensionVersionRequest),
     XIQueryVersion(XIQueryVersionRequest),
+    XISelectEvents(XISelectEventsRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -537,6 +538,23 @@ pub struct XIQueryVersionRequest {
     pub client_minor: u16,
 }
 
+/// One EVENTMASK record from an XISelectEvents request - a device's
+/// requested XI2 event mask, `mask` already expanded from its wire
+/// CARD32-per-word form into a single value (multi-word masks beyond the
+/// first 32 bits are truncated - no XI2 event type this server could ever
+/// generate lives past bit 31 today).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XIEventMask {
+    pub deviceid: u16,
+    pub mask: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XISelectEventsRequest {
+    pub window: WindowId,
+    pub masks: Vec<XIEventMask>,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -596,6 +614,7 @@ pub struct XkbUseExtensionParser;
 // XInputExtension parsers
 pub struct XInputGetExtensionVersionParser;
 pub struct XIQueryVersionParser;
+pub struct XISelectEventsParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2733,6 +2752,59 @@ impl RequestParser for XIQueryVersionParser {
     }
 }
 
+impl RequestParser for XISelectEventsParser {
+    const OPCODE: u8 = XInputOpcode::XISelectEvents.to_u8();
+
+    /// Wire format (xproto XI2 encoding, confirmed against a live Xt
+    /// request rather than assumed from the spec alone): `major(1) minor(1)
+    /// length(2) window(4) num_mask(2)` immediately followed by `num_mask`
+    /// EVENTMASK records, each `deviceid(2) mask_len(2) mask(4*mask_len)` -
+    /// no padding between the header and the first record, unlike most
+    /// other xproto value-list requests.
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 10 {
+            return Err(anyhow::anyhow!("XISelectEvents request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+        let num_mask = read_or_err!(reader, read_u16);
+
+        let mut masks = Vec::with_capacity(num_mask as usize);
+        for _ in 0..num_mask {
+            let deviceid = read_or_err!(reader, read_u16);
+            let mask_len = read_or_err!(reader, read_u16);
+            // Only the first CARD32 of the mask is kept - see XIEventMask's
+            // doc comment. Still consume every word on the wire so
+            // multi-word masks don't desync the rest of the request.
+            let mut mask = 0u32;
+            for i in 0..mask_len {
+                let word = read_or_err!(reader, read_u32);
+                if i == 0 {
+                    mask = word;
+                }
+            }
+            masks.push(XIEventMask { deviceid, mask });
+        }
+
+        let request = XISelectEventsRequest { window, masks };
+
+        Ok(Request {
+            kind: RequestKind::XISelectEvents(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2845,6 +2917,8 @@ impl X11RequestParser {
                     XInputGetExtensionVersionParser::parse(bytes)
                 } else if minor_opcode == XInputOpcode::XIQueryVersion.to_u8() {
                     XIQueryVersionParser::parse(bytes)
+                } else if minor_opcode == XInputOpcode::XISelectEvents.to_u8() {
+                    XISelectEventsParser::parse(bytes)
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown XInputExtension minor opcode: {}",
@@ -2999,6 +3073,7 @@ impl RequestParser for X11RequestParser {
                 XInputGetExtensionVersionParser::validate(request)
             }
             RequestKind::XIQueryVersion(_) => XIQueryVersionParser::validate(request),
+            RequestKind::XISelectEvents(_) => XISelectEventsParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())
