@@ -47,16 +47,29 @@ impl RequestHandler for GetGeometryHandler {
 
         let server = server.lock().await;
 
-        // Get the drawable (window)
+        // Get the drawable (window or pixmap)
         let drawable_id = get_geometry_request.drawable;
 
-        // Check if drawable exists
-        let window = server.get_window(drawable_id).ok_or_else(|| {
-            X11Error::Protocol(format!(
-                "GetGeometry: drawable {} does not exist",
-                drawable_id
-            ))
-        })?;
+        // Pixmaps have no position or border, per the X11 spec GetGeometry
+        // replies with x=0, y=0, border_width=0 for them.
+        let (depth, x, y, width, height, border_width) =
+            if let Some(window) = server.get_window(drawable_id) {
+                (
+                    window.depth,
+                    window.x,
+                    window.y,
+                    window.width,
+                    window.height,
+                    window.border_width,
+                )
+            } else if let Some(pixmap) = server.get_pixmap(drawable_id) {
+                (pixmap.depth, 0, 0, pixmap.width, pixmap.height, 0)
+            } else {
+                return Err(X11Error::Protocol(format!(
+                    "GetGeometry: drawable {} does not exist",
+                    drawable_id
+                )));
+            };
 
         // Get the byte order from the client
         let client = server
@@ -67,15 +80,15 @@ impl RequestHandler for GetGeometryHandler {
         // Create response
         let mut writer = ByteOrderWriter::new(byte_order);
         writer.write_u8(1); // Reply
-        writer.write_u8(window.depth); // Depth
+        writer.write_u8(depth); // Depth
         writer.write_u16(request.sequence_number); // Sequence number
         writer.write_u32(0); // Reply length
         writer.write_u32(server.get_root_window().id); // Root window
-        writer.write_u16(window.x as u16); // X coordinate
-        writer.write_u16(window.y as u16); // Y coordinate
-        writer.write_u16(window.width); // Width
-        writer.write_u16(window.height); // Height
-        writer.write_u16(window.border_width); // Border width
+        writer.write_u16(x as u16); // X coordinate
+        writer.write_u16(y as u16); // Y coordinate
+        writer.write_u16(width); // Width
+        writer.write_u16(height); // Height
+        writer.write_u16(border_width); // Border width
         writer.write_padding(10); // Padding to 32 bytes
 
         Ok(Some(writer.into_vec()))
@@ -409,7 +422,9 @@ impl RequestHandler for CreatePixmapHandler {
 
         // Check if the drawable exists (used to determine depth)
         let drawable_id = create_pixmap_request.drawable;
-        if !server.get_window(drawable_id).is_some() {
+        let drawable_exists =
+            server.get_window(drawable_id).is_some() || server.get_pixmap(drawable_id).is_some();
+        if !drawable_exists {
             return Err(X11Error::Protocol(format!(
                 "CreatePixmap: drawable {} does not exist",
                 drawable_id
