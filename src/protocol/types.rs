@@ -552,6 +552,10 @@ pub enum XInputOpcode {
     SetDeviceValuators = 33,
     GetDeviceControl = 34,
     ChangeDeviceControl = 35,
+    /// XI2's own version query - a distinct request from the XI1 opcodes
+    /// above (introduced when XI2 superseded XI1 in 2009), but still on the
+    /// same XInputExtension major opcode.
+    XIQueryVersion = 47,
 }
 
 impl XInputOpcode {
@@ -592,6 +596,7 @@ impl XInputOpcode {
             33 => Some(Self::SetDeviceValuators),
             34 => Some(Self::GetDeviceControl),
             35 => Some(Self::ChangeDeviceControl),
+            47 => Some(Self::XIQueryVersion),
             _ => None,
         }
     }
@@ -637,6 +642,7 @@ impl XInputOpcode {
             Self::SetDeviceValuators => "XInputSetDeviceValuators",
             Self::GetDeviceControl => "XInputGetDeviceControl",
             Self::ChangeDeviceControl => "XInputChangeDeviceControl",
+            Self::XIQueryVersion => "XIQueryVersion",
         }
     }
 }

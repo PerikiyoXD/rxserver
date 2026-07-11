@@ -27,6 +27,7 @@ pub enum RequestKind {
     GetInputFocus(GetInputFocusRequest),
     PutImage(PutImageRequest),
     CreateWindow(CreateWindowRequest),
+    ChangeWindowAttributes(ChangeWindowAttributesRequest),
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
     MapSubwindows(MapSubwindowsRequest),
@@ -63,6 +64,7 @@ pub enum RequestKind {
     XkbUseExtension(XkbUseExtensionRequest),
     // XInputExtension requests
     XInputGetExtensionVersion(XInputGetExtensionVersionRequest),
+    XIQueryVersion(XIQueryVersionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +186,17 @@ pub struct CreateWindowRequest {
     pub visual: VisualId,     // 4: visual id (0 = CopyFromParent)
     pub value_mask: u32,      // 4: value mask
     pub value_list: Vec<u32>, // 4n: variable length value list
+}
+
+/// ChangeWindowAttributes request structure
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeWindowAttributesRequest {
+    pub opcode: u8,           // opcode (2)
+    pub unused: u8,           // unused
+    pub length: u16,          // request length in 4-byte units (3+n)
+    pub window: WindowId,     // window id
+    pub value_mask: u32,      // value mask
+    pub value_list: Vec<u32>, // variable length value list
 }
 
 /// DestroyWindow request structure
@@ -518,6 +531,12 @@ pub struct XInputGetExtensionVersionRequest {
     pub name: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XIQueryVersionRequest {
+    pub client_major: u16,
+    pub client_minor: u16,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -540,6 +559,7 @@ pub struct FreePixmapParser;
 pub struct GetInputFocusParser;
 pub struct PutImageParser;
 pub struct CreateWindowParser;
+pub struct ChangeWindowAttributesParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
 pub struct MapSubwindowsParser;
@@ -575,6 +595,7 @@ pub struct ShapeMaskParser;
 pub struct XkbUseExtensionParser;
 // XInputExtension parsers
 pub struct XInputGetExtensionVersionParser;
+pub struct XIQueryVersionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -1220,6 +1241,54 @@ impl RequestParser for CreateWindowParser {
                 "Invalid request type for CreateWindowParser"
             )),
         }
+    }
+}
+
+impl RequestParser for ChangeWindowAttributesParser {
+    const OPCODE: u8 = Opcode::ChangeWindowAttributes.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!(
+                "ChangeWindowAttributes request too short"
+            ));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+        let value_mask = read_or_err!(reader, read_u32);
+
+        let mut value_list = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(12);
+        if remaining_bytes > 0 {
+            let values_count = remaining_bytes / 4;
+            for _ in 0..values_count {
+                value_list.push(read_or_err!(reader, read_u32));
+            }
+        }
+
+        let request = ChangeWindowAttributesRequest {
+            opcode,
+            unused,
+            length,
+            window,
+            value_mask,
+            value_list,
+        };
+
+        Ok(Request {
+            kind: RequestKind::ChangeWindowAttributes(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -2631,6 +2700,39 @@ impl RequestParser for XInputGetExtensionVersionParser {
     }
 }
 
+impl RequestParser for XIQueryVersionParser {
+    const OPCODE: u8 = XInputOpcode::XIQueryVersion.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("XIQueryVersion request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let client_major = read_or_err!(reader, read_u16);
+        let client_minor = read_or_err!(reader, read_u16);
+
+        let request = XIQueryVersionRequest {
+            client_major,
+            client_minor,
+        };
+
+        Ok(Request {
+            kind: RequestKind::XIQueryVersion(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2741,6 +2843,8 @@ impl X11RequestParser {
                 let minor_opcode = bytes[1];
                 if minor_opcode == XInputOpcode::GetExtensionVersion.to_u8() {
                     XInputGetExtensionVersionParser::parse(bytes)
+                } else if minor_opcode == XInputOpcode::XIQueryVersion.to_u8() {
+                    XIQueryVersionParser::parse(bytes)
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown XInputExtension minor opcode: {}",
@@ -2794,6 +2898,8 @@ impl RequestParser for X11RequestParser {
             PutImageParser::parse(bytes)
         } else if opcode == Opcode::CreateWindow.to_u8() {
             CreateWindowParser::parse(bytes)
+        } else if opcode == Opcode::ChangeWindowAttributes.to_u8() {
+            ChangeWindowAttributesParser::parse(bytes)
         } else if opcode == Opcode::DestroyWindow.to_u8() {
             DestroyWindowParser::parse(bytes)
         } else if opcode == Opcode::MapWindow.to_u8() {
@@ -2850,6 +2956,9 @@ impl RequestParser for X11RequestParser {
             RequestKind::GetInputFocus(_) => GetInputFocusParser::validate(request),
             RequestKind::PutImage(_) => PutImageParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
+            RequestKind::ChangeWindowAttributes(_) => {
+                ChangeWindowAttributesParser::validate(request)
+            }
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
             RequestKind::MapSubwindows(_) => MapSubwindowsParser::validate(request),
@@ -2889,6 +2998,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::XInputGetExtensionVersion(_) => {
                 XInputGetExtensionVersionParser::validate(request)
             }
+            RequestKind::XIQueryVersion(_) => XIQueryVersionParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

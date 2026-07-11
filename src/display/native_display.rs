@@ -108,6 +108,10 @@ impl DisplayTrait for NativeDisplay {
         }
         Ok(())
     }
+
+    fn take_callback_receiver(&mut self) -> Option<UnboundedReceiver<DisplayCallbackMessage>> {
+        self.callback_receiver.take()
+    }
 }
 
 pub struct NativeDisplayApp {

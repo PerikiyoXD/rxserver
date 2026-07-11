@@ -123,4 +123,8 @@ impl DisplayTrait for VirtualDisplay {
         }
         Ok(())
     }
+
+    fn take_callback_receiver(&mut self) -> Option<UnboundedReceiver<DisplayCallbackMessage>> {
+        self.callback_receiver.take()
+    }
 }

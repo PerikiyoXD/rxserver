@@ -22,6 +22,19 @@ pub enum Background {
     Pixmap(PixmapId),
 }
 
+/// A window's `border-pixel`/`border-pixmap` attribute, as set via
+/// CreateWindow/ChangeWindowAttributes's value-list. Same shape as
+/// `Background` minus `ParentRelative` (xproto has no CopyFromParent/
+/// ParentRelative case for borders - only None/Pixel/Pixmap), default is
+/// `CopyFromParent` per the spec (a border pixel this server has no value
+/// for yet, rendered the same as `None` until border rendering exists).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Border {
+    CopyFromParent,
+    Pixel(u32),
+    Pixmap(PixmapId),
+}
+
 /// X11 window class
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u16)]
@@ -61,6 +74,32 @@ pub struct Window {
     /// Bounding-shape mask set via SHAPE's ShapeMask request, if any -
     /// the pixmap defining the window's non-rectangular outline.
     pub bounding_shape: Option<PixmapId>,
+    /// Event mask set via CreateWindow/ChangeWindowAttributes's EVENT_MASK
+    /// value (`protocol::types::value_mask::EVENT_MASK`), OR'd with
+    /// `protocol::events::event_mask` bit constants. Gates which input
+    /// events (KeyPress, ButtonPress, PointerMotion, ...) this window's
+    /// owner actually receives - 0 means "selected for nothing."
+    pub event_mask: u32,
+    /// The remaining CW_* attributes from CreateWindow/
+    /// ChangeWindowAttributes's VALUEs table. Stored so QueryTree/
+    /// GetWindowAttributes-style requests can round-trip what a client set,
+    /// even though most of these don't have rendering/dispatch behavior
+    /// wired up yet (bit_gravity/win_gravity affect resize repainting,
+    /// backing_store affects obscured-window contents, save_under affects
+    /// pop-up rendering, do_not_propagate_mask affects event propagation to
+    /// ancestors, colormap/cursor affect palette/pointer-shape - none of
+    /// that machinery exists yet).
+    pub border: Border,
+    pub bit_gravity: u8,
+    pub win_gravity: u8,
+    pub backing_store: u8,
+    pub backing_planes: u32,
+    pub backing_pixel: u32,
+    pub override_redirect: bool,
+    pub save_under: bool,
+    pub do_not_propagate_mask: u32,
+    pub colormap: Option<u32>,
+    pub cursor: Option<u32>,
 }
 
 impl Window {
@@ -95,6 +134,18 @@ impl Window {
             properties: HashMap::new(),
             background,
             bounding_shape: None,
+            event_mask: 0,
+            border: Border::CopyFromParent,
+            bit_gravity: 0,       // ForgetGravity, xproto default
+            win_gravity: 1,       // NorthWestGravity, xproto default
+            backing_store: 0,     // NotUseful, xproto default
+            backing_planes: 0xFFFFFFFF,
+            backing_pixel: 0,
+            override_redirect: false,
+            save_under: false,
+            do_not_propagate_mask: 0,
+            colormap: None,
+            cursor: None,
         })
     }
 
@@ -118,6 +169,18 @@ impl Window {
             properties: HashMap::new(),
             background: Background::Pixel(0xFF2E3440),
             bounding_shape: None,
+            event_mask: 0,
+            border: Border::CopyFromParent,
+            bit_gravity: 0,
+            win_gravity: 1,
+            backing_store: 0,
+            backing_planes: 0xFFFFFFFF,
+            backing_pixel: 0,
+            override_redirect: false,
+            save_under: false,
+            do_not_propagate_mask: 0,
+            colormap: None,
+            cursor: None,
         }
     }
 

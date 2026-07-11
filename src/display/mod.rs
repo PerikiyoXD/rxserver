@@ -19,6 +19,7 @@ pub mod registry;
 pub mod types;
 pub mod virtual_display;
 pub mod virtual_display_app;
+pub mod virtual_input;
 
 pub fn create_display(config: DisplayConfig) -> Result<Display> {
     let display: Display = match config.kind {

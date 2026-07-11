@@ -6,7 +6,12 @@ use tokio::{
     time::Instant,
 };
 use tracing::{debug, error, info};
-use winit::{application::ApplicationHandler, event::WindowEvent, event_loop::ActiveEventLoop};
+use winit::{
+    application::ApplicationHandler,
+    event::{ElementState, KeyEvent, MouseButton, WindowEvent},
+    event_loop::ActiveEventLoop,
+    keyboard::PhysicalKey,
+};
 
 use crate::{
     display::{
@@ -474,6 +479,55 @@ impl VirtualDisplayApp {
                 self.draw_test_pattern();
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                if let Some(ref callback_sender) = self.callback_sender {
+                    let _ = callback_sender.send(DisplayCallbackMessage::PointerMoved(
+                        position.x as i32,
+                        position.y as i32,
+                    ));
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                // X11 button numbering: 1=left, 2=middle, 3=right, 4/5=wheel.
+                // Wheel deltas arrive via WindowEvent::MouseWheel, not here -
+                // MouseInput only covers "real" buttons winit models this way.
+                let x11_button = match button {
+                    MouseButton::Left => 1,
+                    MouseButton::Middle => 2,
+                    MouseButton::Right => 3,
+                    MouseButton::Back => 8,
+                    MouseButton::Forward => 9,
+                    MouseButton::Other(code) => code as u8,
+                };
+                if let Some(ref callback_sender) = self.callback_sender {
+                    let message = match state {
+                        ElementState::Pressed => {
+                            DisplayCallbackMessage::PointerButtonPressed(x11_button)
+                        }
+                        ElementState::Released => {
+                            DisplayCallbackMessage::PointerButtonReleased(x11_button)
+                        }
+                    };
+                    let _ = callback_sender.send(message);
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    physical_key: PhysicalKey::Code(key_code),
+                    state,
+                    ..
+                },
+                ..
+            } => {
+                if let Some(ref callback_sender) = self.callback_sender {
+                    let scancode = key_code as u32;
+                    let message = match state {
+                        ElementState::Pressed => DisplayCallbackMessage::KeyPressed(scancode),
+                        ElementState::Released => DisplayCallbackMessage::KeyReleased(scancode),
+                    };
+                    let _ = callback_sender.send(message);
                 }
             }
             _ => {}

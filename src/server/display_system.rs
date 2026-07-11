@@ -11,6 +11,7 @@ use crate::{
         config::DisplayConfig,
         create_display,
         types::{Display, DisplayTrait},
+        virtual_input::{VirtualKeyboardDevice, VirtualPointerDevice, spawn_demux},
     },
     protocol::randr::RandrState,
     server::window_system::Window,
@@ -21,6 +22,13 @@ use crate::{
 pub struct DisplaySystem {
     displays: HashMap<usize, Arc<Mutex<Display>>>,
     randr_state: RandrState,
+    /// The server's core keyboard/pointer devices. X11 has one core pointer
+    /// and one core keyboard per server (not per screen), so these come from
+    /// whichever display started first - not one pair per display. `None`
+    /// until a display actually produces a callback receiver to demux (the
+    /// `Native` backend is still a stub and never will).
+    keyboard_device: Option<VirtualKeyboardDevice>,
+    pointer_device: Option<VirtualPointerDevice>,
 }
 
 impl DisplaySystem {
@@ -28,6 +36,8 @@ impl DisplaySystem {
         Self {
             displays: HashMap::new(),
             randr_state: RandrState::new(),
+            keyboard_device: None,
+            pointer_device: None,
         }
     }
 
@@ -35,6 +45,8 @@ impl DisplaySystem {
     pub fn from_configs(display_configs: Vec<DisplayConfig>) -> Result<Self> {
         let mut displays = HashMap::new();
         let mut randr_state = RandrState::new();
+        let mut keyboard_device = None;
+        let mut pointer_device = None;
 
         for config in display_configs {
             let display_id = config.id;
@@ -50,6 +62,14 @@ impl DisplaySystem {
             let mut display = create_display(config.clone())?;
             display.start()?;
 
+            if keyboard_device.is_none() {
+                if let Some(callback_receiver) = display.take_callback_receiver() {
+                    let (keyboard, pointer) = spawn_demux(callback_receiver);
+                    keyboard_device = Some(keyboard);
+                    pointer_device = Some(pointer);
+                }
+            }
+
             // Initialize RANDR state for this screen
             randr_state.init_screen(
                 display_id as u32,
@@ -64,7 +84,21 @@ impl DisplaySystem {
         Ok(Self {
             displays,
             randr_state,
+            keyboard_device,
+            pointer_device,
         })
+    }
+
+    /// Take the server-wide keyboard device, if one was produced by a
+    /// display backend. Consumed once, by whoever spawns the input pump
+    /// (`RX11Server::run` in `mod.rs`).
+    pub fn take_keyboard_device(&mut self) -> Option<VirtualKeyboardDevice> {
+        self.keyboard_device.take()
+    }
+
+    /// Take the server-wide pointer device. See `take_keyboard_device`.
+    pub fn take_pointer_device(&mut self) -> Option<VirtualPointerDevice> {
+        self.pointer_device.take()
     }
 
     /// Get the number of displays

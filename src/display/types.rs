@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     display::{native_display::NativeDisplay, virtual_display::VirtualDisplay},
@@ -25,6 +26,16 @@ pub enum DisplayMessage {
 pub enum DisplayCallbackMessage {
     WindowResized(u32, u32),
     DisplayClosed,
+    /// Pointer moved to (x, y) in display-local pixel coordinates.
+    PointerMoved(i32, i32),
+    /// A pointer button was pressed. Button numbers follow X11 convention
+    /// (1=left, 2=middle, 3=right, 4/5=wheel).
+    PointerButtonPressed(u8),
+    PointerButtonReleased(u8),
+    /// A key was pressed/released, carrying winit's raw platform scancode -
+    /// the server maps this to an X11 keycode (see `server::input`).
+    KeyPressed(u32),
+    KeyReleased(u32),
 }
 
 /// Display type enum
@@ -49,6 +60,11 @@ pub trait DisplayTrait {
     fn on_window_mapped(&self, window_id: WindowId) -> Result<()>;
     fn on_window_unmapped(&self, window_id: WindowId) -> Result<()>;
     fn on_window_destroyed(&self, window_id: WindowId) -> Result<()>;
+    /// Take ownership of this display's callback receiver, if it has one and
+    /// it hasn't already been taken. Used once, right after `start()`, by
+    /// whoever wants to consume `DisplayCallbackMessage`s (input events,
+    /// resize, close) - see `Server::spawn_input_pump` in `state.rs`.
+    fn take_callback_receiver(&mut self) -> Option<UnboundedReceiver<DisplayCallbackMessage>>;
 }
 
 impl DisplayTrait for Display {
@@ -98,6 +114,13 @@ impl DisplayTrait for Display {
         match self {
             Display::Virtual(display) => display.on_window_destroyed(window_id),
             Display::Native(display) => display.on_window_destroyed(window_id),
+        }
+    }
+
+    fn take_callback_receiver(&mut self) -> Option<UnboundedReceiver<DisplayCallbackMessage>> {
+        match self {
+            Display::Virtual(display) => display.take_callback_receiver(),
+            Display::Native(display) => display.take_callback_receiver(),
         }
     }
 }

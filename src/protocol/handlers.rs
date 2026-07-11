@@ -20,7 +20,7 @@ use crate::{
         gcontext_system::GraphicsContext,
         graphics::{clear_area, draw_arc, draw_line, fill_arc, fill_rectangle},
         picture_system::PictureAttributes,
-        window_system::{Background, WindowClass},
+        window_system::{Background, Border, Window, WindowClass},
     },
 };
 
@@ -1579,6 +1579,67 @@ impl RequestHandler for XInputGetExtensionVersionHandler {
     }
 }
 
+/// Handler for XIQueryVersion requests (XInputExtension minor opcode 47,
+/// XI2's own version query - distinct from XI1's GetExtensionVersion above).
+///
+/// Unlike GetExtensionVersion, XIQueryVersion's reply has no `present` flag
+/// - it is only ever a version number, so there is no honest way to say
+/// "supported but no devices." Not replying at all is worse: real X clients
+/// (confirmed live against xeyes/Xt) block waiting for this reply
+/// specifically and hang the connection rather than falling back
+/// gracefully, which is strictly worse than replying with the lowest real
+/// XI2 version (2.0) and accepting that XI2 device/event requests aren't
+/// implemented yet - the same tradeoff RandR/RENDER/SHAPE make by
+/// advertising a capped version instead of refusing to answer.
+pub struct XIQueryVersionHandler {
+    major_opcode: u8,
+}
+
+impl XIQueryVersionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for XIQueryVersionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _query_version_request = match &request.kind {
+            RequestKind::XIQueryVersion(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for XIQueryVersion: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u16(2); // Server major version
+        writer.write_u16(0); // Server minor version
+        writer.write_padding(20); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(XInputOpcode::XIQueryVersion.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "XIQueryVersion"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -1612,6 +1673,22 @@ fn decode_background(value_mask: u32, value_list: &[u32]) -> Background {
     }
     // Neither bit set: spec default for CreateWindow is background None.
     Background::None
+}
+
+/// Decode the `border-pixmap`/`border-pixel` value-list entries into a
+/// `Border`, mirroring `decode_background`. `border-pixel` takes precedence
+/// when both bits are set, same rationale as background.
+fn decode_border(value_mask: u32, value_list: &[u32]) -> Border {
+    if let Some(pixel) = value_list_entry(value_mask, value_list, value_mask::BORDER_PIXEL) {
+        return Border::Pixel(pixel);
+    }
+    if let Some(pixmap) = value_list_entry(value_mask, value_list, value_mask::BORDER_PIXMAP) {
+        return match PixmapValue::from_u32(pixmap) {
+            PixmapValue::None | PixmapValue::ParentRelative => Border::CopyFromParent,
+            PixmapValue::Id(id) => Border::Pixmap(id),
+        };
+    }
+    Border::CopyFromParent
 }
 
 mod gc_value_mask {
@@ -1770,6 +1847,71 @@ impl RequestHandler for CreateWindowHandler {
             .await
             .map_err(|e| X11Error::Protocol(format!("Failed to create window: {}", e)))?;
 
+        let value_mask_bits = create_window_request.value_mask;
+        let value_list = &create_window_request.value_list;
+
+        if value_mask_bits & (value_mask::BORDER_PIXEL | value_mask::BORDER_PIXMAP) != 0 {
+            let border = decode_border(value_mask_bits, value_list);
+            if let Border::Pixmap(id) = border {
+                if server.get_pixmap(id).is_none() {
+                    return Err(X11Error::Protocol(format!(
+                        "CreateWindow: border pixmap {} does not exist",
+                        id
+                    )));
+                }
+            }
+            if let Some(window) = server.get_window_mut(create_window_request.wid) {
+                window.border = border;
+            }
+        }
+
+        if let Some(window) = server.get_window_mut(create_window_request.wid) {
+            macro_rules! apply_if_set {
+                ($bit:expr, $body:expr) => {
+                    if let Some(value) = value_list_entry(value_mask_bits, value_list, $bit) {
+                        ($body)(window, value);
+                    }
+                };
+            }
+
+            apply_if_set!(value_mask::BIT_GRAVITY, |w: &mut Window, v: u32| {
+                w.bit_gravity = v as u8;
+            });
+            apply_if_set!(value_mask::WIN_GRAVITY, |w: &mut Window, v: u32| {
+                w.win_gravity = v as u8;
+            });
+            apply_if_set!(value_mask::BACKING_STORE, |w: &mut Window, v: u32| {
+                w.backing_store = v as u8;
+            });
+            apply_if_set!(value_mask::BACKING_PLANES, |w: &mut Window, v: u32| {
+                w.backing_planes = v;
+            });
+            apply_if_set!(value_mask::BACKING_PIXEL, |w: &mut Window, v: u32| {
+                w.backing_pixel = v;
+            });
+            apply_if_set!(value_mask::OVERRIDE_REDIRECT, |w: &mut Window, v: u32| {
+                w.override_redirect = v != 0;
+            });
+            apply_if_set!(value_mask::SAVE_UNDER, |w: &mut Window, v: u32| {
+                w.save_under = v != 0;
+            });
+            apply_if_set!(value_mask::EVENT_MASK, |w: &mut Window, v: u32| {
+                w.event_mask = v;
+            });
+            apply_if_set!(
+                value_mask::DO_NOT_PROPAGATE_MASK,
+                |w: &mut Window, v: u32| {
+                    w.do_not_propagate_mask = v;
+                }
+            );
+            apply_if_set!(value_mask::COLORMAP, |w: &mut Window, v: u32| {
+                w.colormap = Some(v);
+            });
+            apply_if_set!(value_mask::CURSOR, |w: &mut Window, v: u32| {
+                w.cursor = (v != 0).then_some(v);
+            });
+        }
+
         // CreateWindow doesn't generate a response
         Ok(None)
     }
@@ -1780,6 +1922,141 @@ impl RequestHandler for CreateWindowHandler {
 
     fn name(&self) -> &'static str {
         "CreateWindow"
+    }
+}
+
+/// Handler for ChangeWindowAttributes requests (opcode 2)
+pub struct ChangeWindowAttributesHandler;
+
+#[async_trait]
+impl RequestHandler for ChangeWindowAttributesHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let change_attrs_request = match &request.kind {
+            RequestKind::ChangeWindowAttributes(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for ChangeWindowAttributes: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let window = server
+            .get_window(change_attrs_request.window)
+            .ok_or_else(|| {
+                X11Error::Protocol(format!(
+                    "ChangeWindowAttributes: window {} does not exist",
+                    change_attrs_request.window
+                ))
+            })?;
+        if window.owner != Some(client_id) {
+            return Err(X11Error::Protocol(format!(
+                "ChangeWindowAttributes: client {} does not own window {}",
+                client_id, change_attrs_request.window
+            )));
+        }
+
+        let value_mask_bits = change_attrs_request.value_mask;
+        let value_list = &change_attrs_request.value_list;
+
+        if value_mask_bits & (value_mask::BACKGROUND_PIXEL | value_mask::BACKGROUND_PIXMAP) != 0 {
+            let background = decode_background(value_mask_bits, value_list);
+            if let Background::Pixmap(id) = background {
+                if server.get_pixmap(id).is_none() {
+                    return Err(X11Error::Protocol(format!(
+                        "ChangeWindowAttributes: background pixmap {} does not exist",
+                        id
+                    )));
+                }
+            }
+            server
+                .get_window_mut(change_attrs_request.window)
+                .unwrap()
+                .background = background;
+        }
+
+        if value_mask_bits & (value_mask::BORDER_PIXEL | value_mask::BORDER_PIXMAP) != 0 {
+            let border = decode_border(value_mask_bits, value_list);
+            if let Border::Pixmap(id) = border {
+                if server.get_pixmap(id).is_none() {
+                    return Err(X11Error::Protocol(format!(
+                        "ChangeWindowAttributes: border pixmap {} does not exist",
+                        id
+                    )));
+                }
+            }
+            server
+                .get_window_mut(change_attrs_request.window)
+                .unwrap()
+                .border = border;
+        }
+
+        let window = server
+            .get_window_mut(change_attrs_request.window)
+            .unwrap();
+
+        macro_rules! apply_if_set {
+            ($bit:expr, $body:expr) => {
+                if let Some(value) = value_list_entry(value_mask_bits, value_list, $bit) {
+                    ($body)(window, value);
+                }
+            };
+        }
+
+        apply_if_set!(value_mask::BIT_GRAVITY, |w: &mut Window, v: u32| {
+            w.bit_gravity = v as u8;
+        });
+        apply_if_set!(value_mask::WIN_GRAVITY, |w: &mut Window, v: u32| {
+            w.win_gravity = v as u8;
+        });
+        apply_if_set!(value_mask::BACKING_STORE, |w: &mut Window, v: u32| {
+            w.backing_store = v as u8;
+        });
+        apply_if_set!(value_mask::BACKING_PLANES, |w: &mut Window, v: u32| {
+            w.backing_planes = v;
+        });
+        apply_if_set!(value_mask::BACKING_PIXEL, |w: &mut Window, v: u32| {
+            w.backing_pixel = v;
+        });
+        apply_if_set!(value_mask::OVERRIDE_REDIRECT, |w: &mut Window, v: u32| {
+            w.override_redirect = v != 0;
+        });
+        apply_if_set!(value_mask::SAVE_UNDER, |w: &mut Window, v: u32| {
+            w.save_under = v != 0;
+        });
+        apply_if_set!(value_mask::EVENT_MASK, |w: &mut Window, v: u32| {
+            w.event_mask = v;
+        });
+        apply_if_set!(
+            value_mask::DO_NOT_PROPAGATE_MASK,
+            |w: &mut Window, v: u32| {
+                w.do_not_propagate_mask = v;
+            }
+        );
+        apply_if_set!(value_mask::COLORMAP, |w: &mut Window, v: u32| {
+            w.colormap = Some(v);
+        });
+        apply_if_set!(value_mask::CURSOR, |w: &mut Window, v: u32| {
+            w.cursor = (v != 0).then_some(v);
+        });
+
+        // ChangeWindowAttributes doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (2, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "ChangeWindowAttributes"
     }
 }
 
@@ -2585,6 +2862,7 @@ pub fn create_standard_handler_registry(
 
     // Window management handlers
     registry.register_handler(CreateWindowHandler);
+    registry.register_handler(ChangeWindowAttributesHandler);
     registry.register_handler(DestroyWindowHandler);
     registry.register_handler(MapWindowHandler);
     registry.register_handler(MapSubwindowsHandler);
@@ -2642,6 +2920,7 @@ pub fn create_standard_handler_registry(
 
     if let Some(major) = extensions.major_opcode("XInputExtension") {
         registry.register_handler(XInputGetExtensionVersionHandler::new(major));
+        registry.register_handler(XIQueryVersionHandler::new(major));
     }
 
     registry
