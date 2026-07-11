@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::protocol::extension_registry::ExtensionRegistry;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ByteOrder {
     LittleEndian,
@@ -164,16 +166,15 @@ pub enum BigRequestsOpcode {
 }
 
 impl BigRequestsOpcode {
-    /// This server always answers QueryExtension for BIG-REQUESTS with major
-    /// opcode 134 (see `QueryExtensionHandler`), rather than negotiating it
-    /// dynamically per the spec's general extension mechanism.
-    pub const MAJOR_OPCODE: u8 = 134;
-
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::Enable),
             _ => None,
         }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
     }
 
     pub fn name(self) -> &'static str {
@@ -211,10 +212,9 @@ impl XcMiscOpcode {
     }
 }
 
-/// RandR extension minor opcodes. This server registers RandR's major
-/// opcode as a fixed 200 (see `protocol::randr::handlers`), rather than
-/// negotiating it dynamically via QueryExtension as the spec technically
-/// allows.
+/// RandR extension minor opcodes. RandR's major opcode is assigned
+/// dynamically per session by `ExtensionRegistry` (see `extensions.md`),
+/// so this enum only carries minor opcodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum RandrOpcode {
@@ -248,8 +248,6 @@ pub enum RandrOpcode {
 }
 
 impl RandrOpcode {
-    pub const MAJOR_OPCODE: u8 = 200;
-
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::QueryVersion),
@@ -320,50 +318,86 @@ impl RandrOpcode {
     }
 }
 
+/// RENDER extension minor opcodes. Unlike RandR/BigRequests, RENDER's major
+/// opcode is not hardcoded here - it's assigned dynamically per session by
+/// `ExtensionRegistry` (see `extensions.md`), so this enum only carries
+/// minor opcodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum RenderOpcode {
+    QueryVersion = 0,
+}
+
+impl RenderOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::QueryVersion),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::QueryVersion => "RenderQueryVersion",
+        }
+    }
+}
+
 /// Extension-specific opcodes, keyed by major opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtensionOpcode {
     BigRequests(BigRequestsOpcode),
     XcMisc(XcMiscOpcode),
     Randr(RandrOpcode),
+    Render(RenderOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
 impl ExtensionOpcode {
-    /// Create extension opcode from major and minor opcode bytes
-    pub fn from_opcodes(major: u8, minor: u8) -> Self {
-        match major {
-            BigRequestsOpcode::MAJOR_OPCODE => {
-                if let Some(bigreq_op) = BigRequestsOpcode::from_u8(minor) {
-                    Self::BigRequests(bigreq_op)
-                } else {
-                    Self::Unknown(major, minor)
-                }
+    /// Resolve a major+minor opcode pair against `registry` - this server's
+    /// per-session, dynamically assigned major opcode table - rather than
+    /// fixed constants. This is the only correct way to turn a wire major
+    /// opcode byte into an `ExtensionOpcode`: extensions like RENDER and
+    /// XC-MISC have no fixed major opcode, so matching on a hardcoded number
+    /// here would silently misresolve (or never match) depending on
+    /// assignment order.
+    pub fn from_opcodes(major: u8, minor: u8, registry: &ExtensionRegistry) -> Self {
+        let extension_name = registry.extension_for_opcode(major);
+        let resolved = match extension_name {
+            Some("BIG-REQUESTS") => BigRequestsOpcode::from_u8(minor).map(Self::BigRequests),
+            Some("XC-MISC") => XcMiscOpcode::from_u8(minor).map(Self::XcMisc),
+            Some("RANDR") => RandrOpcode::from_u8(minor).map(Self::Randr),
+            Some("RENDER") => RenderOpcode::from_u8(minor).map(Self::Render),
+            Some(_) | None => None,
+        };
+
+        resolved.unwrap_or_else(|| {
+            match extension_name {
+                Some(name) => tracing::warn!(
+                    "Unresolved extension opcode: major {} is assigned to '{}' but minor {} doesn't map to a known request",
+                    major, name, minor
+                ),
+                None => tracing::warn!(
+                    "Unresolved extension opcode: major {} has no extension assigned this session (minor {})",
+                    major, minor
+                ),
             }
-            133 => {
-                if let Some(xcmisc_op) = XcMiscOpcode::from_u8(minor) {
-                    Self::XcMisc(xcmisc_op)
-                } else {
-                    Self::Unknown(major, minor)
-                }
-            }
-            RandrOpcode::MAJOR_OPCODE => {
-                if let Some(randr_op) = RandrOpcode::from_u8(minor) {
-                    Self::Randr(randr_op)
-                } else {
-                    Self::Unknown(major, minor)
-                }
-            }
-            _ => Self::Unknown(major, minor),
-        }
+            Self::Unknown(major, minor)
+        })
     }
 
-    pub fn major_opcode(self) -> u8 {
+    /// The major opcode this variant was resolved against. Only meaningful
+    /// for `Unknown`, which carries its wire major opcode directly - the
+    /// other variants no longer carry a major opcode of their own (it's
+    /// session-dynamic, held by `ExtensionRegistry`, not by this enum).
+    pub fn major_opcode(self) -> Option<u8> {
         match self {
-            Self::BigRequests(_) => BigRequestsOpcode::MAJOR_OPCODE,
-            Self::XcMisc(_) => 133,
-            Self::Randr(_) => RandrOpcode::MAJOR_OPCODE,
-            Self::Unknown(major, _) => major,
+            Self::Unknown(major, _) => Some(major),
+            _ => None,
         }
     }
 
@@ -372,6 +406,7 @@ impl ExtensionOpcode {
             Self::BigRequests(op) => op as u8,
             Self::XcMisc(op) => op as u8,
             Self::Randr(op) => op.to_u8(),
+            Self::Render(op) => op.to_u8(),
             Self::Unknown(_, minor) => minor,
         }
     }
@@ -381,6 +416,7 @@ impl ExtensionOpcode {
             Self::BigRequests(op) => op.name().to_string(),
             Self::XcMisc(op) => op.name().to_string(),
             Self::Randr(op) => op.name().to_string(),
+            Self::Render(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -520,8 +556,10 @@ pub enum Opcode {
 }
 
 impl Opcode {
-    /// Convert from wire opcode byte to a named `Opcode` (extensions need
-    /// `Opcode::from_extension` since they require the minor opcode too).
+    /// Convert from wire opcode byte to a named `Opcode`. Extension opcodes
+    /// only carry the major opcode this way - resolving the minor opcode
+    /// too requires the session's `ExtensionRegistry` (see
+    /// `ExtensionOpcode::from_opcodes`).
     pub fn from_u8(value: u8) -> Self {
         match value {
             0 => Self::ConnectionSetup,
@@ -651,11 +689,6 @@ impl Opcode {
         }
     }
 
-    /// Build an `Opcode` for an extension request from its major and minor opcode.
-    pub fn from_extension(major: u8, minor: u8) -> Self {
-        Self::Extension(ExtensionOpcode::from_opcodes(major, minor))
-    }
-
     /// Convert to the wire opcode byte (returns the major opcode for extensions).
     pub const fn to_u8(self) -> u8 {
         match self {
@@ -780,9 +813,24 @@ impl Opcode {
             Self::SetModifierMapping => 118,
             Self::GetModifierMapping => 119,
             Self::NoOperation => 127,
-            Self::Extension(ExtensionOpcode::BigRequests(_)) => 132,
-            Self::Extension(ExtensionOpcode::XcMisc(_)) => 133,
-            Self::Extension(ExtensionOpcode::Randr(_)) => RandrOpcode::MAJOR_OPCODE,
+            // No known extension has a fixed major opcode - every one is
+            // assigned per session by ExtensionRegistry, and isn't
+            // recoverable from the `ExtensionOpcode` variant alone (unlike
+            // Unknown, which carries its wire major opcode explicitly).
+            // Nothing in this codebase constructs these variants and then
+            // calls `to_u8()` without still holding the original wire byte,
+            // so this is unreached in practice; it's not given a
+            // fabricated opcode number here because a wrong-but-plausible
+            // number is worse than a loud panic if that assumption ever
+            // breaks.
+            Self::Extension(
+                ExtensionOpcode::BigRequests(_)
+                | ExtensionOpcode::XcMisc(_)
+                | ExtensionOpcode::Randr(_)
+                | ExtensionOpcode::Render(_),
+            ) => panic!(
+                "extension major opcode is session-dynamic; use ExtensionRegistry::major_opcode instead of Opcode::to_u8"
+            ),
             Self::Extension(ExtensionOpcode::Unknown(major, _)) => major,
         }
     }

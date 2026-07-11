@@ -42,8 +42,10 @@ pub trait RequestHandler: Send + Sync {
 
     /// The (major, minor) opcode this handler supports. `minor` is `None`
     /// for core protocol requests, and `Some(_)` for extension sub-requests
-    /// that share a major opcode (e.g. every RANDR request has major opcode
-    /// `RandrOpcode::MAJOR_OPCODE`, distinguished by minor opcode).
+    /// that share a major opcode (e.g. every RANDR request handler holds the
+    /// session's RANDR major opcode, assigned by `ExtensionRegistry` and
+    /// passed into the handler's constructor, distinguished by minor
+    /// opcode).
     fn opcode(&self) -> (u8, Option<u8>);
 
     /// Get a human-readable name for this handler

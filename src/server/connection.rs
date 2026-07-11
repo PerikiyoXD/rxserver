@@ -208,6 +208,7 @@ where
             }
 
             let request_data = &data[offset..offset + request_length];
+            trace!("RAW request_data bytes: {:?}", request_data);
             let client_id = self.client.lock().await.id();
             let mut request = {
                 let server_guard = self.server.lock().await;

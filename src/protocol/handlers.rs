@@ -11,7 +11,7 @@ use tracing::debug;
 use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind,
-        X11Error, randr::*,
+        X11Error, randr::*, types::RenderOpcode,
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -955,6 +955,64 @@ impl RequestHandler for BigRequestsHandler {
     }
 }
 
+/// Handler for RenderQueryVersion requests (RENDER minor opcode 0)
+pub struct RenderQueryVersionHandler {
+    major_opcode: u8,
+}
+
+impl RenderQueryVersionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for RenderQueryVersionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _query_request = match &request.kind {
+            RequestKind::RenderQueryVersion(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for RenderQueryVersion: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        // Server-side RENDER support level. Advertising 0.11 (the version
+        // that introduced trapezoids/triangles) without more of the
+        // extension's requests implemented would let a client rely on
+        // features this server can't serve - keep it at the lowest version
+        // that QueryVersion + no other requests can honestly support.
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u32(0); // Server major version
+        writer.write_u32(1); // Server minor version
+        writer.write_padding(16); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            self.major_opcode,
+            Some(RenderOpcode::QueryVersion.to_u8()),
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "RenderQueryVersion"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -1583,6 +1641,10 @@ pub fn create_standard_handler_registry(
         registry.register_handler(RandrGetOutputInfoHandler::new(major));
         registry.register_handler(RandrGetCrtcInfoHandler::new(major));
         registry.register_handler(RandrGetScreenSizeRangeHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("RENDER") {
+        registry.register_handler(RenderQueryVersionHandler::new(major));
     }
 
     registry

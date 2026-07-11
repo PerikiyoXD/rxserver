@@ -14,11 +14,6 @@ macro_rules! read_or_err {
     };
 }
 
-/// BIG-REQUESTS is an extension: its major opcode isn't part of the core
-/// protocol, so it's not a variant of the core `Opcode` enum. See
-/// `BigRequestsOpcode::MAJOR_OPCODE` for why 134 specifically.
-const BIG_REQUESTS_OPCODE: u8 = BigRequestsOpcode::MAJOR_OPCODE;
-
 #[derive(Debug, Clone)]
 pub enum RequestKind {
     ConnectionSetup,
@@ -54,6 +49,8 @@ pub enum RequestKind {
     RandrGetOutputInfo(RandrGetOutputInfoRequest),
     RandrGetCrtcInfo(RandrGetCrtcInfoRequest),
     RandrGetScreenSizeRange(RandrGetScreenSizeRangeRequest),
+    // RENDER extension requests
+    RenderQueryVersion(RenderQueryVersionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -423,6 +420,13 @@ pub struct RandrGetScreenSizeRangeRequest {
     pub window: u32, // Window ID
 }
 
+// RENDER extension request structures
+#[derive(Debug, Clone)]
+pub struct RenderQueryVersionRequest {
+    pub client_major_version: u32,
+    pub client_minor_version: u32,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -466,6 +470,8 @@ pub struct RandrGetScreenResourcesParser;
 pub struct RandrGetOutputInfoParser;
 pub struct RandrGetCrtcInfoParser;
 pub struct RandrGetScreenSizeRangeParser;
+// RENDER parsers
+pub struct RenderQueryVersionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -1800,7 +1806,7 @@ impl RequestParser for NoOperationParser {
 }
 
 impl RequestParser for BigRequestsParser {
-    const OPCODE: u8 = BIG_REQUESTS_OPCODE;
+    const OPCODE: u8 = BigRequestsOpcode::Enable.to_u8();
 
     fn parse(bytes: &[u8]) -> Result<Request> {
         if bytes.len() < 4 {
@@ -2047,6 +2053,40 @@ impl RequestParser for RandrGetScreenSizeRangeParser {
     }
 }
 
+// RENDER extension parsers
+impl RequestParser for RenderQueryVersionParser {
+    const OPCODE: u8 = RenderOpcode::QueryVersion.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 12 {
+            return Err(anyhow::anyhow!("RenderQueryVersion request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let client_major_version = read_or_err!(reader, read_u32);
+        let client_minor_version = read_or_err!(reader, read_u32);
+
+        let request = RenderQueryVersionRequest {
+            client_major_version,
+            client_minor_version,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RenderQueryVersion(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2100,6 +2140,20 @@ impl X11RequestParser {
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown RANDR minor opcode: {}",
+                        minor_opcode
+                    ))
+                }
+            }
+            Some("RENDER") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!("RENDER request too short"));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == RenderOpcode::QueryVersion.to_u8() {
+                    RenderQueryVersionParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Unknown RENDER minor opcode: {}",
                         minor_opcode
                     ))
                 }
@@ -2225,6 +2279,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::RandrGetScreenSizeRange(_) => {
                 RandrGetScreenSizeRangeParser::validate(request)
             }
+            RequestKind::RenderQueryVersion(_) => RenderQueryVersionParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())
