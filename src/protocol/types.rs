@@ -50,15 +50,34 @@ pub mod constants {
     // Visual ID constants
     pub const COPY_FROM_PARENT_VISUAL: u32 = 0;
 
-    // Pixmap constants
-    pub const NONE: u32 = 0;
-    pub const PARENT_RELATIVE: u32 = 1;
-
     // Cursor constants
     pub const CURSOR_NONE: u32 = 0;
 
     // Colormap constants
     pub const COPY_FROM_PARENT_COLORMAP: u32 = 0;
+}
+
+/// The wire value of a `PIXMAP`-typed field that also carries the two
+/// special values every such field defines (xproto encoding.xml,
+/// CreateWindow VALUEs: `background-pixmap`, and reused elsewhere the spec
+/// says "0 = None" / "1 = ParentRelative" for a PIXMAP slot). A bare `u32`
+/// comparison against `0`/`1` reads as an arbitrary magic number at the call
+/// site; this makes the three cases a real, exhaustive match instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PixmapValue {
+    None,
+    ParentRelative,
+    Id(PixmapId),
+}
+
+impl PixmapValue {
+    pub fn from_u32(value: u32) -> Self {
+        match value {
+            0 => Self::None,
+            1 => Self::ParentRelative,
+            id => Self::Id(id),
+        }
+    }
 }
 
 // Bit gravity enumeration

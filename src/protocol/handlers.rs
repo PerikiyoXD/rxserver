@@ -11,13 +11,14 @@ use tracing::debug;
 use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind,
-        X11Error, randr::*, types::RenderOpcode,
+        X11Error, randr::*,
+        types::{PixmapValue, RenderOpcode, value_mask},
     },
     server::{
         GrabResult, PointerGrab, Server,
         client_system::ClientId,
-        graphics::{draw_arc, draw_line, fill_arc, fill_rectangle},
-        window_system::WindowClass,
+        graphics::{draw_arc, draw_line, fill_arc, fill_rectangle, clear_area},
+        window_system::{Background, WindowClass},
     },
 };
 
@@ -1086,6 +1087,38 @@ impl RequestHandler for RenderCreateSolidFillHandler {
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
+/// Look up the value-list slot for a single value-mask bit, per xproto's
+/// CreateWindow encoding: each set bit in the mask consumes exactly one
+/// CARD32 slot in `value_list`, in ascending bit order. Returns `None` if
+/// `bit` isn't set in `value_mask`.
+fn value_list_entry(value_mask: u32, value_list: &[u32], bit: u32) -> Option<u32> {
+    if value_mask & bit == 0 {
+        return None;
+    }
+    let index = (value_mask & (bit - 1)).count_ones() as usize;
+    value_list.get(index).copied()
+}
+
+/// Decode the `background-pixmap`/`background-pixel` value-list entries into
+/// a `Background`, per xproto's CreateWindow VALUEs table. `background-pixel`
+/// takes precedence when both bits are set, matching real X servers - the
+/// spec doesn't define an order between them, but only one is ever sent in
+/// practice.
+fn decode_background(value_mask: u32, value_list: &[u32]) -> Background {
+    if let Some(pixel) = value_list_entry(value_mask, value_list, value_mask::BACKGROUND_PIXEL) {
+        return Background::Pixel(pixel);
+    }
+    if let Some(pixmap) = value_list_entry(value_mask, value_list, value_mask::BACKGROUND_PIXMAP) {
+        return match PixmapValue::from_u32(pixmap) {
+            PixmapValue::None => Background::None,
+            PixmapValue::ParentRelative => Background::ParentRelative,
+            PixmapValue::Id(id) => Background::Pixmap(id),
+        };
+    }
+    // Neither bit set: spec default for CreateWindow is background None.
+    Background::None
+}
+
 #[async_trait]
 impl RequestHandler for CreateWindowHandler {
     async fn handle_request(
@@ -1119,6 +1152,22 @@ impl RequestHandler for CreateWindowHandler {
             }
         };
 
+        let background = decode_background(
+            create_window_request.value_mask,
+            &create_window_request.value_list,
+        );
+
+        // If background-pixmap names a real pixmap ID (not None/ParentRelative),
+        // it must already exist - CreateWindow errors with Pixmap otherwise.
+        if let Background::Pixmap(id) = background {
+            if server.get_pixmap(id).is_none() {
+                return Err(X11Error::Protocol(format!(
+                    "CreateWindow: background pixmap {} does not exist",
+                    id
+                )));
+            }
+        }
+
         // Create the window
         server
             .create_window(
@@ -1132,6 +1181,7 @@ impl RequestHandler for CreateWindowHandler {
                 create_window_request.depth,
                 window_class,
                 client_id,
+                background,
             )
             .await
             .map_err(|e| X11Error::Protocol(format!("Failed to create window: {}", e)))?;
@@ -1270,6 +1320,106 @@ impl RequestHandler for MapWindowHandler {
 
     fn name(&self) -> &'static str {
         "MapWindow"
+    }
+}
+
+/// Handler for ClearArea requests (opcode 61)
+pub struct ClearAreaHandler;
+
+#[async_trait]
+impl RequestHandler for ClearAreaHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let clear_area_request = match &request.kind {
+            RequestKind::ClearArea(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for ClearArea: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let window = server.get_window(clear_area_request.window).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "ClearArea: window {} does not exist",
+                clear_area_request.window
+            ))
+        })?;
+
+        if window.class == crate::server::window_system::WindowClass::InputOnly {
+            return Err(X11Error::Protocol(format!(
+                "ClearArea: window {} is InputOnly (Match error)",
+                clear_area_request.window
+            )));
+        }
+
+        // Resolve ParentRelative up the window tree to a concrete
+        // background before clearing - clear_area() itself only knows how
+        // to fill None/Pixel/Pixmap.
+        let background = server
+            .resolve_background(clear_area_request.window)
+            .unwrap_or(Background::None);
+
+        let background_pixmap = if let Background::Pixmap(id) = background {
+            server.get_pixmap(id).cloned()
+        } else {
+            None
+        };
+
+        let window = server.get_window_mut(clear_area_request.window).unwrap();
+        clear_area(
+            window,
+            clear_area_request.x,
+            clear_area_request.y,
+            clear_area_request.width,
+            clear_area_request.height,
+            background,
+            background_pixmap.as_ref(),
+        );
+
+        if clear_area_request.exposures != 0 {
+            let (window_id, width, height) = {
+                let window = server.get_window(clear_area_request.window).unwrap();
+                (window.id, window.width, window.height)
+            };
+            server
+                .send_expose_event(
+                    client_id,
+                    window_id,
+                    clear_area_request.x,
+                    clear_area_request.y,
+                    if clear_area_request.width == 0 {
+                        width
+                    } else {
+                        clear_area_request.width
+                    },
+                    if clear_area_request.height == 0 {
+                        height
+                    } else {
+                        clear_area_request.height
+                    },
+                    0,
+                )
+                .await;
+        }
+
+        // ClearArea doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (61, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "ClearArea"
     }
 }
 
@@ -1678,6 +1828,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(CreateWindowHandler);
     registry.register_handler(DestroyWindowHandler);
     registry.register_handler(MapWindowHandler);
+    registry.register_handler(ClearAreaHandler);
     registry.register_handler(UnmapWindowHandler);
     registry.register_handler(GetGeometryHandler);
     registry.register_handler(CreateGCHandler);

@@ -30,6 +30,7 @@ pub enum RequestKind {
     DestroyWindow(DestroyWindowRequest),
     MapWindow(MapWindowRequest),
     UnmapWindow(UnmapWindowRequest),
+    ClearArea(ClearAreaRequest),
     CreateGC(CreateGCRequest),
     FreeGC(FreeGCRequest),
     PolyArc(PolyArcRequest),
@@ -200,6 +201,19 @@ pub struct UnmapWindowRequest {
     pub unused: u8,       // unused
     pub length: u16,      // request length (2)
     pub window: WindowId, // window to unmap
+}
+
+/// ClearArea request structure matching X11 protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClearAreaRequest {
+    pub opcode: u8,       // opcode (61)
+    pub exposures: u8,    // BOOL: whether to generate Expose events
+    pub length: u16,      // request length (4)
+    pub window: WindowId, // window to clear
+    pub x: i16,
+    pub y: i16,
+    pub width: u16,
+    pub height: u16,
 }
 
 /// CreateGC request structure matching X11 protocol
@@ -462,6 +476,7 @@ pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
 pub struct MapWindowParser;
 pub struct UnmapWindowParser;
+pub struct ClearAreaParser;
 pub struct CreateGCParser;
 pub struct FreeGCParser;
 pub struct PolyArcParser;
@@ -1259,6 +1274,56 @@ impl RequestParser for UnmapWindowParser {
             _ => Err(anyhow::anyhow!(
                 "Invalid request type for UnmapWindowParser"
             )),
+        }
+    }
+}
+
+impl RequestParser for ClearAreaParser {
+    const OPCODE: u8 = Opcode::ClearArea.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 16 {
+            return Err(anyhow::anyhow!("ClearArea request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let exposures = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let window = read_or_err!(reader, read_u32);
+        let x = read_or_err!(reader, read_i16);
+        let y = read_or_err!(reader, read_i16);
+        let width = read_or_err!(reader, read_u16);
+        let height = read_or_err!(reader, read_u16);
+
+        let request = ClearAreaRequest {
+            opcode,
+            exposures,
+            length,
+            window,
+            x,
+            y,
+            width,
+            height,
+        };
+
+        Ok(Request {
+            kind: RequestKind::ClearArea(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::ClearArea(req) => {
+                if req.window == 0 {
+                    return Err(anyhow::anyhow!("ClearArea: window id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Invalid request type for ClearAreaParser")),
         }
     }
 }
@@ -2272,6 +2337,8 @@ impl RequestParser for X11RequestParser {
             MapWindowParser::parse(bytes)
         } else if opcode == Opcode::UnmapWindow.to_u8() {
             UnmapWindowParser::parse(bytes)
+        } else if opcode == Opcode::ClearArea.to_u8() {
+            ClearAreaParser::parse(bytes)
         } else if opcode == Opcode::CreateGC.to_u8() {
             CreateGCParser::parse(bytes)
         } else if opcode == Opcode::FreeGC.to_u8() {
@@ -2319,6 +2386,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),
             RequestKind::MapWindow(_) => MapWindowParser::validate(request),
             RequestKind::UnmapWindow(_) => UnmapWindowParser::validate(request),
+            RequestKind::ClearArea(_) => ClearAreaParser::validate(request),
             RequestKind::CreateGC(_) => CreateGCParser::validate(request),
             RequestKind::FreeGC(_) => FreeGCParser::validate(request),
             RequestKind::PolyArc(_) => PolyArcParser::validate(request),

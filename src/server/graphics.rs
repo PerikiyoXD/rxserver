@@ -2,7 +2,8 @@
 //! Graphics rendering operations for X11 server
 
 use crate::protocol::{Arc, Point, Rectangle};
-use crate::server::window_system::Window;
+use crate::server::pixmap_system::Pixmap;
+use crate::server::window_system::{Background, Window};
 
 /// Simple arc drawing functions
 pub fn draw_arc(window: &mut Window, arc: &Arc, color: u32) {
@@ -60,6 +61,85 @@ pub fn fill_rectangle(window: &mut Window, rect: &Rectangle, color: u32) {
         for x in rect.x..(rect.x + rect.width as i16) {
             if x >= 0 && y >= 0 {
                 window.set_pixel(x as u16, y as u16, color);
+            }
+        }
+    }
+}
+
+/// ClearArea's fill logic (xproto sect1-9.xml, ClearArea): x/y are relative
+/// to the window origin; a zero width/height is replaced with "to the far
+/// edge of the window" (not "zero pixels"); the fill itself follows the
+/// window's resolved `Background` - `None` means leave pixels untouched,
+/// `Pixmap` tiles the background pixmap starting at the window origin (not
+/// at the cleared rectangle's origin - that's what makes it a consistent
+/// tile across separate clears), and `Pixel`/`ParentRelative`-resolved-to-Pixel
+/// is a flat fill.
+///
+/// `background_pixmap` must be `Some` exactly when `background` is
+/// `Background::Pixmap(_)` - the caller looks it up by ID before calling
+/// this, since `PixmapSystem` lives outside `Window`.
+pub fn clear_area(
+    window: &mut Window,
+    x: i16,
+    y: i16,
+    width: u16,
+    height: u16,
+    background: Background,
+    background_pixmap: Option<&Pixmap>,
+) {
+    let effective_width = if width == 0 {
+        (window.width as i16 - x).max(0) as u16
+    } else {
+        width
+    };
+    let effective_height = if height == 0 {
+        (window.height as i16 - y).max(0) as u16
+    } else {
+        height
+    };
+
+    match background {
+        Background::None => {
+            // Contents left unchanged, per spec.
+        }
+        Background::ParentRelative => {
+            // Callers resolve ParentRelative to a concrete background via
+            // WindowSystem::resolve_background before reaching here - this
+            // arm exists so the match stays exhaustive if that invariant is
+            // ever violated, rather than silently doing the wrong fill.
+            debug_assert!(
+                false,
+                "clear_area received unresolved Background::ParentRelative"
+            );
+        }
+        Background::Pixel(color) => {
+            let rect = Rectangle {
+                x,
+                y,
+                width: effective_width,
+                height: effective_height,
+            };
+            fill_rectangle(window, &rect, color);
+        }
+        Background::Pixmap(_) => {
+            let Some(pixmap) = background_pixmap else {
+                return;
+            };
+            for py in y..(y + effective_height as i16) {
+                for px in x..(x + effective_width as i16) {
+                    if px < 0 || py < 0 {
+                        continue;
+                    }
+                    // Tile relative to the window origin (0,0), not the
+                    // cleared rectangle, so repeated ClearArea calls on
+                    // different sub-rectangles show one continuous tiling.
+                    let tile_x = (px as u32) % (pixmap.width as u32);
+                    let tile_y = (py as u32) % (pixmap.height as u32);
+                    let index = tile_y as usize * pixmap.width as usize + tile_x as usize;
+                    if let Some(&color) = pixmap.pixel_data.get(index) {
+                        window.set_pixel(px as u16, py as u16, color);
+                    }
+                }
             }
         }
     }

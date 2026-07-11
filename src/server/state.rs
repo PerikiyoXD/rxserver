@@ -20,7 +20,7 @@ use crate::server::{
     picture_system::{Picture, PictureSystem, RenderColor},
     pixmap_system::PixmapSystem,
     resource_system::ResourceSystem,
-    window_system::{Window, WindowClass, WindowSystem},
+    window_system::{Background, Window, WindowClass, WindowSystem},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,6 +153,7 @@ impl Server {
         depth: u8,
         class: WindowClass,
         owner: ClientId,
+        background: Background,
     ) -> Result<(), String> {
         self.windows.create_window(
             id,
@@ -165,6 +166,7 @@ impl Server {
             depth,
             class,
             owner,
+            background,
         )?;
 
         // Notify displays of new window
@@ -199,6 +201,10 @@ impl Server {
 
     pub fn get_window_mut(&mut self, window_id: WindowId) -> Option<&mut Window> {
         self.windows.get_window_mut(window_id)
+    }
+
+    pub fn resolve_background(&self, window_id: WindowId) -> Option<Background> {
+        self.windows.resolve_background(window_id)
     }
 
     pub fn get_pixmap(&self, pixmap_id: PixmapId) -> Option<&crate::server::pixmap_system::Pixmap> {

@@ -1,8 +1,26 @@
 // window_system.rs
-use crate::protocol::{Atom, WindowId, constants};
+use crate::protocol::{Atom, PixmapId, WindowId, constants};
 use crate::server::client_system::ClientId;
 use std::collections::HashMap;
 use tracing::debug;
+
+/// A window's `background-pixel`/`background-pixmap` attribute, as set via
+/// CreateWindow/ChangeWindowAttributes's value-list (xproto encoding.xml,
+/// CreateWindow VALUEs). Drives ClearArea and window-clearing exposure -
+/// `None` means "background None" (contents left unchanged when cleared),
+/// distinct from this attribute never having been set (which defaults to
+/// `None` too, per the spec's CreateWindow defaults).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Background {
+    /// Spec's background `None`: clearing the window leaves pixels as-is.
+    None,
+    /// Spec's background `ParentRelative`: inherits the parent's background.
+    /// Resolved by walking up the window tree (see
+    /// `WindowSystem::resolve_background`) - never faked as `None`.
+    ParentRelative,
+    Pixel(u32),
+    Pixmap(PixmapId),
+}
 
 /// X11 window class
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,6 +57,7 @@ pub struct Window {
     pub owner: Option<ClientId>,
     pub pixel_data: Vec<u32>, // 0xAARRGGBB pixel data
     pub properties: HashMap<Atom, Property>,
+    pub background: Background,
 }
 
 impl Window {
@@ -53,6 +72,7 @@ impl Window {
         depth: u8,
         class: WindowClass,
         owner: ClientId,
+        background: Background,
     ) -> Result<Self, String> {
         let pixel_count = (width as usize) * (height as usize);
         let pixel_data = vec![0xFF000000; pixel_count]; // Opaque black background
@@ -70,6 +90,7 @@ impl Window {
             owner: Some(owner),
             pixel_data,
             properties: HashMap::new(),
+            background,
         })
     }
 
@@ -91,6 +112,7 @@ impl Window {
             owner: None,
             pixel_data,
             properties: HashMap::new(),
+            background: Background::Pixel(0xFF2E3440),
         }
     }
 
@@ -218,6 +240,7 @@ impl WindowSystem {
         depth: u8,
         class: WindowClass,
         owner: ClientId,
+        background: Background,
     ) -> Result<(), String> {
         if self.window_map.contains_key(&id) {
             return Err(format!("Window ID {} already exists", id));
@@ -238,6 +261,7 @@ impl WindowSystem {
             depth,
             class,
             owner,
+            background,
         )?;
         self.window_map.insert(id, window);
 
@@ -247,6 +271,25 @@ impl WindowSystem {
         );
 
         Ok(())
+    }
+
+    /// Resolve a window's effective background, following `ParentRelative`
+    /// up the window tree until a concrete `Pixel`/`Pixmap`/`None` is found
+    /// (or the root is reached). Per xproto's ClearArea semantics, a chain
+    /// of `ParentRelative` all the way to a window with background `None`
+    /// means "leave contents unchanged", so that's a real, distinct result -
+    /// not an error.
+    pub fn resolve_background(&self, window_id: WindowId) -> Option<Background> {
+        let mut current = self.window_map.get(&window_id)?;
+        loop {
+            match current.background {
+                Background::ParentRelative => {
+                    let parent_id = current.parent?;
+                    current = self.window_map.get(&parent_id)?;
+                }
+                resolved => return Some(resolved),
+            }
+        }
     }
 
     pub fn destroy_window(&mut self, window_id: WindowId) -> Result<(), String> {
@@ -311,7 +354,20 @@ mod tests {
     use super::*;
 
     fn window() -> Window {
-        Window::new(2, 1, 0, 0, 100, 100, 0, 24, WindowClass::InputOutput, 1).unwrap()
+        Window::new(
+            2,
+            1,
+            0,
+            0,
+            100,
+            100,
+            0,
+            24,
+            WindowClass::InputOutput,
+            1,
+            Background::None,
+        )
+        .unwrap()
     }
 
     #[test]
