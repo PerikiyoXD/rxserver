@@ -1773,23 +1773,39 @@ impl RequestHandler for FillArcHandler {
 
         let mut server = server.lock().await;
 
-        // Get the drawable (window)
-        let window_id = fill_arc_request.drawable;
+        // The drawable is a DRAWABLE (xproto encoding.xml types:DRAWABLE):
+        // either a window or a pixmap ID - resolve by trying both, same as
+        // PolyFillRectangleHandler.
+        let drawable_id = fill_arc_request.drawable;
         let gc_id = fill_arc_request.gc;
 
-        // Check if window exists and client owns it
-        {
-            let window = server.get_window(window_id).ok_or_else(|| {
-                X11Error::Protocol(format!("FillArc: window {} does not exist", window_id))
-            })?;
+        enum Target {
+            Window,
+            Pixmap,
+        }
 
+        let target = if let Some(window) = server.get_window(drawable_id) {
             if window.owner != Some(client_id) {
                 return Err(X11Error::Protocol(format!(
                     "FillArc: client {} does not own window {}",
-                    client_id, window_id
+                    client_id, drawable_id
                 )));
             }
-        } // immutable borrow ends here
+            Target::Window
+        } else if let Some(pixmap) = server.get_pixmap(drawable_id) {
+            if pixmap.owner != client_id {
+                return Err(X11Error::Protocol(format!(
+                    "FillArc: client {} does not own pixmap {}",
+                    client_id, drawable_id
+                )));
+            }
+            Target::Pixmap
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "FillArc: drawable {} does not exist",
+                drawable_id
+            )));
+        };
 
         // Get graphics context
         let gc_foreground = server
@@ -1802,12 +1818,20 @@ impl RequestHandler for FillArcHandler {
             })?
             .foreground;
 
-        // Now get mutable window reference
-        let window = server.get_window_mut(window_id).unwrap();
-
-        // Fill arcs
-        for arc in &fill_arc_request.arcs {
-            fill_arc(window, arc, gc_foreground);
+        // Fill arcs on whichever surface the drawable resolved to.
+        match target {
+            Target::Window => {
+                let window = server.get_window_mut(drawable_id).unwrap();
+                for arc in &fill_arc_request.arcs {
+                    fill_arc(window, arc, gc_foreground);
+                }
+            }
+            Target::Pixmap => {
+                let pixmap = server.get_pixmap_mut(drawable_id).unwrap();
+                for arc in &fill_arc_request.arcs {
+                    fill_arc(pixmap, arc, gc_foreground);
+                }
+            }
         }
 
         // FillArc doesn't generate a response

@@ -45,7 +45,7 @@ pub fn draw_arc(window: &mut Window, arc: &Arc, color: u32) {
     }
 }
 
-pub fn fill_arc(window: &mut Window, arc: &Arc, color: u32) {
+pub fn fill_arc(drawable: &mut impl Drawable, arc: &Arc, color: u32) {
     // Simple filled circle approximation
     let center_x = arc.x + arc.width as i16 / 2;
     let center_y = arc.y + arc.height as i16 / 2;
@@ -58,7 +58,7 @@ pub fn fill_arc(window: &mut Window, arc: &Arc, color: u32) {
             let dy = y - center_y;
             if dx * dx + dy * dy <= radius * radius {
                 if x >= 0 && y >= 0 {
-                    window.set_pixel(x as u16, y as u16, color);
+                    drawable.set_pixel(x as u16, y as u16, color);
                 }
             }
         }
