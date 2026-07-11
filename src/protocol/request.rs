@@ -28,6 +28,7 @@ pub enum RequestKind {
     GetProperty(GetPropertyRequest),
     QueryColors(QueryColorsRequest),
     CreatePixmap(CreatePixmapRequest),
+    FreePixmap(FreePixmapRequest),
     PutImage(PutImageRequest),
     CreateWindow(CreateWindowRequest),
     DestroyWindow(DestroyWindowRequest),
@@ -128,6 +129,15 @@ pub struct CreatePixmapRequest {
     pub drawable: DrawableId, // Drawable
     pub width: u16,           // Width
     pub height: u16,          // Height
+}
+
+/// FreePixmap request structure matching X11 protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FreePixmapRequest {
+    pub opcode: u8,       // 54: opcode
+    pub unused: u8,       // unused
+    pub length: u16,      // request length (2)
+    pub pixmap: PixmapId, // pixmap id
 }
 
 /// PutImage request structure matching X11 protocol
@@ -422,6 +432,7 @@ pub struct ChangePropertyParser;
 pub struct GetPropertyParser;
 pub struct QueryColorsParser;
 pub struct CreatePixmapParser;
+pub struct FreePixmapParser;
 pub struct PutImageParser;
 pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
@@ -781,6 +792,50 @@ impl RequestParser for CreatePixmapParser {
             }
             _ => Err(anyhow::anyhow!(
                 "Invalid request type for CreatePixmapParser"
+            )),
+        }
+    }
+}
+
+impl RequestParser for FreePixmapParser {
+    const OPCODE: u8 = Opcode::FreePixmap.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("FreePixmap request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let pixmap = read_or_err!(reader, read_u32);
+
+        let request = FreePixmapRequest {
+            opcode,
+            unused,
+            length,
+            pixmap,
+        };
+
+        Ok(Request {
+            kind: RequestKind::FreePixmap(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::FreePixmap(req) => {
+                if req.pixmap == 0 {
+                    return Err(anyhow::anyhow!("FreePixmap: pixmap id must be non-zero"));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!(
+                "Invalid request type for FreePixmapParser"
             )),
         }
     }
@@ -2044,6 +2099,8 @@ impl RequestParser for X11RequestParser {
             QueryColorsParser::parse(bytes)
         } else if opcode == Opcode::CreatePixmap.to_u8() {
             CreatePixmapParser::parse(bytes)
+        } else if opcode == Opcode::FreePixmap.to_u8() {
+            FreePixmapParser::parse(bytes)
         } else if opcode == Opcode::PutImage.to_u8() {
             PutImageParser::parse(bytes)
         } else if opcode == Opcode::CreateWindow.to_u8() {
@@ -2094,6 +2151,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::GetProperty(_) => GetPropertyParser::validate(request),
             RequestKind::QueryColors(_) => QueryColorsParser::validate(request),
             RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
+            RequestKind::FreePixmap(_) => FreePixmapParser::validate(request),
             RequestKind::PutImage(_) => PutImageParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),

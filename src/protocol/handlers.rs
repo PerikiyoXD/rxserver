@@ -447,6 +447,49 @@ impl RequestHandler for CreatePixmapHandler {
     }
 }
 
+/// Handler for FreePixmap requests (opcode 54)
+pub struct FreePixmapHandler;
+
+#[async_trait]
+impl RequestHandler for FreePixmapHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let free_pixmap_request = match &request.kind {
+            RequestKind::FreePixmap(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for FreePixmap: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        if !server.remove_pixmap(free_pixmap_request.pixmap) {
+            return Err(X11Error::Protocol(format!(
+                "FreePixmap: pixmap {} does not exist",
+                free_pixmap_request.pixmap
+            )));
+        }
+
+        // FreePixmap doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (54, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "FreePixmap"
+    }
+}
+
 /// Handler for PutImage requests (opcode 72)
 pub struct PutImageHandler;
 
@@ -1469,6 +1512,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(GetPropertyHandler);
     registry.register_handler(QueryColorsHandler);
     registry.register_handler(CreatePixmapHandler);
+    registry.register_handler(FreePixmapHandler);
     registry.register_handler(PutImageHandler);
     registry.register_handler(CopyAreaHandler);
     registry.register_handler(OpenFontHandler);

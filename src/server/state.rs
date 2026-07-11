@@ -206,6 +206,10 @@ impl Server {
         self.pixmaps.get_pixmap_mut(pixmap_id)
     }
 
+    pub fn remove_pixmap(&mut self, pixmap_id: PixmapId) -> bool {
+        self.pixmaps.remove_pixmap(pixmap_id)
+    }
+
     // Colormap management - delegate to ColormapSystem
     pub fn get_colormap(&self, colormap_id: ColormapId) -> Option<&Colormap> {
         self.colormaps.get_colormap(colormap_id)
