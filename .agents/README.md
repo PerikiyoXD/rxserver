@@ -9,6 +9,8 @@ not re-derived from the code each time.
 - `display.md` - virtual display rendering and its own thread
 - `transport.md` - TCP/Unix socket connection handling
 - `extensions.md` - how BIG-REQUESTS/RANDR/etc. are negotiated
+- `tasks/implement_opcode.md` - step-by-step workflow for adding a
+  missing core opcode (parser + handler)
 
 If something here goes stale, fix the doc in the same commit as the
 code change. A wrong doc is worse than no doc.
