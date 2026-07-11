@@ -335,6 +335,13 @@ impl Server {
         self.displays.display_count()
     }
 
+    /// Take the server-wide pointer device, if a display backend produced
+    /// one. Consumed once by `RX11Server::run`'s input pump - see
+    /// `DisplaySystem::take_pointer_device`.
+    pub fn take_pointer_device(&mut self) -> Option<crate::display::virtual_input::VirtualPointerDevice> {
+        self.displays.take_pointer_device()
+    }
+
     /// Get screen dimensions for display ID
     pub fn get_screen_size(&self, display_id: usize) -> (u16, u16) {
         if let Some(screen) = self.displays.randr_state().get_screen(display_id as u32) {
@@ -405,8 +412,51 @@ impl Server {
         if let Some(client_arc) = self.clients.get_client_mut(client_id) {
             let mut client = client_arc.lock().await;
             let event = ExposeEvent::new(window_id, x, y, width, height, count);
-            let event_data = event.serialize(client.byte_order());
+            let event_data = event.serialize(client.byte_order(), client.current_sequence_number());
             client.queue_event(event_data);
+        }
+    }
+
+    /// Deliver an XI2 RawMotion event to every client that selected
+    /// `XI_RawMotionMask` on any window, via XInputExtension's
+    /// XISelectEvents (`Window::xi_event_masks`) - this is how xeyes'
+    /// XI2-event-driven redraw path (`xi2_add_root_listener`, activated once
+    /// XIQueryVersion honestly reports XI2 support) actually gets the
+    /// motion notifications it's waiting for, instead of hanging with a
+    /// selection nothing ever satisfies. `time` is milliseconds since
+    /// server start, matching every other X11 event's timestamp field.
+    pub async fn deliver_xi_raw_motion(&mut self, time: u32) {
+        use crate::protocol::events::{XIRawMotionEvent, xi2_device, xi2_event_type};
+
+        let Some(xinput_major_opcode) = self.extensions.major_opcode("XInputExtension") else {
+            return;
+        };
+        let raw_motion_bit = 1u32 << xi2_event_type::RAW_MOTION;
+
+        // Collect (client, deviceid) pairs before borrowing clients mutably -
+        // windows() borrows self immutably, clients.get_client_mut needs &mut.
+        let mut targets: Vec<(ClientId, u16)> = Vec::new();
+        for window in self.windows.windows().values() {
+            for &(client_id, deviceid, mask) in &window.xi_event_masks {
+                if mask & raw_motion_bit != 0
+                    && (deviceid == xi2_device::ALL_DEVICES
+                        || deviceid == xi2_device::ALL_MASTER_DEVICES)
+                {
+                    targets.push((client_id, deviceid));
+                }
+            }
+        }
+        targets.sort_unstable();
+        targets.dedup();
+
+        for (client_id, deviceid) in targets {
+            if let Some(client_arc) = self.clients.get_client_mut(client_id) {
+                let mut client = client_arc.lock().await;
+                let event = XIRawMotionEvent::new(xinput_major_opcode, deviceid, deviceid, time);
+                let event_data =
+                    event.serialize(client.byte_order(), client.current_sequence_number());
+                client.queue_event(event_data);
+            }
         }
     }
 }

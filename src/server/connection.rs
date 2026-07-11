@@ -215,6 +215,14 @@ where
 
             let request_data = &data[offset..offset + request_length];
             trace!("RAW request_data bytes: {:?}", request_data);
+            if let Some(first) = request_data.first() {
+                trace!(
+                    "Request decoded: opcode={} minor_or_detail={} length_words={}",
+                    first,
+                    request_data.get(1).copied().unwrap_or(0),
+                    request_length / 4
+                );
+            }
             let client_id = self.client.lock().await.id();
             let mut request = {
                 let server_guard = self.server.lock().await;
@@ -241,6 +249,10 @@ where
             match handler_result {
                 Ok(Some(response)) => {
                     debug!("Handler returned response with {} bytes", response.len());
+                    trace!(
+                        "Reply decoded: {}",
+                        crate::protocol::trace_decode::describe_outgoing(&response, byte_order)
+                    );
                     self.stream
                         .write_all(&response)
                         .await
@@ -262,6 +274,10 @@ where
             };
 
             for event_data in pending_events {
+                trace!(
+                    "Event decoded: {}",
+                    crate::protocol::trace_decode::describe_outgoing(&event_data, byte_order)
+                );
                 self.stream
                     .write_all(&event_data)
                     .await

@@ -100,15 +100,13 @@ pub struct Window {
     pub do_not_propagate_mask: u32,
     pub colormap: Option<u32>,
     pub cursor: Option<u32>,
-    /// XI2 event masks selected via XIInputExtension's XISelectEvents,
-    /// keyed by XI2 device id (`(deviceid, mask)` pairs, not a HashMap -
-    /// XISelectEvents' own wire format is a small list, not a table, and
-    /// the device count here is always tiny). No XI2 event this server
-    /// could generate exists yet (no device subsystem - see
-    /// investigate_xinput_disconnect handoff notes), so nothing reads this
-    /// today; it exists so the selection isn't silently discarded once
-    /// events do exist.
-    pub xi_event_masks: Vec<(u16, u32)>,
+    /// XI2 event masks selected via XInputExtension's XISelectEvents,
+    /// recorded per requesting client - XI2 delivery is to whichever client
+    /// asked, not to this window's owner (a client can select on the root
+    /// window it doesn't own, exactly what xeyes does for XI_RawMotion).
+    /// `(client, deviceid, mask)` triples, not a nested map - the selection
+    /// count per window is always tiny.
+    pub xi_event_masks: Vec<(ClientId, u16, u32)>,
 }
 
 impl Window {

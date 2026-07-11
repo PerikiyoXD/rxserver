@@ -59,6 +59,30 @@ impl RX11Server {
             server.sync_windows_to_displays().await;
         }
 
+        // Drive XI2 RawMotion delivery from real pointer motion, if a
+        // display backend produced a pointer device (see
+        // DisplaySystem::take_pointer_device / input_system.rs). Runs for
+        // the server's lifetime; exits if the device's channel closes
+        // (display shut down).
+        let pointer_device = {
+            let mut server = self.state.lock().await;
+            server.take_pointer_device()
+        };
+        if let Some(mut pointer_device) = pointer_device {
+            let state = Arc::clone(&self.state);
+            tokio::spawn(async move {
+                use crate::server::input_system::{PointerDevice, PointerEvent};
+                let start = std::time::Instant::now();
+                while let Some(event) = pointer_device.next_event().await {
+                    if let PointerEvent::Moved { .. } = event {
+                        let time = start.elapsed().as_millis() as u32;
+                        let mut server = state.lock().await;
+                        server.deliver_xi_raw_motion(time).await;
+                    }
+                }
+            });
+        }
+
         // Create transport message channel
         let (tx, mut rx) = mpsc::unbounded_channel::<TransportMessage>();
 

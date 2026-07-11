@@ -120,6 +120,16 @@ impl Client {
         seq
     }
 
+    /// The sequence number of the request currently being handled - i.e.
+    /// the one `next_sequence_number` most recently returned. Events
+    /// generated as a side effect of handling a request (e.g. MapWindow's
+    /// Expose) must carry this number per the X11 spec; `0` is never valid
+    /// on the wire (real X servers never send it, and Xlib's demuxer trusts
+    /// this field to stay in the sequence it's already tracking).
+    pub fn current_sequence_number(&self) -> SequenceNumber {
+        self.sequence_number.wrapping_sub(1)
+    }
+
     /// Check if a resource ID belongs to this client
     pub fn owns_resource(&self, resource_id: XId) -> bool {
         (resource_id & !self.resource_id_mask) == self.resource_id_base

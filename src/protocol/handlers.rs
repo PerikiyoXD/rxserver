@@ -1660,7 +1660,7 @@ impl XISelectEventsHandler {
 impl RequestHandler for XISelectEventsHandler {
     async fn handle_request(
         &self,
-        _client_id: ClientId,
+        client_id: ClientId,
         request: &Request,
         server: Arc<Mutex<Server>>,
     ) -> HandlerResult<Option<Vec<u8>>> {
@@ -1689,11 +1689,13 @@ impl RequestHandler for XISelectEventsHandler {
             if let Some(entry) = window
                 .xi_event_masks
                 .iter_mut()
-                .find(|(deviceid, _)| *deviceid == mask.deviceid)
+                .find(|(client, deviceid, _)| *client == client_id && *deviceid == mask.deviceid)
             {
-                entry.1 = mask.mask;
+                entry.2 = mask.mask;
             } else {
-                window.xi_event_masks.push((mask.deviceid, mask.mask));
+                window
+                    .xi_event_masks
+                    .push((client_id, mask.deviceid, mask.mask));
             }
         }
 

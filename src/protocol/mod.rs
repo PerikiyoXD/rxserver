@@ -8,6 +8,7 @@ pub mod randr;
 pub mod request;
 pub mod response;
 pub mod serializer;
+pub mod trace_decode;
 pub mod types;
 pub mod validator;
 
