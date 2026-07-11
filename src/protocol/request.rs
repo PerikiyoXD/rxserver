@@ -66,6 +66,7 @@ pub enum RequestKind {
     XInputGetExtensionVersion(XInputGetExtensionVersionRequest),
     XIQueryVersion(XIQueryVersionRequest),
     XISelectEvents(XISelectEventsRequest),
+    GEQueryVersion(GEQueryVersionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -555,6 +556,13 @@ pub struct XISelectEventsRequest {
     pub masks: Vec<XIEventMask>,
 }
 
+// Generic Event Extension (XGE) request structures
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GEQueryVersionRequest {
+    pub client_major: u16,
+    pub client_minor: u16,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -615,6 +623,8 @@ pub struct XkbUseExtensionParser;
 pub struct XInputGetExtensionVersionParser;
 pub struct XIQueryVersionParser;
 pub struct XISelectEventsParser;
+// Generic Event Extension parsers
+pub struct GEQueryVersionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2805,6 +2815,44 @@ impl RequestParser for XISelectEventsParser {
     }
 }
 
+// Generic Event Extension parsers
+impl RequestParser for GEQueryVersionParser {
+    const OPCODE: u8 = GenericEventOpcode::QueryVersion.to_u8();
+
+    /// Wire format (confirmed against a live Xt request, not assumed from
+    /// spec alone): `major(1) minor(1) length(2)=2 client_major(2)
+    /// client_minor(2)` - 8 bytes total, 16-bit version fields like XKB's
+    /// UseExtension, not the 32-bit fields RENDER's QueryVersion uses.
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("GEQueryVersion request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let client_major = read_or_err!(reader, read_u16);
+        let client_minor = read_or_err!(reader, read_u16);
+
+        let request = GEQueryVersionRequest {
+            client_major,
+            client_minor,
+        };
+
+        Ok(Request {
+            kind: RequestKind::GEQueryVersion(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2922,6 +2970,22 @@ impl X11RequestParser {
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown XInputExtension minor opcode: {}",
+                        minor_opcode
+                    ))
+                }
+            }
+            Some("Generic Event Extension") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!(
+                        "Generic Event Extension request too short"
+                    ));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == GenericEventOpcode::QueryVersion.to_u8() {
+                    GEQueryVersionParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Unknown Generic Event Extension minor opcode: {}",
                         minor_opcode
                     ))
                 }
@@ -3074,6 +3138,7 @@ impl RequestParser for X11RequestParser {
             }
             RequestKind::XIQueryVersion(_) => XIQueryVersionParser::validate(request),
             RequestKind::XISelectEvents(_) => XISelectEventsParser::validate(request),
+            RequestKind::GEQueryVersion(_) => GEQueryVersionParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

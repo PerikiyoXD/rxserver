@@ -27,6 +27,7 @@ const KNOWN_EXTENSIONS: &[&str] = &[
     "RENDER",
     "XKEYBOARD",
     "XInputExtension",
+    "Generic Event Extension",
 ];
 
 /// Extensions with an actual `RequestHandler` registered for their
@@ -41,6 +42,7 @@ const IMPLEMENTED_EXTENSIONS: &[&str] = &[
     "SHAPE",
     "XKEYBOARD",
     "XInputExtension",
+    "Generic Event Extension",
 ];
 
 #[derive(Debug, Clone)]
@@ -120,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn only_big_requests_randr_render_shape_xkeyboard_and_xinput_are_implemented() {
+    fn only_big_requests_randr_render_shape_xkeyboard_xinput_and_xge_are_implemented() {
         let registry = ExtensionRegistry::new();
         assert!(registry.is_implemented("BIG-REQUESTS"));
         assert!(registry.is_implemented("RANDR"));
@@ -128,6 +130,7 @@ mod tests {
         assert!(registry.is_implemented("SHAPE"));
         assert!(registry.is_implemented("XKEYBOARD"));
         assert!(registry.is_implemented("XInputExtension"));
+        assert!(registry.is_implemented("Generic Event Extension"));
         assert!(!registry.is_implemented("MIT-SHM"));
         assert!(!registry.is_implemented("XINERAMA"));
     }

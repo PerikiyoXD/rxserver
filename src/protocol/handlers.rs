@@ -12,7 +12,10 @@ use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
         randr::*,
-        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, XInputOpcode, XkbOpcode, value_mask},
+        types::{
+            GenericEventOpcode, Opcode, PixmapValue, RenderOpcode, ShapeOpcode, XInputOpcode,
+            XkbOpcode, value_mask,
+        },
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -1707,6 +1710,63 @@ impl RequestHandler for XISelectEventsHandler {
     }
 }
 
+/// Handler for GEQueryVersion requests (Generic Event Extension minor
+/// opcode 0) - XGE's only real request, the version handshake Xt performs
+/// as part of XInput2 setup (XI2 events are delivered wrapped as
+/// GenericEvents, so Xt confirms XGE support before trusting XI2 events
+/// will actually arrive).
+pub struct GEQueryVersionHandler {
+    major_opcode: u8,
+}
+
+impl GEQueryVersionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for GEQueryVersionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _query_version_request = match &request.kind {
+            RequestKind::GEQueryVersion(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for GEQueryVersion: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u16(1); // Server major version
+        writer.write_u16(0); // Server minor version
+        writer.write_padding(20); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            self.major_opcode,
+            Some(GenericEventOpcode::QueryVersion.to_u8()),
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "GEQueryVersion"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -2989,6 +3049,10 @@ pub fn create_standard_handler_registry(
         registry.register_handler(XInputGetExtensionVersionHandler::new(major));
         registry.register_handler(XIQueryVersionHandler::new(major));
         registry.register_handler(XISelectEventsHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("Generic Event Extension") {
+        registry.register_handler(GEQueryVersionHandler::new(major));
     }
 
     registry

@@ -508,6 +508,37 @@ impl XkbOpcode {
     }
 }
 
+/// Generic Event Extension (XGE) minor opcodes. XGE has exactly one real
+/// request (version negotiation) - it isn't a feature extension in its own
+/// right, it's the transport GenericEvent (core event code 35) uses to
+/// deliver events for other extensions, XI2 foremost among them. Xt queries
+/// it as part of XInput2 setup since XI2 events arrive wrapped as
+/// GenericEvents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum GenericEventOpcode {
+    QueryVersion = 0,
+}
+
+impl GenericEventOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::QueryVersion),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::QueryVersion => "GEQueryVersion",
+        }
+    }
+}
+
 /// X Input Extension (XInput/XI1) minor opcodes. Like XKB, XInput's major
 /// opcode is session-dynamic (assigned by `ExtensionRegistry`), so this enum
 /// only carries minor opcodes. The full XI1 request set is listed here (per
@@ -662,6 +693,7 @@ pub enum ExtensionOpcode {
     Shape(ShapeOpcode),
     Xkb(XkbOpcode),
     XInput(XInputOpcode),
+    GenericEvent(GenericEventOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
@@ -683,6 +715,9 @@ impl ExtensionOpcode {
             Some("SHAPE") => ShapeOpcode::from_u8(minor).map(Self::Shape),
             Some("XKEYBOARD") => XkbOpcode::from_u8(minor).map(Self::Xkb),
             Some("XInputExtension") => XInputOpcode::from_u8(minor).map(Self::XInput),
+            Some("Generic Event Extension") => {
+                GenericEventOpcode::from_u8(minor).map(Self::GenericEvent)
+            }
             Some(_) | None => None,
         };
 
@@ -721,6 +756,7 @@ impl ExtensionOpcode {
             Self::Shape(op) => op.to_u8(),
             Self::Xkb(op) => op.to_u8(),
             Self::XInput(op) => op.to_u8(),
+            Self::GenericEvent(op) => op.to_u8(),
             Self::Unknown(_, minor) => minor,
         }
     }
@@ -734,6 +770,7 @@ impl ExtensionOpcode {
             Self::Shape(op) => op.name().to_string(),
             Self::Xkb(op) => op.name().to_string(),
             Self::XInput(op) => op.name().to_string(),
+            Self::GenericEvent(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -1147,7 +1184,8 @@ impl Opcode {
                 | ExtensionOpcode::Render(_)
                 | ExtensionOpcode::Shape(_)
                 | ExtensionOpcode::Xkb(_)
-                | ExtensionOpcode::XInput(_),
+                | ExtensionOpcode::XInput(_)
+                | ExtensionOpcode::GenericEvent(_),
             ) => panic!(
                 "extension major opcode is session-dynamic; use ExtensionRegistry::major_opcode instead of Opcode::to_u8"
             ),
