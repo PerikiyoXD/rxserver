@@ -347,6 +347,7 @@ impl RandrOpcode {
 pub enum RenderOpcode {
     QueryVersion = 0,
     QueryPictFormats = 1,
+    CreatePicture = 4,
     CreateSolidFill = 33,
 }
 
@@ -355,6 +356,7 @@ impl RenderOpcode {
         match value {
             0 => Some(Self::QueryVersion),
             1 => Some(Self::QueryPictFormats),
+            4 => Some(Self::CreatePicture),
             33 => Some(Self::CreateSolidFill),
             _ => None,
         }
@@ -368,6 +370,7 @@ impl RenderOpcode {
         match self {
             Self::QueryVersion => "RenderQueryVersion",
             Self::QueryPictFormats => "RenderQueryPictFormats",
+            Self::CreatePicture => "RenderCreatePicture",
             Self::CreateSolidFill => "RenderCreateSolidFill",
         }
     }

@@ -9,7 +9,8 @@ use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
 use crate::protocol::{
-    Atom, ColormapId, CursorId, ExtensionRegistry, GContextId, PictureId, PixmapId, WindowId, XId,
+    Atom, ColormapId, CursorId, DrawableId, ExtensionRegistry, GContextId, PictureId, PixmapId,
+    WindowId, XId,
 };
 use crate::server::{
     atom_system::AtomSystem,
@@ -17,7 +18,7 @@ use crate::server::{
     colormap_system::{Colormap, ColormapSystem},
     display_system::DisplaySystem,
     gcontext_system::{GraphicsContext, GraphicsContextSystem},
-    picture_system::{Picture, PictureSystem, RenderColor},
+    picture_system::{Picture, PictureAttributes, PictureSystem, RenderColor},
     pixmap_system::PixmapSystem,
     resource_system::ResourceSystem,
     window_system::{Background, Window, WindowClass, WindowSystem},
@@ -230,6 +231,18 @@ impl Server {
         owner: ClientId,
     ) -> Result<(), String> {
         self.pictures.create_solid_fill(id, color, owner)
+    }
+
+    pub fn create_picture(
+        &mut self,
+        id: PictureId,
+        drawable: DrawableId,
+        format: u32,
+        attributes: PictureAttributes,
+        owner: ClientId,
+    ) -> Result<(), String> {
+        self.pictures
+            .create_picture(id, drawable, format, attributes, owner)
     }
 
     pub fn get_picture(&self, id: PictureId) -> Option<&Picture> {

@@ -54,6 +54,7 @@ pub enum RequestKind {
     // RENDER extension requests
     RenderQueryVersion(RenderQueryVersionRequest),
     RenderQueryPictFormats(RenderQueryPictFormatsRequest),
+    RenderCreatePicture(RenderCreatePictureRequest),
     RenderCreateSolidFill(RenderCreateSolidFillRequest),
     // SHAPE extension requests
     ShapeMask(ShapeMaskRequest),
@@ -470,6 +471,15 @@ pub struct RenderCreateSolidFillRequest {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RenderQueryPictFormatsRequest;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderCreatePictureRequest {
+    pub pid: PictureId,
+    pub drawable: DrawableId,
+    pub format: u32,
+    pub value_mask: u32,
+    pub value_list: Vec<u32>,
+}
+
 // SHAPE extension request structures
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShapeMaskRequest {
@@ -529,6 +539,7 @@ pub struct RandrGetScreenSizeRangeParser;
 // RENDER parsers
 pub struct RenderQueryVersionParser;
 pub struct RenderQueryPictFormatsParser;
+pub struct RenderCreatePictureParser;
 pub struct RenderCreateSolidFillParser;
 // SHAPE parsers
 pub struct ShapeMaskParser;
@@ -2309,6 +2320,71 @@ impl RequestParser for RenderQueryPictFormatsParser {
     }
 }
 
+impl RequestParser for RenderCreatePictureParser {
+    const OPCODE: u8 = RenderOpcode::CreatePicture.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 20 {
+            return Err(anyhow::anyhow!("RenderCreatePicture request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let pid = read_or_err!(reader, read_u32);
+        let drawable = read_or_err!(reader, read_u32);
+        let format = read_or_err!(reader, read_u32);
+        let value_mask = read_or_err!(reader, read_u32);
+
+        let mut value_list = Vec::new();
+        let remaining_bytes = (length as usize * 4).saturating_sub(20);
+        if remaining_bytes > 0 {
+            let values_count = remaining_bytes / 4;
+            for _ in 0..values_count {
+                value_list.push(read_or_err!(reader, read_u32));
+            }
+        }
+
+        let request = RenderCreatePictureRequest {
+            pid,
+            drawable,
+            format,
+            value_mask,
+            value_list,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RenderCreatePicture(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::RenderCreatePicture(req) => {
+                if req.pid == 0 {
+                    return Err(anyhow::anyhow!(
+                        "RenderCreatePicture: picture id must be non-zero"
+                    ));
+                }
+                let set_bits = req.value_mask.count_ones() as usize;
+                if req.value_list.len() != set_bits {
+                    return Err(anyhow::anyhow!(
+                        "RenderCreatePicture: value-list has {} entries but value-mask sets {} bits",
+                        req.value_list.len(),
+                        set_bits
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Not a RenderCreatePicture request")),
+        }
+    }
+}
+
 impl RequestParser for RenderCreateSolidFillParser {
     const OPCODE: u8 = RenderOpcode::CreateSolidFill.to_u8();
 
@@ -2467,6 +2543,8 @@ impl X11RequestParser {
                     RenderQueryVersionParser::parse(bytes)
                 } else if minor_opcode == RenderOpcode::QueryPictFormats.to_u8() {
                     RenderQueryPictFormatsParser::parse(bytes)
+                } else if minor_opcode == RenderOpcode::CreatePicture.to_u8() {
+                    RenderCreatePictureParser::parse(bytes)
                 } else if minor_opcode == RenderOpcode::CreateSolidFill.to_u8() {
                     RenderCreateSolidFillParser::parse(bytes)
                 } else {
@@ -2618,6 +2696,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::RenderQueryPictFormats(_) => {
                 RenderQueryPictFormatsParser::validate(request)
             }
+            RequestKind::RenderCreatePicture(_) => RenderCreatePictureParser::validate(request),
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
             RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
             RequestKind::GrabPointer(_) => {

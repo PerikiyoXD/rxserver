@@ -19,6 +19,7 @@ use crate::{
         client_system::ClientId,
         gcontext_system::GraphicsContext,
         graphics::{clear_area, draw_arc, draw_line, fill_arc, fill_rectangle},
+        picture_system::PictureAttributes,
         window_system::{Background, WindowClass},
     },
 };
@@ -1136,6 +1137,171 @@ impl RequestHandler for RenderQueryPictFormatsHandler {
 
     fn name(&self) -> &'static str {
         "RenderQueryPictFormats"
+    }
+}
+
+mod picture_value_mask {
+    pub const REPEAT: u32 = 1 << 0;
+    pub const ALPHA_MAP: u32 = 1 << 1;
+    pub const ALPHA_X_ORIGIN: u32 = 1 << 2;
+    pub const ALPHA_Y_ORIGIN: u32 = 1 << 3;
+    pub const CLIP_X_ORIGIN: u32 = 1 << 4;
+    pub const CLIP_Y_ORIGIN: u32 = 1 << 5;
+    pub const CLIP_MASK: u32 = 1 << 6;
+    pub const GRAPHICS_EXPOSURE: u32 = 1 << 7;
+    pub const SUBWINDOW_MODE: u32 = 1 << 8;
+    pub const POLY_EDGE: u32 = 1 << 9;
+    pub const POLY_MODE: u32 = 1 << 10;
+    pub const DITHER: u32 = 1 << 11;
+    pub const COMPONENT_ALPHA: u32 = 1 << 12;
+}
+
+/// Decode CreatePicture/ChangePicture's mask-driven value-list into
+/// `PictureAttributes`, mirroring `apply_gc_values`'s shape for GC values.
+fn decode_picture_attributes(
+    value_mask: u32,
+    value_list: &[u32],
+) -> HandlerResult<PictureAttributes> {
+    let mut attrs = PictureAttributes::default();
+    let mut values = value_list.iter().copied();
+
+    macro_rules! apply_if_set {
+        ($bit:expr, $body:expr) => {
+            if value_mask & $bit != 0 {
+                let value = values.next().ok_or_else(|| {
+                    X11Error::Protocol(
+                        "Picture value-list ended before value-mask was satisfied".into(),
+                    )
+                })?;
+                ($body)(value);
+            }
+        };
+    }
+
+    apply_if_set!(picture_value_mask::REPEAT, |value| attrs.repeat =
+        value != 0);
+    apply_if_set!(picture_value_mask::ALPHA_MAP, |value| {
+        attrs.alpha_map = (value != 0).then_some(value);
+    });
+    apply_if_set!(picture_value_mask::ALPHA_X_ORIGIN, |value| {
+        attrs.alpha_x_origin = value as u16 as i16;
+    });
+    apply_if_set!(picture_value_mask::ALPHA_Y_ORIGIN, |value| {
+        attrs.alpha_y_origin = value as u16 as i16;
+    });
+    apply_if_set!(picture_value_mask::CLIP_X_ORIGIN, |value| {
+        attrs.clip_x_origin = value as u16 as i16;
+    });
+    apply_if_set!(picture_value_mask::CLIP_Y_ORIGIN, |value| {
+        attrs.clip_y_origin = value as u16 as i16;
+    });
+    apply_if_set!(picture_value_mask::CLIP_MASK, |value| {
+        attrs.clip_mask = (value != 0).then_some(value);
+    });
+    apply_if_set!(picture_value_mask::GRAPHICS_EXPOSURE, |value| {
+        attrs.graphics_exposures = value != 0;
+    });
+    apply_if_set!(picture_value_mask::SUBWINDOW_MODE, |value| {
+        attrs.subwindow_mode = value as u8;
+    });
+    apply_if_set!(picture_value_mask::POLY_EDGE, |value| attrs.poly_edge =
+        value as u8);
+    apply_if_set!(picture_value_mask::POLY_MODE, |value| attrs.poly_mode =
+        value as u8);
+    apply_if_set!(picture_value_mask::DITHER, |value| attrs.dither = value);
+    apply_if_set!(picture_value_mask::COMPONENT_ALPHA, |value| {
+        attrs.component_alpha = value != 0;
+    });
+
+    Ok(attrs)
+}
+
+/// Handler for RenderCreatePicture requests (RENDER minor opcode 4)
+pub struct RenderCreatePictureHandler {
+    major_opcode: u8,
+}
+
+impl RenderCreatePictureHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for RenderCreatePictureHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let create_request = match &request.kind {
+            RequestKind::RenderCreatePicture(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for RenderCreatePicture: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        if !client.lock().await.owns_resource(create_request.pid) {
+            return Err(X11Error::Protocol(format!(
+                "RenderCreatePicture: picture id {} is not within client's resource range",
+                create_request.pid
+            )));
+        }
+
+        // The drawable is a DRAWABLE: either a window or a pixmap ID -
+        // resolve by trying both, same as PolyFillRectangleHandler.
+        let drawable_id = create_request.drawable;
+        let owns_drawable = if let Some(window) = server.get_window(drawable_id) {
+            window.owner == Some(client_id)
+        } else if let Some(pixmap) = server.get_pixmap(drawable_id) {
+            pixmap.owner == client_id
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "RenderCreatePicture: drawable {} does not exist",
+                drawable_id
+            )));
+        };
+        if !owns_drawable {
+            return Err(X11Error::Protocol(format!(
+                "RenderCreatePicture: client {} does not own drawable {}",
+                client_id, drawable_id
+            )));
+        }
+
+        let attributes = decode_picture_attributes(
+            create_request.value_mask,
+            &create_request.value_list,
+        )?;
+
+        server
+            .create_picture(
+                create_request.pid,
+                drawable_id,
+                create_request.format,
+                attributes,
+                client_id,
+            )
+            .map_err(|e| X11Error::Protocol(format!("Failed to create picture: {}", e)))?;
+
+        // RenderCreatePicture doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(RenderOpcode::CreatePicture.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "RenderCreatePicture"
     }
 }
 
@@ -2265,6 +2431,7 @@ pub fn create_standard_handler_registry(
     if let Some(major) = extensions.major_opcode("RENDER") {
         registry.register_handler(RenderQueryVersionHandler::new(major));
         registry.register_handler(RenderQueryPictFormatsHandler::new(major));
+        registry.register_handler(RenderCreatePictureHandler::new(major));
         registry.register_handler(RenderCreateSolidFillHandler::new(major));
     }
 
