@@ -21,7 +21,7 @@ Real X servers assign extension major opcodes (BIG-REQUESTS, RANDR,
 etc.) per session; clients must call `QueryExtension` to learn them,
 never assume a fixed number. This server does the same via
 `protocol::extension_registry::ExtensionRegistry`, built once in
-`Server::new()`. See `extensions.md`.
+`Server::new()`. See `memories/extensions.md`.
 
 ## Dispatch
 
@@ -57,4 +57,4 @@ already and was a real structural bug, not a shortcut.
 3. Add a `FooHandler` in `handlers.rs`, register it in
    `create_standard_handler_registry()`.
 4. Test against a real client, not just `cargo build`. See
-   `server.md` for how.
+   `memories/server.md` for how.

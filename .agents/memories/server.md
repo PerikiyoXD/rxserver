@@ -14,8 +14,8 @@
 - `pixmap_system`, `gcontext_system` - pixmaps and graphics contexts
 - `client_system` - connected clients, resource ID ownership
 - `resource_system` - resource ID allocation bookkeeping
-- `display_system` - talks to the display backend(s), see `display.md`
-- `extensions: ExtensionRegistry` - see `extensions.md`
+- `display_system` - talks to the display backend(s), see `memories/display.md`
+- `extensions: ExtensionRegistry` - see `memories/extensions.md`
 
 Each system is a plain struct with its own methods; `Server` mostly
 delegates (`server.get_window(id)` etc). Add new server-visible state

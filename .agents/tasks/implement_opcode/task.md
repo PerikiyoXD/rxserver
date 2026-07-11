@@ -1,6 +1,6 @@
 # Workflow: implement a missing core opcode
 
-Used when a real client (xeyes via Cygwin, see `server.md`) dies with
+Used when a real client (xeyes via Cygwin, see `memories/server.md`) dies with
 `Unknown opcode: N` - the opcode has a name in `protocol::types::Opcode`
 (or needs one added) but no parser/handler exists yet. This is how
 QueryColors (91), FreePixmap (54), and GetInputFocus (43) were each
@@ -10,7 +10,7 @@ added, one opcode per pass.
 
 - The opcode number is core protocol (< 128) unless the trace shows
   `Dispatching extension request` - extension opcodes are a different,
-  bigger job (see `extensions.md`), not this workflow.
+  bigger job (see `memories/extensions.md`), not this workflow.
 - `Opcode::to_u8()`/`from_u8()`/`name()` in `types.rs` may already have
   the variant even though nothing parses it - check before adding one,
   since it's easy to assume the opcode is entirely missing when only
@@ -54,7 +54,7 @@ added, one opcode per pass.
 3. Add the handler in `handlers.rs`, register it in
    `create_standard_handler_registry()`.
 4. `cargo build`.
-5. Verify live per `server.md`: launch `rxserver.exe` with
+5. Verify live per `memories/server.md`: launch `rxserver.exe` with
    `RUST_LOG=trace`, launch xeyes via Cygwin, read the trace log for
    the opcode dispatching, the handler's reply being written, and
    where the client goes *next*. `cargo build` succeeding proves
