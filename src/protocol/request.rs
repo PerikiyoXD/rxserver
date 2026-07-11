@@ -51,6 +51,7 @@ pub enum RequestKind {
     RandrGetScreenSizeRange(RandrGetScreenSizeRangeRequest),
     // RENDER extension requests
     RenderQueryVersion(RenderQueryVersionRequest),
+    RenderCreateSolidFill(RenderCreateSolidFillRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -427,6 +428,15 @@ pub struct RenderQueryVersionRequest {
     pub client_minor_version: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderCreateSolidFillRequest {
+    pub pid: PictureId,
+    pub red: u16,
+    pub green: u16,
+    pub blue: u16,
+    pub alpha: u16,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -472,6 +482,7 @@ pub struct RandrGetCrtcInfoParser;
 pub struct RandrGetScreenSizeRangeParser;
 // RENDER parsers
 pub struct RenderQueryVersionParser;
+pub struct RenderCreateSolidFillParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2087,6 +2098,55 @@ impl RequestParser for RenderQueryVersionParser {
     }
 }
 
+impl RequestParser for RenderCreateSolidFillParser {
+    const OPCODE: u8 = RenderOpcode::CreateSolidFill.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 16 {
+            return Err(anyhow::anyhow!("RenderCreateSolidFill request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let pid = read_or_err!(reader, read_u32);
+        let red = read_or_err!(reader, read_u16);
+        let green = read_or_err!(reader, read_u16);
+        let blue = read_or_err!(reader, read_u16);
+        let alpha = read_or_err!(reader, read_u16);
+
+        let request = RenderCreateSolidFillRequest {
+            pid,
+            red,
+            green,
+            blue,
+            alpha,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RenderCreateSolidFill(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(request: &Request) -> Result<()> {
+        match &request.kind {
+            RequestKind::RenderCreateSolidFill(req) => {
+                if req.pid == 0 {
+                    return Err(anyhow::anyhow!(
+                        "RenderCreateSolidFill: picture id must be non-zero"
+                    ));
+                }
+                Ok(())
+            }
+            _ => Err(anyhow::anyhow!("Not a RenderCreateSolidFill request")),
+        }
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2151,6 +2211,8 @@ impl X11RequestParser {
                 let minor_opcode = bytes[1];
                 if minor_opcode == RenderOpcode::QueryVersion.to_u8() {
                     RenderQueryVersionParser::parse(bytes)
+                } else if minor_opcode == RenderOpcode::CreateSolidFill.to_u8() {
+                    RenderCreateSolidFillParser::parse(bytes)
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown RENDER minor opcode: {}",
@@ -2280,6 +2342,9 @@ impl RequestParser for X11RequestParser {
                 RandrGetScreenSizeRangeParser::validate(request)
             }
             RequestKind::RenderQueryVersion(_) => RenderQueryVersionParser::validate(request),
+            RequestKind::RenderCreateSolidFill(_) => {
+                RenderCreateSolidFillParser::validate(request)
+            }
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

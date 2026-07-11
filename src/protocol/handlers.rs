@@ -1013,6 +1013,76 @@ impl RequestHandler for RenderQueryVersionHandler {
     }
 }
 
+/// Handler for RenderCreateSolidFill requests (RENDER minor opcode 33)
+pub struct RenderCreateSolidFillHandler {
+    major_opcode: u8,
+}
+
+impl RenderCreateSolidFillHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for RenderCreateSolidFillHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let create_request = match &request.kind {
+            RequestKind::RenderCreateSolidFill(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for RenderCreateSolidFill: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        if !client.lock().await.owns_resource(create_request.pid) {
+            return Err(X11Error::Protocol(format!(
+                "RenderCreateSolidFill: picture id {} is not within client's resource range",
+                create_request.pid
+            )));
+        }
+
+        server
+            .create_solid_fill_picture(
+                create_request.pid,
+                crate::server::picture_system::RenderColor {
+                    red: create_request.red,
+                    green: create_request.green,
+                    blue: create_request.blue,
+                    alpha: create_request.alpha,
+                },
+                client_id,
+            )
+            .map_err(|e| X11Error::Protocol(format!("Failed to create solid fill: {}", e)))?;
+
+        // RenderCreateSolidFill doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            self.major_opcode,
+            Some(RenderOpcode::CreateSolidFill.to_u8()),
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "RenderCreateSolidFill"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -1645,6 +1715,7 @@ pub fn create_standard_handler_registry(
 
     if let Some(major) = extensions.major_opcode("RENDER") {
         registry.register_handler(RenderQueryVersionHandler::new(major));
+        registry.register_handler(RenderCreateSolidFillHandler::new(major));
     }
 
     registry

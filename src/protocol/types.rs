@@ -18,6 +18,7 @@ pub type CursorId = u32;
 pub type ColormapId = u32;
 pub type Atom = u32;
 pub type DrawableId = u32;
+pub type PictureId = u32; // RENDER extension resource ID
 
 pub type SequenceNumber = u16;
 
@@ -326,12 +327,14 @@ impl RandrOpcode {
 #[repr(u8)]
 pub enum RenderOpcode {
     QueryVersion = 0,
+    CreateSolidFill = 33,
 }
 
 impl RenderOpcode {
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::QueryVersion),
+            33 => Some(Self::CreateSolidFill),
             _ => None,
         }
     }
@@ -343,6 +346,7 @@ impl RenderOpcode {
     pub fn name(self) -> &'static str {
         match self {
             Self::QueryVersion => "RenderQueryVersion",
+            Self::CreateSolidFill => "RenderCreateSolidFill",
         }
     }
 }

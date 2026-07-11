@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 
 use crate::display::config::DisplayConfig;
 use crate::protocol::{
-    Atom, ColormapId, CursorId, ExtensionRegistry, GContextId, PixmapId, WindowId, XId,
+    Atom, ColormapId, CursorId, ExtensionRegistry, GContextId, PictureId, PixmapId, WindowId, XId,
 };
 use crate::server::{
     atom_system::AtomSystem,
@@ -17,6 +17,7 @@ use crate::server::{
     colormap_system::{Colormap, ColormapSystem},
     display_system::DisplaySystem,
     gcontext_system::{GraphicsContext, GraphicsContextSystem},
+    picture_system::{Picture, PictureSystem, RenderColor},
     pixmap_system::PixmapSystem,
     resource_system::ResourceSystem,
     window_system::{Window, WindowClass, WindowSystem},
@@ -77,6 +78,7 @@ pub struct Server {
     displays: DisplaySystem,
     gcontexts: GraphicsContextSystem,
     colormaps: ColormapSystem,
+    pictures: PictureSystem,
     pointer_grab: Option<PointerGrab>,
     extensions: ExtensionRegistry,
 }
@@ -92,6 +94,7 @@ impl Server {
             displays: DisplaySystem::from_configs(display_configs)?,
             gcontexts: GraphicsContextSystem::new(),
             colormaps: ColormapSystem::new(),
+            pictures: PictureSystem::new(),
             pointer_grab: None,
             extensions: ExtensionRegistry::new(),
         };
@@ -208,6 +211,24 @@ impl Server {
 
     pub fn remove_pixmap(&mut self, pixmap_id: PixmapId) -> bool {
         self.pixmaps.remove_pixmap(pixmap_id)
+    }
+
+    // Picture management - delegate to PictureSystem
+    pub fn create_solid_fill_picture(
+        &mut self,
+        id: PictureId,
+        color: RenderColor,
+        owner: ClientId,
+    ) -> Result<(), String> {
+        self.pictures.create_solid_fill(id, color, owner)
+    }
+
+    pub fn get_picture(&self, id: PictureId) -> Option<&Picture> {
+        self.pictures.get_picture(id)
+    }
+
+    pub fn remove_picture(&mut self, id: PictureId) -> bool {
+        self.pictures.remove_picture(id)
     }
 
     // Colormap management - delegate to ColormapSystem
