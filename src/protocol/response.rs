@@ -217,14 +217,13 @@ impl GetGeometryResponse {
 pub struct GrabPointerRequest {
     pub owner_events: bool,
     pub grab_window: WindowId,
-    pub event_mask: u32,        // SETofPOINTEREVENT
-    pub pointer_mode: u8,       // { Synchronous, Asynchronous }
-    pub keyboard_mode: u8,      // { Synchronous, Asynchronous }
-    pub confine_to: WindowId,   // WINDOW or None (0 for None)
-    pub cursor: CursorId,       // CURSOR or None (0 for None)
-    pub time: Timestamp,        // TIMESTAMP or CurrentTime
+    pub event_mask: u32,      // SETofPOINTEREVENT
+    pub pointer_mode: u8,     // { Synchronous, Asynchronous }
+    pub keyboard_mode: u8,    // { Synchronous, Asynchronous }
+    pub confine_to: WindowId, // WINDOW or None (0 for None)
+    pub cursor: CursorId,     // CURSOR or None (0 for None)
+    pub time: Timestamp,      // TIMESTAMP or CurrentTime
 }
-
 
 // ==================== RESPONSE ENVELOPE ====================
 

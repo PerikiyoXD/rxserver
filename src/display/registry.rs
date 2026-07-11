@@ -6,8 +6,8 @@
 //! it registers a pending `VirtualDisplayApp` here for `main.rs` to collect
 //! and run on the main thread.
 
-use std::sync::{Mutex, OnceLock};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Mutex, OnceLock};
 
 use crate::display::virtual_display_app::VirtualDisplayApp;
 

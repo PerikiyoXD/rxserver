@@ -29,21 +29,21 @@ pub struct Mode {
 pub struct Output {
     pub id: u32,
     pub name: String,
-    pub crtc_id: Option<u32>, // Currently assigned CRTC, if any
-    pub modes: Vec<u32>,      // List of supported mode IDs
+    pub crtc_id: Option<u32>,        // Currently assigned CRTC, if any
+    pub modes: Vec<u32>,             // List of supported mode IDs
     pub preferred_mode: Option<u32>, // Preferred mode ID
-    pub connected: bool,      // Whether output is connected
-    pub width_mm: u32,        // Physical width in millimeters
-    pub height_mm: u32,       // Physical height in millimeters
+    pub connected: bool,             // Whether output is connected
+    pub width_mm: u32,               // Physical width in millimeters
+    pub height_mm: u32,              // Physical height in millimeters
 }
 
 /// RANDR CRTC (Controller) manages the display of content
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Crtc {
     pub id: u32,
-    pub x: i16,               // Position on screen
+    pub x: i16, // Position on screen
     pub y: i16,
-    pub width: u16,           // Current mode dimensions
+    pub width: u16, // Current mode dimensions
     pub height: u16,
     pub mode_id: Option<u32>, // Currently active mode
     pub rotation: Rotation,   // Current rotation/reflection
@@ -93,8 +93,8 @@ pub struct Screen {
     pub min_height: u16,
     pub max_width: u16,
     pub max_height: u16,
-    pub width: u16,           // Current width
-    pub height: u16,          // Current height
+    pub width: u16,  // Current width
+    pub height: u16, // Current height
     pub modes: Vec<Mode>,
     pub outputs: Vec<Output>,
     pub crtcs: Vec<Crtc>,
@@ -139,11 +139,41 @@ impl RandrState {
 
         // Add some common modes
         let common_modes = vec![
-            Mode { id: 1, width: 640, height: 480, refresh_rate: 60000, name: "640x480".to_string() },
-            Mode { id: 2, width: 800, height: 600, refresh_rate: 60000, name: "800x600".to_string() },
-            Mode { id: 3, width: 1024, height: 768, refresh_rate: 60000, name: "1024x768".to_string() },
-            Mode { id: 4, width, height, refresh_rate: 60000, name: format!("{}x{}", width, height) },
-            Mode { id: 5, width: 1920, height: 1080, refresh_rate: 60000, name: "1920x1080".to_string() },
+            Mode {
+                id: 1,
+                width: 640,
+                height: 480,
+                refresh_rate: 60000,
+                name: "640x480".to_string(),
+            },
+            Mode {
+                id: 2,
+                width: 800,
+                height: 600,
+                refresh_rate: 60000,
+                name: "800x600".to_string(),
+            },
+            Mode {
+                id: 3,
+                width: 1024,
+                height: 768,
+                refresh_rate: 60000,
+                name: "1024x768".to_string(),
+            },
+            Mode {
+                id: 4,
+                width,
+                height,
+                refresh_rate: 60000,
+                name: format!("{}x{}", width, height),
+            },
+            Mode {
+                id: 5,
+                width: 1920,
+                height: 1080,
+                refresh_rate: 60000,
+                name: "1920x1080".to_string(),
+            },
         ];
 
         screen.modes = common_modes;

@@ -8,7 +8,8 @@ use std::sync::mpsc::Receiver;
 
 use tracing::info;
 use winit::{
-    application::ApplicationHandler, event::WindowEvent,
+    application::ApplicationHandler,
+    event::WindowEvent,
     event_loop::{ActiveEventLoop, ControlFlow},
 };
 

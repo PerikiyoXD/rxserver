@@ -1,7 +1,7 @@
 // events.rs
 //! X11 event structures and handling
 
-use crate::protocol::{types::*, endianness::ByteOrderWriter, ByteOrder};
+use crate::protocol::{ByteOrder, endianness::ByteOrderWriter, types::*};
 
 /// X11 event types
 #[derive(Debug, Clone)]

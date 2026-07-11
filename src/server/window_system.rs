@@ -166,7 +166,14 @@ impl Window {
 
     /// Set (replace/prepend/append) a property, per ChangeProperty's `mode`.
     /// `mode`: 0 = Replace, 1 = Prepend, 2 = Append.
-    pub fn change_property(&mut self, property: Atom, r#type: Atom, format: u8, mode: u8, mut data: Vec<u8>) {
+    pub fn change_property(
+        &mut self,
+        property: Atom,
+        r#type: Atom,
+        format: u8,
+        mode: u8,
+        mut data: Vec<u8>,
+    ) {
         match mode {
             1 => {
                 // Prepend: new data goes before existing data of the same type/format
@@ -175,7 +182,14 @@ impl Window {
                         data.extend_from_slice(&existing.data);
                     }
                 }
-                self.properties.insert(property, Property { r#type, format, data });
+                self.properties.insert(
+                    property,
+                    Property {
+                        r#type,
+                        format,
+                        data,
+                    },
+                );
             }
             2 => {
                 // Append: new data goes after existing data of the same type/format
@@ -189,11 +203,25 @@ impl Window {
                     Vec::new()
                 };
                 combined.append(&mut data);
-                self.properties.insert(property, Property { r#type, format, data: combined });
+                self.properties.insert(
+                    property,
+                    Property {
+                        r#type,
+                        format,
+                        data: combined,
+                    },
+                );
             }
             _ => {
                 // Replace (mode 0, and the default for anything unrecognized)
-                self.properties.insert(property, Property { r#type, format, data });
+                self.properties.insert(
+                    property,
+                    Property {
+                        r#type,
+                        format,
+                        data,
+                    },
+                );
             }
         }
     }

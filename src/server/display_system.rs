@@ -51,13 +51,20 @@ impl DisplaySystem {
             display.start()?;
 
             // Initialize RANDR state for this screen
-            randr_state.init_screen(display_id as u32, config.resolution[0] as u16, config.resolution[1] as u16);
+            randr_state.init_screen(
+                display_id as u32,
+                config.resolution[0] as u16,
+                config.resolution[1] as u16,
+            );
 
             displays.insert(display_id, Arc::new(Mutex::new(display)));
         }
 
         debug!("Set up {} display(s)", displays.len());
-        Ok(Self { displays, randr_state })
+        Ok(Self {
+            displays,
+            randr_state,
+        })
     }
 
     /// Get the number of displays

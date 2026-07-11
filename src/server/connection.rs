@@ -112,7 +112,10 @@ where
                     }
                 } else {
                     if let Err(e) = self.handle_requests(data).await {
-                        error!("Request processing failed for client {}: \n{}", client_id, e);
+                        error!(
+                            "Request processing failed for client {}: \n{}",
+                            client_id, e
+                        );
                         break;
                     }
                 }
@@ -180,7 +183,10 @@ where
     async fn handle_requests(&mut self, data: &[u8]) -> Result<()> {
         let mut offset = 0;
 
-        trace!("Handling requests for client {}", self.client.lock().await.id());
+        trace!(
+            "Handling requests for client {}",
+            self.client.lock().await.id()
+        );
         trace!("Received {} bytes of data", data.len());
 
         let byte_order = self.client.lock().await.byte_order();

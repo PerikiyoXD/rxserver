@@ -1,3 +1,4 @@
+pub mod constants;
 pub mod endianness;
 pub mod events;
 pub mod extension_registry;
@@ -9,7 +10,6 @@ pub mod response;
 pub mod serializer;
 pub mod types;
 pub mod validator;
-pub mod constants;
 
 pub use endianness::*;
 pub use extension_registry::*;

@@ -211,7 +211,10 @@ impl Server {
         self.pixmaps.get_pixmap(pixmap_id)
     }
 
-    pub fn get_pixmap_mut(&mut self, pixmap_id: PixmapId) -> Option<&mut crate::server::pixmap_system::Pixmap> {
+    pub fn get_pixmap_mut(
+        &mut self,
+        pixmap_id: PixmapId,
+    ) -> Option<&mut crate::server::pixmap_system::Pixmap> {
         self.pixmaps.get_pixmap_mut(pixmap_id)
     }
 
@@ -276,7 +279,12 @@ impl Server {
     }
 
     // Graphics context management - delegate to GraphicsContextSystem
-    pub fn create_gc(&mut self, id: GContextId, drawable: u32, owner: ClientId) -> Result<(), String> {
+    pub fn create_gc(
+        &mut self,
+        id: GContextId,
+        drawable: u32,
+        owner: ClientId,
+    ) -> Result<(), String> {
         self.gcontexts.create_gc(id, drawable, owner)
     }
 
@@ -315,7 +323,10 @@ impl Server {
         if let Some(screen) = self.displays.randr_state().get_screen(display_id as u32) {
             (screen.width, screen.height)
         } else {
-            warn!("Display ID {} not found, returning fallback screen size", display_id);
+            warn!(
+                "Display ID {} not found, returning fallback screen size",
+                display_id
+            );
             (1920, 1080) // fallback
         }
     }
@@ -362,7 +373,16 @@ impl Server {
     }
 
     /// Send an expose event to a client for a window
-    pub async fn send_expose_event(&mut self, client_id: ClientId, window_id: u32, x: i16, y: i16, width: u16, height: u16, count: u16) {
+    pub async fn send_expose_event(
+        &mut self,
+        client_id: ClientId,
+        window_id: u32,
+        x: i16,
+        y: i16,
+        width: u16,
+        height: u16,
+        count: u16,
+    ) {
         use crate::protocol::events::ExposeEvent;
 
         if let Some(client_arc) = self.clients.get_client_mut(client_id) {

@@ -272,10 +272,7 @@ impl RequestHandler for RandrGetOutputInfoHandler {
     }
 
     fn opcode(&self) -> (u8, Option<u8>) {
-        (
-            self.major_opcode,
-            Some(RandrOpcode::GetOutputInfo.to_u8()),
-        )
+        (self.major_opcode, Some(RandrOpcode::GetOutputInfo.to_u8()))
     }
 
     fn name(&self) -> &'static str {

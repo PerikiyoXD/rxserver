@@ -82,9 +82,10 @@ impl RX11Server {
                 let transport = transport;
                 tokio::spawn(async move {
                     // Add span for better tracing
-                    let span = tracing::info_span!("transport", kind = ?transport_kind, index = index);
+                    let span =
+                        tracing::info_span!("transport", kind = ?transport_kind, index = index);
                     let _enter = span.enter();
-                    
+
                     if let Err(e) = transport.start().await {
                         tracing::error!(
                             "Transport {:?} at {} failed: {}",
