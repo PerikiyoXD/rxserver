@@ -29,6 +29,7 @@ pub enum RequestKind {
     QueryColors(QueryColorsRequest),
     CreatePixmap(CreatePixmapRequest),
     FreePixmap(FreePixmapRequest),
+    GetInputFocus(GetInputFocusRequest),
     PutImage(PutImageRequest),
     CreateWindow(CreateWindowRequest),
     DestroyWindow(DestroyWindowRequest),
@@ -358,6 +359,14 @@ pub struct GrabPointerRequest {
     pub time: u32,             // timestamp (0 = CurrentTime)
 }
 
+/// GetInputFocus request structure matching X11 protocol
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GetInputFocusRequest {
+    pub opcode: u8,  // Should be 43
+    pub unused: u8,  // Padding
+    pub length: u16, // Request length in 4-byte units (always 1)
+}
+
 /// NoOperation request structure
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NoOperationRequest {
@@ -433,6 +442,7 @@ pub struct GetPropertyParser;
 pub struct QueryColorsParser;
 pub struct CreatePixmapParser;
 pub struct FreePixmapParser;
+pub struct GetInputFocusParser;
 pub struct PutImageParser;
 pub struct CreateWindowParser;
 pub struct DestroyWindowParser;
@@ -838,6 +848,39 @@ impl RequestParser for FreePixmapParser {
                 "Invalid request type for FreePixmapParser"
             )),
         }
+    }
+}
+
+impl RequestParser for GetInputFocusParser {
+    const OPCODE: u8 = Opcode::GetInputFocus.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 4 {
+            return Err(anyhow::anyhow!("GetInputFocus request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let opcode = read_or_err!(reader, read_u8);
+        let unused = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+
+        let request = GetInputFocusRequest {
+            opcode,
+            unused,
+            length,
+        };
+
+        Ok(Request {
+            kind: RequestKind::GetInputFocus(request),
+            sequence_number: 0,
+            opcode,
+            minor_opcode: None,
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        // GetInputFocus takes no arguments; always valid once parsed
+        Ok(())
     }
 }
 
@@ -2101,6 +2144,8 @@ impl RequestParser for X11RequestParser {
             CreatePixmapParser::parse(bytes)
         } else if opcode == Opcode::FreePixmap.to_u8() {
             FreePixmapParser::parse(bytes)
+        } else if opcode == Opcode::GetInputFocus.to_u8() {
+            GetInputFocusParser::parse(bytes)
         } else if opcode == Opcode::PutImage.to_u8() {
             PutImageParser::parse(bytes)
         } else if opcode == Opcode::CreateWindow.to_u8() {
@@ -2152,6 +2197,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::QueryColors(_) => QueryColorsParser::validate(request),
             RequestKind::CreatePixmap(_) => CreatePixmapParser::validate(request),
             RequestKind::FreePixmap(_) => FreePixmapParser::validate(request),
+            RequestKind::GetInputFocus(_) => GetInputFocusParser::validate(request),
             RequestKind::PutImage(_) => PutImageParser::validate(request),
             RequestKind::CreateWindow(_) => CreateWindowParser::validate(request),
             RequestKind::DestroyWindow(_) => DestroyWindowParser::validate(request),

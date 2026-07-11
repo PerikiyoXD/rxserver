@@ -490,6 +490,58 @@ impl RequestHandler for FreePixmapHandler {
     }
 }
 
+/// Handler for GetInputFocus requests (opcode 43)
+pub struct GetInputFocusHandler;
+
+#[async_trait]
+impl RequestHandler for GetInputFocusHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        match &request.kind {
+            RequestKind::GetInputFocus(_) => {}
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for GetInputFocus: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let server = server.lock().await;
+
+        let client = server
+            .get_client(client_id)
+            .ok_or_else(|| X11Error::Protocol(format!("Client {} not found", client_id)))?;
+        let byte_order = client.lock().await.byte_order();
+
+        // No SetInputFocus support yet, so report the server's startup
+        // default: focus follows the pointer, currently over the root window.
+        let root_window = server.get_root_window().id;
+
+        let mut writer = ByteOrderWriter::new(byte_order);
+        writer.write_u8(1); // Reply
+        writer.write_u8(1); // revert_to = PointerRoot
+        writer.write_u16(request.sequence_number);
+        writer.write_u32(0); // Reply length
+        writer.write_u32(root_window); // focus
+        writer.write_padding(20);
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (43, None)
+    }
+
+    fn name(&self) -> &'static str {
+        "GetInputFocus"
+    }
+}
+
 /// Handler for PutImage requests (opcode 72)
 pub struct PutImageHandler;
 
@@ -1513,6 +1565,7 @@ pub fn create_standard_handler_registry(
     registry.register_handler(QueryColorsHandler);
     registry.register_handler(CreatePixmapHandler);
     registry.register_handler(FreePixmapHandler);
+    registry.register_handler(GetInputFocusHandler);
     registry.register_handler(PutImageHandler);
     registry.register_handler(CopyAreaHandler);
     registry.register_handler(OpenFontHandler);
