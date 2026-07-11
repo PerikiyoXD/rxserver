@@ -63,3 +63,20 @@ cargo build
 Read the server's trace-level logs - they show exact opcode dispatch
 per request and are how every real bug this codebase has had was
 actually found.
+
+**Read the trace from the top, not just the tail.** A disconnect was
+chased across multiple sessions (under two different names -
+"XInputExtension disconnect", then "WM_PROTOCOLS disconnect") by
+repeatedly reading only the last ~30-80 lines around the connection-
+close log lines. The real cause - a genuine `ERROR ... Unknown RENDER
+minor opcode: 10` parse failure - was sitting hundreds of lines
+earlier in the same trace the whole time; reading top to bottom in one
+pass found it immediately. The tail shows where the connection dies,
+not why - `grep -n "ERROR"` across the *whole* file first, then read
+around whatever it finds, before falling back to theorizing about
+socket races or client-side toolkit behavior.
+
+`trace_decode.rs` (`protocol::trace_decode::describe_outgoing`) adds a
+human-readable one-line decode next to every raw reply/event byte dump
+(sequence number, reply length, event code) - check that line instead
+of hand-decoding hex when reading a trace.

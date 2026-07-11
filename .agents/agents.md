@@ -12,9 +12,13 @@ not re-derived from the code each time.
   negotiated and implemented incrementally
 - `tasks/implement_opcode/task.md` - step-by-step workflow for adding a
   missing core opcode (parser + handler)
-- `tasks/investigate_wm_protocols_disconnect/task.md` - next handoff
-  task: the XInputExtension disconnect is resolved; a different,
-  older disconnect remains right after `InternAtom(WM_PROTOCOLS)`
+
+xeyes now runs indefinitely against this server without disconnecting
+- the multi-session "XInputExtension disconnect" /
+"WM_PROTOCOLS disconnect" investigation is closed (root cause was a
+missing RENDER opcode, `RenderTrapezoids` - see `extensions.md`). No
+open disconnect-investigation task remains; pick the next opcode/
+feature from a fresh live trace per `tasks/implement_opcode/task.md`.
 
 If something here goes stale, fix the doc in the same commit as the
 code change. A wrong doc is worse than no doc.

@@ -47,10 +47,7 @@ reads yet since no XI2 event this server can generate exists). This
 resolved the multi-session "XInputExtension disconnect" investigation
 - xeyes/Xt now completes the full negotiation chain
 (`QueryExtension` -> `GetExtensionVersion` -> `XIQueryVersion` ->
-`XISelectEvents`) without error. A *different*, older disconnect
-remains after this point (client closes its socket right after
-`InternAtom(WM_PROTOCOLS)`) - see
-`tasks/investigate_wm_protocols_disconnect/task.md`.
+`XISelectEvents`) without error.
 
 `XInputOpcode` in `types.rs` lists the full XI1 (1-35) and the one
 known XI2 (46, 47) minor opcode set for naming, same
@@ -66,19 +63,36 @@ verify, stop. Don't pre-build the rest of an extension's requests on
 spec alone.
 
 RENDER currently handles `RenderQueryVersion` (0),
-`RenderQueryPictFormats` (1), `RenderCreatePicture` (4), and
-`RenderCreateSolidFill` (33). `RenderQueryPictFormats` replies with one
-hardcoded PictFormat (depth-24 Direct/TrueColor) matching the single
-visual `connection.rs`'s connection-setup reply advertises (visual id
-`0x21`, masks `0xFF0000`/`0x00FF00`/`0x0000FF`, no alpha) - if the
-server ever grows more than one visual/depth/screen, that reply needs
-to grow with it instead of staying hardcoded.
+`RenderQueryPictFormats` (1), `RenderCreatePicture` (4),
+`RenderTrapezoids` (10), and `RenderCreateSolidFill` (33).
+`RenderQueryPictFormats` replies with one hardcoded PictFormat
+(depth-24 Direct/TrueColor) matching the single visual
+`connection.rs`'s connection-setup reply advertises (visual id `0x21`,
+masks `0xFF0000`/`0x00FF00`/`0x0000FF`, no alpha) - if the server ever
+grows more than one visual/depth/screen, that reply needs to grow with
+it instead of staying hardcoded.
 `RenderCreatePicture` supports the full CreatePicture value-mask
 (`picture_value_mask` in `handlers.rs`, mirrors `gc_value_mask`'s
 apply-if-set-bit pattern) via `PictureAttributes` in
 `picture_system.rs`; a Picture backed by a real drawable is
 `PictureContent::Drawable`, resolved against window-or-pixmap the same
 way `PolyFillRectangleHandler` resolves a `DRAWABLE`.
+
+`RenderTrapezoids` was the actual root cause of a disconnect chased
+across several sessions under the names "XInputExtension disconnect"
+and "WM_PROTOCOLS disconnect" - it turned out to be neither; it was
+this one missing RENDER opcode, only reached once XI2 support put
+xeyes on its RENDER-based (rather than legacy PolyFillArc) drawing
+path. Found by reading the *entire* server trace top to bottom instead
+of jumping to the tail where the disconnect log line is - the actual
+parse-failure error (`Unknown RENDER minor opcode: 10`) was hundreds
+of lines before the connection-close lines that every previous session
+had been staring at. `graphics::fill_trapezoid` rasterizes with flat
+color and no antialiasing (same tradeoff as `fill_arc`/`draw_arc`);
+only a `src` picture that's `PictureContent::SolidFill` actually draws
+anything - a `src` backed by a real drawable/gradient is accepted but
+draws nothing (parsed, not fully backed, same pattern as other partial
+handlers in this file).
 
 SHAPE currently handles only `ShapeMask` (2) - `ShapeQueryVersion` (0)
 is *not* implemented despite having an `Opcode` variant reserved for
