@@ -5,6 +5,28 @@ use crate::protocol::{Arc, Point, Rectangle};
 use crate::server::pixmap_system::Pixmap;
 use crate::server::window_system::{Background, Window};
 
+/// Common surface drawing operations write to. xproto's DRAWABLE type is a
+/// union of WINDOW and PIXMAP (encoding.xml, types:DRAWABLE) - requests like
+/// PolyFillRectangle accept either, so handlers shouldn't have to duplicate
+/// their fill logic per drawable kind. `Window`/`Pixmap` already have
+/// identical `set_pixel` primitives; this just lets code written against one
+/// work against both.
+pub trait Drawable {
+    fn set_pixel(&mut self, x: u16, y: u16, color: u32);
+}
+
+impl Drawable for Window {
+    fn set_pixel(&mut self, x: u16, y: u16, color: u32) {
+        Window::set_pixel(self, x, y, color);
+    }
+}
+
+impl Drawable for Pixmap {
+    fn set_pixel(&mut self, x: u16, y: u16, color: u32) {
+        Pixmap::set_pixel(self, x, y, color);
+    }
+}
+
 /// Simple arc drawing functions
 pub fn draw_arc(window: &mut Window, arc: &Arc, color: u32) {
     // Simple circle outline approximation
@@ -56,11 +78,11 @@ pub fn draw_line(window: &mut Window, points: &[Point], color: u32) {
     }
 }
 
-pub fn fill_rectangle(window: &mut Window, rect: &Rectangle, color: u32) {
+pub fn fill_rectangle(drawable: &mut impl Drawable, rect: &Rectangle, color: u32) {
     for y in rect.y..(rect.y + rect.height as i16) {
         for x in rect.x..(rect.x + rect.width as i16) {
             if x >= 0 && y >= 0 {
-                window.set_pixel(x as u16, y as u16, color);
+                drawable.set_pixel(x as u16, y as u16, color);
             }
         }
     }

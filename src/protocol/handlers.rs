@@ -1761,26 +1761,39 @@ impl RequestHandler for PolyFillRectangleHandler {
 
         let mut server = server.lock().await;
 
-        // Get the drawable (window)
-        let window_id = poly_fill_rect_request.drawable;
+        // The drawable is a DRAWABLE (xproto encoding.xml types:DRAWABLE):
+        // either a window or a pixmap ID, and the ID spaces don't overlap,
+        // so which one it is has to be resolved by trying both.
+        let drawable_id = poly_fill_rect_request.drawable;
         let gc_id = poly_fill_rect_request.gc;
 
-        // Check if window exists and client owns it
-        {
-            let window = server.get_window(window_id).ok_or_else(|| {
-                X11Error::Protocol(format!(
-                    "PolyFillRectangle: window {} does not exist",
-                    window_id
-                ))
-            })?;
+        enum Target {
+            Window,
+            Pixmap,
+        }
 
+        let target = if let Some(window) = server.get_window(drawable_id) {
             if window.owner != Some(client_id) {
                 return Err(X11Error::Protocol(format!(
                     "PolyFillRectangle: client {} does not own window {}",
-                    client_id, window_id
+                    client_id, drawable_id
                 )));
             }
-        } // immutable borrow ends here
+            Target::Window
+        } else if let Some(pixmap) = server.get_pixmap(drawable_id) {
+            if pixmap.owner != client_id {
+                return Err(X11Error::Protocol(format!(
+                    "PolyFillRectangle: client {} does not own pixmap {}",
+                    client_id, drawable_id
+                )));
+            }
+            Target::Pixmap
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "PolyFillRectangle: drawable {} does not exist",
+                drawable_id
+            )));
+        };
 
         // Get graphics context
         let gc_foreground = server
@@ -1793,12 +1806,20 @@ impl RequestHandler for PolyFillRectangleHandler {
             })?
             .foreground;
 
-        // Now get mutable window reference
-        let window = server.get_window_mut(window_id).unwrap();
-
-        // Fill rectangles
-        for rect in &poly_fill_rect_request.rectangles {
-            fill_rectangle(window, rect, gc_foreground);
+        // Fill rectangles on whichever surface the drawable resolved to.
+        match target {
+            Target::Window => {
+                let window = server.get_window_mut(drawable_id).unwrap();
+                for rect in &poly_fill_rect_request.rectangles {
+                    fill_rectangle(window, rect, gc_foreground);
+                }
+            }
+            Target::Pixmap => {
+                let pixmap = server.get_pixmap_mut(drawable_id).unwrap();
+                for rect in &poly_fill_rect_request.rectangles {
+                    fill_rectangle(pixmap, rect, gc_foreground);
+                }
+            }
         }
 
         // PolyFillRectangle doesn't generate a response

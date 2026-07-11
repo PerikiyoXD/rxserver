@@ -35,6 +35,19 @@ impl Pixmap {
             pixel_data,
         })
     }
+
+    /// Set a pixel at the given coordinates. Mirrors `Window::set_pixel` -
+    /// drawing operations (PolyFillRectangle, etc.) target either a window
+    /// or a pixmap per xproto's DRAWABLE union, so both need the same pixel
+    /// write primitive.
+    pub fn set_pixel(&mut self, x: u16, y: u16, color: u32) {
+        if x < self.width && y < self.height {
+            let index = (y as usize * self.width as usize) + x as usize;
+            if index < self.pixel_data.len() {
+                self.pixel_data[index] = color;
+            }
+        }
+    }
 }
 
 /// Manages X11 pixmaps
