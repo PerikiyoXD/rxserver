@@ -11,8 +11,8 @@ not re-derived from the code each time.
 - `memories/extensions.md` - how BIG-REQUESTS/RANDR/etc. are negotiated
 - `tasks/implement_opcode/task.md` - step-by-step workflow for adding a
   missing core opcode (parser + handler)
-- `tasks/fix_polyfillarc_pixmap_drawable/task.md` - next handoff task for
-  opcode 71 pixmap drawable handling
+- `tasks/implement_shape_extension/task.md` - next handoff task: SHAPE
+  extension is reserved but unimplemented, xeyes needs `ShapeMask`
 
 If something here goes stale, fix the doc in the same commit as the
 code change. A wrong doc is worse than no doc.

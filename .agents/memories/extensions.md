@@ -8,13 +8,23 @@ built once in `Server::new()`.
 
 All 6 known extensions get a major opcode assigned
 (`KNOWN_EXTENSIONS` in `extension_registry.rs`, sequential from
-`FIRST_EXTENSION_OPCODE = 128`). Only `BIG-REQUESTS` and `RANDR` are
-in `IMPLEMENTED_EXTENSIONS` - they have real parsers and handlers.
+`FIRST_EXTENSION_OPCODE = 128`). `BIG-REQUESTS`, `RANDR`, and `RENDER`
+are in `IMPLEMENTED_EXTENSIONS` - they have real parsers and handlers.
+`SHAPE`, `MIT-SHM`, and `XINERAMA` are still reserved-only.
 `QueryExtensionHandler` reports `present=1` only for implemented ones;
-the other four get an honest `present=0` even though they technically
-have an opcode reserved. Do not flip that without also writing the
-parser/handler - a client that believes `present=1` and sends a real
-request for an unimplemented extension gets silently dropped.
+the reserved-only ones get an honest `present=0` even though they
+technically have an opcode assigned. Do not flip that without also
+writing the parser/handler - a client that believes `present=1` and
+sends a real request for an unimplemented extension gets silently
+dropped.
+
+RENDER is implemented incrementally, one minor opcode at a time, same
+as core opcodes (`tasks/implement_opcode/task.md`) - it currently only
+handles `RenderQueryVersion` (0) and `RenderCreateSolidFill` (33), the
+two xeyes actually calls. `RenderOpcode` in `types.rs` only has variants
+for minor opcodes that are actually parsed; check there (and
+`X11RequestParser::parse_dynamic`'s `Some("RENDER") =>` branch) before
+assuming a RENDER request is unimplemented.
 
 ## Why dynamic and not a fixed number
 
