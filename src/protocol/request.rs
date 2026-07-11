@@ -2561,13 +2561,14 @@ impl X11RequestParser {
             return Self::parse(bytes);
         }
 
-        let opcode_name = Self::opcode_name(opcode);
+        let resolved_extension = extensions.extension_for_opcode(opcode);
         trace!(
             "Dispatching extension request with opcode: {} ({})",
-            opcode, opcode_name
+            opcode,
+            resolved_extension.unwrap_or("UnknownExtension")
         );
 
-        match extensions.extension_for_opcode(opcode) {
+        match resolved_extension {
             Some("BIG-REQUESTS") => BigRequestsParser::parse(bytes),
             Some("RANDR") => {
                 if bytes.len() < 2 {
