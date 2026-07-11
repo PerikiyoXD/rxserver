@@ -1016,6 +1016,129 @@ impl RequestHandler for RenderQueryVersionHandler {
     }
 }
 
+/// Handler for RenderQueryPictFormats requests (RENDER minor opcode 1)
+pub struct RenderQueryPictFormatsHandler {
+    major_opcode: u8,
+}
+
+impl RenderQueryPictFormatsHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for RenderQueryPictFormatsHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        match &request.kind {
+            RequestKind::RenderQueryPictFormats(_) => {}
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for RenderQueryPictFormats: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        // One PictFormat: a depth-24 Direct/TrueColor format matching the
+        // server's only visual (id 0x21, masks 0xFF0000/0x00FF00/0x0000FF,
+        // no alpha channel - see connection.rs's connection-setup reply,
+        // the only place this server's visual is otherwise described).
+        const FORMAT_ID: u32 = 0x20; // PictFormat ids and visual ids are
+        // different id spaces - this just needs to be a stable, unique
+        // value the client can pass back into CreatePicture's `format`.
+        const VISUAL_ID: u32 = 0x21;
+        const SCREEN_DEPTH: u8 = 24;
+
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+
+        // xPictFormInfo (28 bytes)
+        let format_info = |w: &mut ByteOrderWriter| {
+            w.write_u32(FORMAT_ID);
+            w.write_u8(1); // PictTypeDirect
+            w.write_u8(SCREEN_DEPTH);
+            w.write_padding(2);
+            // xDirectFormat (16 bytes): red/redMask/green/greenMask/blue/blueMask/alpha/alphaMask
+            w.write_u16(16); // red shift
+            w.write_u16(0xFF); // red mask
+            w.write_u16(8); // green shift
+            w.write_u16(0xFF); // green mask
+            w.write_u16(0); // blue shift
+            w.write_u16(0xFF); // blue mask
+            w.write_u16(0); // alpha shift
+            w.write_u16(0); // alpha mask (no alpha)
+            w.write_u32(0); // colormap (None)
+        };
+
+        // xPictVisual (8 bytes)
+        let pict_visual = |w: &mut ByteOrderWriter| {
+            w.write_u32(VISUAL_ID);
+            w.write_u32(FORMAT_ID);
+        };
+
+        // xPictDepth (8 bytes) + 1 xPictVisual
+        let pict_depth = |w: &mut ByteOrderWriter| {
+            w.write_u8(SCREEN_DEPTH);
+            w.write_u8(0);
+            w.write_u16(1); // nPictVisuals
+            w.write_padding(4);
+            pict_visual(w);
+        };
+
+        // xPictScreen (8 bytes) + 1 xPictDepth
+        let pict_screen = |w: &mut ByteOrderWriter| {
+            w.write_u32(1); // nDepth
+            w.write_u32(FORMAT_ID); // fallback
+            pict_depth(w);
+        };
+
+        let num_formats: u32 = 1;
+        let num_screens: u32 = 1;
+        let num_depths: u32 = 1;
+        let num_visuals: u32 = 1;
+        let num_subpixel: u32 = 1;
+
+        let body_len_bytes = 28 * num_formats as usize
+            + (8 + 8 * num_depths as usize + 8 * num_visuals as usize) * num_screens as usize
+            + 4 * num_subpixel as usize;
+        debug_assert_eq!(body_len_bytes % 4, 0);
+        let reply_length_words = (body_len_bytes / 4) as u32;
+
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number);
+        writer.write_u32(reply_length_words);
+        writer.write_u32(num_formats);
+        writer.write_u32(num_screens);
+        writer.write_u32(num_depths);
+        writer.write_u32(num_visuals);
+        writer.write_u32(num_subpixel);
+        writer.write_padding(4); // pad5
+
+        format_info(&mut writer);
+        pict_screen(&mut writer);
+        writer.write_u32(5); // SubPixelNone, one entry per screen
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            self.major_opcode,
+            Some(RenderOpcode::QueryPictFormats.to_u8()),
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "RenderQueryPictFormats"
+    }
+}
+
 /// Handler for RenderCreateSolidFill requests (RENDER minor opcode 33)
 pub struct RenderCreateSolidFillHandler {
     major_opcode: u8,
@@ -2141,6 +2264,7 @@ pub fn create_standard_handler_registry(
 
     if let Some(major) = extensions.major_opcode("RENDER") {
         registry.register_handler(RenderQueryVersionHandler::new(major));
+        registry.register_handler(RenderQueryPictFormatsHandler::new(major));
         registry.register_handler(RenderCreateSolidFillHandler::new(major));
     }
 

@@ -346,6 +346,7 @@ impl RandrOpcode {
 #[repr(u8)]
 pub enum RenderOpcode {
     QueryVersion = 0,
+    QueryPictFormats = 1,
     CreateSolidFill = 33,
 }
 
@@ -353,6 +354,7 @@ impl RenderOpcode {
     pub fn from_u8(value: u8) -> Option<Self> {
         match value {
             0 => Some(Self::QueryVersion),
+            1 => Some(Self::QueryPictFormats),
             33 => Some(Self::CreateSolidFill),
             _ => None,
         }
@@ -365,6 +367,7 @@ impl RenderOpcode {
     pub fn name(self) -> &'static str {
         match self {
             Self::QueryVersion => "RenderQueryVersion",
+            Self::QueryPictFormats => "RenderQueryPictFormats",
             Self::CreateSolidFill => "RenderCreateSolidFill",
         }
     }

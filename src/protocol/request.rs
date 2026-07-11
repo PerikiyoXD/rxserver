@@ -53,6 +53,7 @@ pub enum RequestKind {
     RandrGetScreenSizeRange(RandrGetScreenSizeRangeRequest),
     // RENDER extension requests
     RenderQueryVersion(RenderQueryVersionRequest),
+    RenderQueryPictFormats(RenderQueryPictFormatsRequest),
     RenderCreateSolidFill(RenderCreateSolidFillRequest),
     // SHAPE extension requests
     ShapeMask(ShapeMaskRequest),
@@ -465,6 +466,10 @@ pub struct RenderCreateSolidFillRequest {
     pub alpha: u16,
 }
 
+/// RenderQueryPictFormats carries no fields beyond the 4-byte request header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RenderQueryPictFormatsRequest;
+
 // SHAPE extension request structures
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShapeMaskRequest {
@@ -523,6 +528,7 @@ pub struct RandrGetCrtcInfoParser;
 pub struct RandrGetScreenSizeRangeParser;
 // RENDER parsers
 pub struct RenderQueryVersionParser;
+pub struct RenderQueryPictFormatsParser;
 pub struct RenderCreateSolidFillParser;
 // SHAPE parsers
 pub struct ShapeMaskParser;
@@ -2277,6 +2283,32 @@ impl RequestParser for RenderQueryVersionParser {
     }
 }
 
+impl RequestParser for RenderQueryPictFormatsParser {
+    const OPCODE: u8 = RenderOpcode::QueryPictFormats.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 4 {
+            return Err(anyhow::anyhow!("RenderQueryPictFormats request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+
+        Ok(Request {
+            kind: RequestKind::RenderQueryPictFormats(RenderQueryPictFormatsRequest),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 impl RequestParser for RenderCreateSolidFillParser {
     const OPCODE: u8 = RenderOpcode::CreateSolidFill.to_u8();
 
@@ -2433,6 +2465,8 @@ impl X11RequestParser {
                 let minor_opcode = bytes[1];
                 if minor_opcode == RenderOpcode::QueryVersion.to_u8() {
                     RenderQueryVersionParser::parse(bytes)
+                } else if minor_opcode == RenderOpcode::QueryPictFormats.to_u8() {
+                    RenderQueryPictFormatsParser::parse(bytes)
                 } else if minor_opcode == RenderOpcode::CreateSolidFill.to_u8() {
                     RenderCreateSolidFillParser::parse(bytes)
                 } else {
@@ -2581,6 +2615,9 @@ impl RequestParser for X11RequestParser {
                 RandrGetScreenSizeRangeParser::validate(request)
             }
             RequestKind::RenderQueryVersion(_) => RenderQueryVersionParser::validate(request),
+            RequestKind::RenderQueryPictFormats(_) => {
+                RenderQueryPictFormatsParser::validate(request)
+            }
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
             RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
             RequestKind::GrabPointer(_) => {
