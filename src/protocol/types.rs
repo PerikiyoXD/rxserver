@@ -508,6 +508,139 @@ impl XkbOpcode {
     }
 }
 
+/// X Input Extension (XInput/XI1) minor opcodes. Like XKB, XInput's major
+/// opcode is session-dynamic (assigned by `ExtensionRegistry`), so this enum
+/// only carries minor opcodes. The full XI1 request set is listed here (per
+/// the X Input Extension protocol spec) so dispatch/logging can name every
+/// XInput request, even though only `GetExtensionVersion` has a real handler
+/// today - see `extensions.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum XInputOpcode {
+    GetExtensionVersion = 1,
+    ListInputDevices = 2,
+    OpenDevice = 3,
+    CloseDevice = 4,
+    SetDeviceMode = 5,
+    SelectExtensionEvent = 6,
+    GetSelectedExtensionEvents = 7,
+    ChangeDeviceDontPropagateList = 8,
+    GetDeviceDontPropagateList = 9,
+    GetDeviceMotionEvents = 10,
+    ChangeKeyboardDevice = 11,
+    ChangePointerDevice = 12,
+    GrabDevice = 13,
+    UngrabDevice = 14,
+    GrabDeviceKey = 15,
+    UngrabDeviceKey = 16,
+    GrabDeviceButton = 17,
+    UngrabDeviceButton = 18,
+    AllowDeviceEvents = 19,
+    GetDeviceFocus = 20,
+    SetDeviceFocus = 21,
+    GetFeedbackControl = 22,
+    ChangeFeedbackControl = 23,
+    GetDeviceKeyMapping = 24,
+    ChangeDeviceKeyMapping = 25,
+    GetDeviceModifierMapping = 26,
+    SetDeviceModifierMapping = 27,
+    GetDeviceButtonMapping = 28,
+    SetDeviceButtonMapping = 29,
+    QueryDeviceState = 30,
+    SendExtensionEvent = 31,
+    DeviceBell = 32,
+    SetDeviceValuators = 33,
+    GetDeviceControl = 34,
+    ChangeDeviceControl = 35,
+}
+
+impl XInputOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::GetExtensionVersion),
+            2 => Some(Self::ListInputDevices),
+            3 => Some(Self::OpenDevice),
+            4 => Some(Self::CloseDevice),
+            5 => Some(Self::SetDeviceMode),
+            6 => Some(Self::SelectExtensionEvent),
+            7 => Some(Self::GetSelectedExtensionEvents),
+            8 => Some(Self::ChangeDeviceDontPropagateList),
+            9 => Some(Self::GetDeviceDontPropagateList),
+            10 => Some(Self::GetDeviceMotionEvents),
+            11 => Some(Self::ChangeKeyboardDevice),
+            12 => Some(Self::ChangePointerDevice),
+            13 => Some(Self::GrabDevice),
+            14 => Some(Self::UngrabDevice),
+            15 => Some(Self::GrabDeviceKey),
+            16 => Some(Self::UngrabDeviceKey),
+            17 => Some(Self::GrabDeviceButton),
+            18 => Some(Self::UngrabDeviceButton),
+            19 => Some(Self::AllowDeviceEvents),
+            20 => Some(Self::GetDeviceFocus),
+            21 => Some(Self::SetDeviceFocus),
+            22 => Some(Self::GetFeedbackControl),
+            23 => Some(Self::ChangeFeedbackControl),
+            24 => Some(Self::GetDeviceKeyMapping),
+            25 => Some(Self::ChangeDeviceKeyMapping),
+            26 => Some(Self::GetDeviceModifierMapping),
+            27 => Some(Self::SetDeviceModifierMapping),
+            28 => Some(Self::GetDeviceButtonMapping),
+            29 => Some(Self::SetDeviceButtonMapping),
+            30 => Some(Self::QueryDeviceState),
+            31 => Some(Self::SendExtensionEvent),
+            32 => Some(Self::DeviceBell),
+            33 => Some(Self::SetDeviceValuators),
+            34 => Some(Self::GetDeviceControl),
+            35 => Some(Self::ChangeDeviceControl),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::GetExtensionVersion => "XInputGetExtensionVersion",
+            Self::ListInputDevices => "XInputListInputDevices",
+            Self::OpenDevice => "XInputOpenDevice",
+            Self::CloseDevice => "XInputCloseDevice",
+            Self::SetDeviceMode => "XInputSetDeviceMode",
+            Self::SelectExtensionEvent => "XInputSelectExtensionEvent",
+            Self::GetSelectedExtensionEvents => "XInputGetSelectedExtensionEvents",
+            Self::ChangeDeviceDontPropagateList => "XInputChangeDeviceDontPropagateList",
+            Self::GetDeviceDontPropagateList => "XInputGetDeviceDontPropagateList",
+            Self::GetDeviceMotionEvents => "XInputGetDeviceMotionEvents",
+            Self::ChangeKeyboardDevice => "XInputChangeKeyboardDevice",
+            Self::ChangePointerDevice => "XInputChangePointerDevice",
+            Self::GrabDevice => "XInputGrabDevice",
+            Self::UngrabDevice => "XInputUngrabDevice",
+            Self::GrabDeviceKey => "XInputGrabDeviceKey",
+            Self::UngrabDeviceKey => "XInputUngrabDeviceKey",
+            Self::GrabDeviceButton => "XInputGrabDeviceButton",
+            Self::UngrabDeviceButton => "XInputUngrabDeviceButton",
+            Self::AllowDeviceEvents => "XInputAllowDeviceEvents",
+            Self::GetDeviceFocus => "XInputGetDeviceFocus",
+            Self::SetDeviceFocus => "XInputSetDeviceFocus",
+            Self::GetFeedbackControl => "XInputGetFeedbackControl",
+            Self::ChangeFeedbackControl => "XInputChangeFeedbackControl",
+            Self::GetDeviceKeyMapping => "XInputGetDeviceKeyMapping",
+            Self::ChangeDeviceKeyMapping => "XInputChangeDeviceKeyMapping",
+            Self::GetDeviceModifierMapping => "XInputGetDeviceModifierMapping",
+            Self::SetDeviceModifierMapping => "XInputSetDeviceModifierMapping",
+            Self::GetDeviceButtonMapping => "XInputGetDeviceButtonMapping",
+            Self::SetDeviceButtonMapping => "XInputSetDeviceButtonMapping",
+            Self::QueryDeviceState => "XInputQueryDeviceState",
+            Self::SendExtensionEvent => "XInputSendExtensionEvent",
+            Self::DeviceBell => "XInputDeviceBell",
+            Self::SetDeviceValuators => "XInputSetDeviceValuators",
+            Self::GetDeviceControl => "XInputGetDeviceControl",
+            Self::ChangeDeviceControl => "XInputChangeDeviceControl",
+        }
+    }
+}
+
 /// Extension-specific opcodes, keyed by major opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtensionOpcode {
@@ -517,6 +650,7 @@ pub enum ExtensionOpcode {
     Render(RenderOpcode),
     Shape(ShapeOpcode),
     Xkb(XkbOpcode),
+    XInput(XInputOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
@@ -537,6 +671,7 @@ impl ExtensionOpcode {
             Some("RENDER") => RenderOpcode::from_u8(minor).map(Self::Render),
             Some("SHAPE") => ShapeOpcode::from_u8(minor).map(Self::Shape),
             Some("XKEYBOARD") => XkbOpcode::from_u8(minor).map(Self::Xkb),
+            Some("XInputExtension") => XInputOpcode::from_u8(minor).map(Self::XInput),
             Some(_) | None => None,
         };
 
@@ -574,6 +709,7 @@ impl ExtensionOpcode {
             Self::Render(op) => op.to_u8(),
             Self::Shape(op) => op.to_u8(),
             Self::Xkb(op) => op.to_u8(),
+            Self::XInput(op) => op.to_u8(),
             Self::Unknown(_, minor) => minor,
         }
     }
@@ -586,6 +722,7 @@ impl ExtensionOpcode {
             Self::Render(op) => op.name().to_string(),
             Self::Shape(op) => op.name().to_string(),
             Self::Xkb(op) => op.name().to_string(),
+            Self::XInput(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -998,7 +1135,8 @@ impl Opcode {
                 | ExtensionOpcode::Randr(_)
                 | ExtensionOpcode::Render(_)
                 | ExtensionOpcode::Shape(_)
-                | ExtensionOpcode::Xkb(_),
+                | ExtensionOpcode::Xkb(_)
+                | ExtensionOpcode::XInput(_),
             ) => panic!(
                 "extension major opcode is session-dynamic; use ExtensionRegistry::major_opcode instead of Opcode::to_u8"
             ),

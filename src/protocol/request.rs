@@ -61,6 +61,8 @@ pub enum RequestKind {
     ShapeMask(ShapeMaskRequest),
     // XKEYBOARD extension requests
     XkbUseExtension(XkbUseExtensionRequest),
+    // XInputExtension requests
+    XInputGetExtensionVersion(XInputGetExtensionVersionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -510,6 +512,12 @@ pub struct XkbUseExtensionRequest {
     pub wanted_minor: u16,
 }
 
+// XInputExtension request structures
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XInputGetExtensionVersionRequest {
+    pub name: String,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -565,6 +573,8 @@ pub struct RenderCreateSolidFillParser;
 pub struct ShapeMaskParser;
 // XKEYBOARD parsers
 pub struct XkbUseExtensionParser;
+// XInputExtension parsers
+pub struct XInputGetExtensionVersionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2579,6 +2589,48 @@ impl RequestParser for XkbUseExtensionParser {
     }
 }
 
+// XInputExtension parsers
+impl RequestParser for XInputGetExtensionVersionParser {
+    const OPCODE: u8 = XInputOpcode::GetExtensionVersion.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!(
+                "XInputGetExtensionVersion request too short"
+            ));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let name_len = read_or_err!(reader, read_u16);
+        let _unused = read_or_err!(reader, read_u16);
+
+        let name = if name_len > 0 {
+            let name_bytes = reader
+                .read_bytes(name_len as usize)
+                .map_err(|e| anyhow::anyhow!(e))?;
+            String::from_utf8_lossy(name_bytes).to_string()
+        } else {
+            String::new()
+        };
+
+        let request = XInputGetExtensionVersionRequest { name };
+
+        Ok(Request {
+            kind: RequestKind::XInputGetExtensionVersion(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2678,6 +2730,20 @@ impl X11RequestParser {
                 } else {
                     Err(anyhow::anyhow!(
                         "Unknown XKEYBOARD minor opcode: {}",
+                        minor_opcode
+                    ))
+                }
+            }
+            Some("XInputExtension") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!("XInputExtension request too short"));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == XInputOpcode::GetExtensionVersion.to_u8() {
+                    XInputGetExtensionVersionParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Unknown XInputExtension minor opcode: {}",
                         minor_opcode
                     ))
                 }
@@ -2820,6 +2886,9 @@ impl RequestParser for X11RequestParser {
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
             RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
             RequestKind::XkbUseExtension(_) => XkbUseExtensionParser::validate(request),
+            RequestKind::XInputGetExtensionVersion(_) => {
+                XInputGetExtensionVersionParser::validate(request)
+            }
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
         randr::*,
-        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, XkbOpcode, value_mask},
+        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, XInputOpcode, XkbOpcode, value_mask},
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -1518,6 +1518,67 @@ impl RequestHandler for XkbUseExtensionHandler {
     }
 }
 
+/// Handler for XInputGetExtensionVersion requests (XInputExtension minor
+/// opcode 1)
+pub struct XInputGetExtensionVersionHandler {
+    major_opcode: u8,
+}
+
+impl XInputGetExtensionVersionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for XInputGetExtensionVersionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _get_version_request = match &request.kind {
+            RequestKind::XInputGetExtensionVersion(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for XInputGetExtensionVersion: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        // This server has no input device subsystem behind XInput (no
+        // ListInputDevices/OpenDevice/etc. handlers exist yet) - reporting
+        // present=0 here is the honest answer real X servers give when the
+        // extension is compiled in but no extension devices are available,
+        // same principle as RenderQueryVersion's capped version number
+        // (extensions.md).
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(0); // Unused
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u16(1); // Server major version
+        writer.write_u16(5); // Server minor version
+        writer.write_u8(0); // Present
+        writer.write_padding(19); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (
+            self.major_opcode,
+            Some(XInputOpcode::GetExtensionVersion.to_u8()),
+        )
+    }
+
+    fn name(&self) -> &'static str {
+        "XInputGetExtensionVersion"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -2577,6 +2638,10 @@ pub fn create_standard_handler_registry(
 
     if let Some(major) = extensions.major_opcode("XKEYBOARD") {
         registry.register_handler(XkbUseExtensionHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("XInputExtension") {
+        registry.register_handler(XInputGetExtensionVersionHandler::new(major));
     }
 
     registry
