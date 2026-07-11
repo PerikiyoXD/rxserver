@@ -59,6 +59,8 @@ pub enum RequestKind {
     RenderCreateSolidFill(RenderCreateSolidFillRequest),
     // SHAPE extension requests
     ShapeMask(ShapeMaskRequest),
+    // XKEYBOARD extension requests
+    XkbUseExtension(XkbUseExtensionRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -501,6 +503,13 @@ pub struct ShapeMaskRequest {
     pub src: PixmapId, // 0 (None) clears the shape
 }
 
+// XKEYBOARD extension request structures
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XkbUseExtensionRequest {
+    pub wanted_major: u16,
+    pub wanted_minor: u16,
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -554,6 +563,8 @@ pub struct RenderCreatePictureParser;
 pub struct RenderCreateSolidFillParser;
 // SHAPE parsers
 pub struct ShapeMaskParser;
+// XKEYBOARD parsers
+pub struct XkbUseExtensionParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2534,6 +2545,40 @@ impl RequestParser for ShapeMaskParser {
     }
 }
 
+// XKEYBOARD extension parsers
+impl RequestParser for XkbUseExtensionParser {
+    const OPCODE: u8 = XkbOpcode::UseExtension.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 8 {
+            return Err(anyhow::anyhow!("XkbUseExtension request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let wanted_major = read_or_err!(reader, read_u16);
+        let wanted_minor = read_or_err!(reader, read_u16);
+
+        let request = XkbUseExtensionRequest {
+            wanted_major,
+            wanted_minor,
+        };
+
+        Ok(Request {
+            kind: RequestKind::XkbUseExtension(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2621,6 +2666,20 @@ impl X11RequestParser {
                     ShapeMaskParser::parse(bytes)
                 } else {
                     Err(anyhow::anyhow!("Unknown SHAPE minor opcode: {}", minor_opcode))
+                }
+            }
+            Some("XKEYBOARD") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!("XKEYBOARD request too short"));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == XkbOpcode::UseExtension.to_u8() {
+                    XkbUseExtensionParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!(
+                        "Unknown XKEYBOARD minor opcode: {}",
+                        minor_opcode
+                    ))
                 }
             }
             Some(name) => Err(anyhow::anyhow!(
@@ -2760,6 +2819,7 @@ impl RequestParser for X11RequestParser {
             RequestKind::RenderCreatePicture(_) => RenderCreatePictureParser::validate(request),
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
             RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
+            RequestKind::XkbUseExtension(_) => XkbUseExtensionParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

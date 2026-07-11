@@ -408,6 +408,106 @@ impl ShapeOpcode {
     }
 }
 
+/// XKEYBOARD (XKB) extension minor opcodes. Like RENDER/SHAPE, XKB's major
+/// opcode is session-dynamic (assigned by `ExtensionRegistry`), so this enum
+/// only carries minor opcodes. The full request set is listed here (per the
+/// X Keyboard Extension protocol spec) so dispatch/logging can name every
+/// XKB request, even though only `UseExtension` has a real handler today -
+/// see `extensions.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum XkbOpcode {
+    UseExtension = 0,
+    SelectEvents = 1,
+    Bell = 3,
+    GetState = 4,
+    LatchLockState = 5,
+    GetControls = 6,
+    SetControls = 7,
+    GetMap = 8,
+    SetMap = 9,
+    GetCompatMap = 10,
+    SetCompatMap = 11,
+    GetIndicatorState = 12,
+    GetIndicatorMap = 13,
+    SetIndicatorMap = 14,
+    GetNamedIndicator = 15,
+    SetNamedIndicator = 16,
+    GetNames = 17,
+    SetNames = 18,
+    PerClientFlags = 21,
+    ListComponents = 22,
+    GetKbdByName = 23,
+    GetDeviceInfo = 24,
+    SetDeviceInfo = 25,
+    SetDebuggingFlags = 101,
+}
+
+impl XkbOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::UseExtension),
+            1 => Some(Self::SelectEvents),
+            3 => Some(Self::Bell),
+            4 => Some(Self::GetState),
+            5 => Some(Self::LatchLockState),
+            6 => Some(Self::GetControls),
+            7 => Some(Self::SetControls),
+            8 => Some(Self::GetMap),
+            9 => Some(Self::SetMap),
+            10 => Some(Self::GetCompatMap),
+            11 => Some(Self::SetCompatMap),
+            12 => Some(Self::GetIndicatorState),
+            13 => Some(Self::GetIndicatorMap),
+            14 => Some(Self::SetIndicatorMap),
+            15 => Some(Self::GetNamedIndicator),
+            16 => Some(Self::SetNamedIndicator),
+            17 => Some(Self::GetNames),
+            18 => Some(Self::SetNames),
+            21 => Some(Self::PerClientFlags),
+            22 => Some(Self::ListComponents),
+            23 => Some(Self::GetKbdByName),
+            24 => Some(Self::GetDeviceInfo),
+            25 => Some(Self::SetDeviceInfo),
+            101 => Some(Self::SetDebuggingFlags),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::UseExtension => "XkbUseExtension",
+            Self::SelectEvents => "XkbSelectEvents",
+            Self::Bell => "XkbBell",
+            Self::GetState => "XkbGetState",
+            Self::LatchLockState => "XkbLatchLockState",
+            Self::GetControls => "XkbGetControls",
+            Self::SetControls => "XkbSetControls",
+            Self::GetMap => "XkbGetMap",
+            Self::SetMap => "XkbSetMap",
+            Self::GetCompatMap => "XkbGetCompatMap",
+            Self::SetCompatMap => "XkbSetCompatMap",
+            Self::GetIndicatorState => "XkbGetIndicatorState",
+            Self::GetIndicatorMap => "XkbGetIndicatorMap",
+            Self::SetIndicatorMap => "XkbSetIndicatorMap",
+            Self::GetNamedIndicator => "XkbGetNamedIndicator",
+            Self::SetNamedIndicator => "XkbSetNamedIndicator",
+            Self::GetNames => "XkbGetNames",
+            Self::SetNames => "XkbSetNames",
+            Self::PerClientFlags => "XkbPerClientFlags",
+            Self::ListComponents => "XkbListComponents",
+            Self::GetKbdByName => "XkbGetKbdByName",
+            Self::GetDeviceInfo => "XkbGetDeviceInfo",
+            Self::SetDeviceInfo => "XkbSetDeviceInfo",
+            Self::SetDebuggingFlags => "XkbSetDebuggingFlags",
+        }
+    }
+}
+
 /// Extension-specific opcodes, keyed by major opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtensionOpcode {
@@ -416,6 +516,7 @@ pub enum ExtensionOpcode {
     Randr(RandrOpcode),
     Render(RenderOpcode),
     Shape(ShapeOpcode),
+    Xkb(XkbOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
@@ -435,6 +536,7 @@ impl ExtensionOpcode {
             Some("RANDR") => RandrOpcode::from_u8(minor).map(Self::Randr),
             Some("RENDER") => RenderOpcode::from_u8(minor).map(Self::Render),
             Some("SHAPE") => ShapeOpcode::from_u8(minor).map(Self::Shape),
+            Some("XKEYBOARD") => XkbOpcode::from_u8(minor).map(Self::Xkb),
             Some(_) | None => None,
         };
 
@@ -471,6 +573,7 @@ impl ExtensionOpcode {
             Self::Randr(op) => op.to_u8(),
             Self::Render(op) => op.to_u8(),
             Self::Shape(op) => op.to_u8(),
+            Self::Xkb(op) => op.to_u8(),
             Self::Unknown(_, minor) => minor,
         }
     }
@@ -482,6 +585,7 @@ impl ExtensionOpcode {
             Self::Randr(op) => op.name().to_string(),
             Self::Render(op) => op.name().to_string(),
             Self::Shape(op) => op.name().to_string(),
+            Self::Xkb(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -893,7 +997,8 @@ impl Opcode {
                 | ExtensionOpcode::XcMisc(_)
                 | ExtensionOpcode::Randr(_)
                 | ExtensionOpcode::Render(_)
-                | ExtensionOpcode::Shape(_),
+                | ExtensionOpcode::Shape(_)
+                | ExtensionOpcode::Xkb(_),
             ) => panic!(
                 "extension major opcode is session-dynamic; use ExtensionRegistry::major_opcode instead of Opcode::to_u8"
             ),

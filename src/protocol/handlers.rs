@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
         randr::*,
-        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, value_mask},
+        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, XkbOpcode, value_mask},
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -1463,6 +1463,61 @@ impl RequestHandler for ShapeMaskHandler {
     }
 }
 
+/// Handler for XkbUseExtension requests (XKEYBOARD minor opcode 0)
+pub struct XkbUseExtensionHandler {
+    major_opcode: u8,
+}
+
+impl XkbUseExtensionHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for XkbUseExtensionHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        _server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let _use_extension_request = match &request.kind {
+            RequestKind::XkbUseExtension(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for XkbUseExtension: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        // Server-side XKB support level. Advertising the same version this
+        // server actually implements (UseExtension only) - the client is
+        // required to check `supported` and fall back to core keyboard
+        // handling if it's 0, so this is honest rather than a compatibility
+        // lie.
+        let mut writer = ByteOrderWriter::new(ByteOrder::LittleEndian);
+        writer.write_u8(1); // Reply
+        writer.write_u8(1); // Supported
+        writer.write_u16(request.sequence_number); // Sequence number
+        writer.write_u32(0); // Reply length
+        writer.write_u16(1); // Server major version
+        writer.write_u16(0); // Server minor version
+        writer.write_padding(20); // Padding to 32 bytes
+
+        Ok(Some(writer.into_vec()))
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(XkbOpcode::UseExtension.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "XkbUseExtension"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -2518,6 +2573,10 @@ pub fn create_standard_handler_registry(
 
     if let Some(major) = extensions.major_opcode("SHAPE") {
         registry.register_handler(ShapeMaskHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("XKEYBOARD") {
+        registry.register_handler(XkbUseExtensionHandler::new(major));
     }
 
     registry
