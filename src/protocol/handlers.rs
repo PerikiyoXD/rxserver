@@ -1393,6 +1393,120 @@ impl RequestHandler for RenderCreateSolidFillHandler {
     }
 }
 
+/// Handler for RenderTrapezoids requests (RENDER minor opcode 10).
+///
+/// Composites a list of trapezoids from `src` onto `dst` through an
+/// optional mask - the real RENDER operation is a full alpha-compositing
+/// rasterizer against arbitrary source/mask pictures. This handler covers
+/// the case this server can actually back: `src` is a solid-fill picture
+/// (`PictureContent::SolidFill`, created via RenderCreateSolidFill), which
+/// covers xeyes' own usage (filling eye shapes with a flat color) - see
+/// `graphics::fill_trapezoid` for the flat-color, non-antialiased
+/// rasterization itself. A `src` backed by a real drawable (image/gradient)
+/// is accepted but draws nothing, same "parsed, not fully backed" honesty
+/// as other partial-capability handlers in this file.
+pub struct RenderTrapezoidsHandler {
+    major_opcode: u8,
+}
+
+impl RenderTrapezoidsHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for RenderTrapezoidsHandler {
+    async fn handle_request(
+        &self,
+        _client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let trapezoids_request = match &request.kind {
+            RequestKind::RenderTrapezoids(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for RenderTrapezoids: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let src_picture = server.get_picture(trapezoids_request.src).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "RenderTrapezoids: source picture {} does not exist",
+                trapezoids_request.src
+            ))
+        })?;
+        let color = match &src_picture.content {
+            crate::server::picture_system::PictureContent::SolidFill(render_color) => {
+                render_color_to_argb(*render_color)
+            }
+            // Not a solid fill - nothing this server can composite yet;
+            // parse and accept the request without drawing (see doc
+            // comment above).
+            crate::server::picture_system::PictureContent::Drawable { .. } => {
+                return Ok(None);
+            }
+        };
+
+        let dst_picture = server.get_picture(trapezoids_request.dst).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "RenderTrapezoids: destination picture {} does not exist",
+                trapezoids_request.dst
+            ))
+        })?;
+        let dst_drawable = match &dst_picture.content {
+            crate::server::picture_system::PictureContent::Drawable { drawable, .. } => *drawable,
+            crate::server::picture_system::PictureContent::SolidFill(_) => {
+                return Err(X11Error::Protocol(format!(
+                    "RenderTrapezoids: destination picture {} is not backed by a drawable",
+                    trapezoids_request.dst
+                )));
+            }
+        };
+
+        if let Some(window) = server.get_window_mut(dst_drawable) {
+            for trapezoid in &trapezoids_request.trapezoids {
+                crate::server::graphics::fill_trapezoid(window, trapezoid, color);
+            }
+        } else if let Some(pixmap) = server.get_pixmap_mut(dst_drawable) {
+            for trapezoid in &trapezoids_request.trapezoids {
+                crate::server::graphics::fill_trapezoid(pixmap, trapezoid, color);
+            }
+        } else {
+            return Err(X11Error::Protocol(format!(
+                "RenderTrapezoids: destination drawable {} does not exist",
+                dst_drawable
+            )));
+        }
+
+        // RenderTrapezoids doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(RenderOpcode::Trapezoids.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "RenderTrapezoids"
+    }
+}
+
+/// Convert a RENDER 16-bit-per-channel color to this server's 0xAARRGGBB
+/// pixel format, truncating each channel to its high byte.
+fn render_color_to_argb(color: crate::server::picture_system::RenderColor) -> u32 {
+    let a = (color.alpha >> 8) as u32;
+    let r = (color.red >> 8) as u32;
+    let g = (color.green >> 8) as u32;
+    let b = (color.blue >> 8) as u32;
+    (a << 24) | (r << 16) | (g << 8) | b
+}
+
 /// Handler for ShapeMask requests (SHAPE minor opcode 2)
 pub struct ShapeMaskHandler {
     major_opcode: u8,
@@ -3036,6 +3150,7 @@ pub fn create_standard_handler_registry(
         registry.register_handler(RenderQueryVersionHandler::new(major));
         registry.register_handler(RenderQueryPictFormatsHandler::new(major));
         registry.register_handler(RenderCreatePictureHandler::new(major));
+        registry.register_handler(RenderTrapezoidsHandler::new(major));
         registry.register_handler(RenderCreateSolidFillHandler::new(major));
     }
 

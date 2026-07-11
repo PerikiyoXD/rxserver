@@ -348,6 +348,7 @@ pub enum RenderOpcode {
     QueryVersion = 0,
     QueryPictFormats = 1,
     CreatePicture = 4,
+    Trapezoids = 10,
     CreateSolidFill = 33,
 }
 
@@ -357,6 +358,7 @@ impl RenderOpcode {
             0 => Some(Self::QueryVersion),
             1 => Some(Self::QueryPictFormats),
             4 => Some(Self::CreatePicture),
+            10 => Some(Self::Trapezoids),
             33 => Some(Self::CreateSolidFill),
             _ => None,
         }
@@ -371,6 +373,7 @@ impl RenderOpcode {
             Self::QueryVersion => "RenderQueryVersion",
             Self::QueryPictFormats => "RenderQueryPictFormats",
             Self::CreatePicture => "RenderCreatePicture",
+            Self::Trapezoids => "RenderTrapezoids",
             Self::CreateSolidFill => "RenderCreateSolidFill",
         }
     }

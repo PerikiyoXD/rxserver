@@ -58,6 +58,7 @@ pub enum RequestKind {
     RenderQueryPictFormats(RenderQueryPictFormatsRequest),
     RenderCreatePicture(RenderCreatePictureRequest),
     RenderCreateSolidFill(RenderCreateSolidFillRequest),
+    RenderTrapezoids(RenderTrapezoidsRequest),
     // SHAPE extension requests
     ShapeMask(ShapeMaskRequest),
     // XKEYBOARD extension requests
@@ -509,6 +510,43 @@ pub struct RenderCreatePictureRequest {
     pub value_list: Vec<u32>,
 }
 
+/// A point in RENDER's 16.16 fixed-point format (xPointFixed, renderproto.h).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointFixed {
+    pub x: i32,
+    pub y: i32,
+}
+
+/// A line in fixed point (xLineFixed, renderproto.h) - one edge of a
+/// trapezoid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineFixed {
+    pub p1: PointFixed,
+    pub p2: PointFixed,
+}
+
+/// One trapezoid from a RenderTrapezoids request (xTrapezoid,
+/// renderproto.h) - a horizontal slab bounded by `top`/`bottom` y
+/// coordinates and two slanted edges.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Trapezoid {
+    pub top: i32,
+    pub bottom: i32,
+    pub left: LineFixed,
+    pub right: LineFixed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderTrapezoidsRequest {
+    pub op: u8,
+    pub src: PictureId,
+    pub dst: PictureId,
+    pub mask_format: u32,
+    pub x_src: i16,
+    pub y_src: i16,
+    pub trapezoids: Vec<Trapezoid>,
+}
+
 // SHAPE extension request structures
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ShapeMaskRequest {
@@ -615,6 +653,7 @@ pub struct RenderQueryVersionParser;
 pub struct RenderQueryPictFormatsParser;
 pub struct RenderCreatePictureParser;
 pub struct RenderCreateSolidFillParser;
+pub struct RenderTrapezoidsParser;
 // SHAPE parsers
 pub struct ShapeMaskParser;
 // XKEYBOARD parsers
@@ -2610,6 +2649,93 @@ impl RequestParser for RenderCreateSolidFillParser {
     }
 }
 
+impl RequestParser for RenderTrapezoidsParser {
+    const OPCODE: u8 = RenderOpcode::Trapezoids.to_u8();
+
+    /// Wire format per xorgproto's renderproto.h (`xRenderTrapezoidsReq`,
+    /// `xTrapezoid`), confirmed against a live xeyes request rather than
+    /// assumed: 24-byte fixed header (`major(1) minor(1) length(2) op(1)
+    /// pad1(1) pad2(2) src(4) dst(4) maskFormat(4) xSrc(2) ySrc(2)`)
+    /// followed by a trapezoid list, 40 bytes each (`top(4) bottom(4)
+    /// left.p1(8) left.p2(8) right.p1(8) right.p2(8)`, all as 16.16
+    /// fixed-point INT32).
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 24 {
+            return Err(anyhow::anyhow!("RenderTrapezoids request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let length = read_or_err!(reader, read_u16);
+        let op = read_or_err!(reader, read_u8);
+        let _pad1 = read_or_err!(reader, read_u8);
+        let _pad2 = read_or_err!(reader, read_u16);
+        let src = read_or_err!(reader, read_u32);
+        let dst = read_or_err!(reader, read_u32);
+        let mask_format = read_or_err!(reader, read_u32);
+        let x_src = read_or_err!(reader, read_i16);
+        let y_src = read_or_err!(reader, read_i16);
+
+        let mut fixed = || -> Result<i32> { Ok(read_or_err!(reader, read_u32) as i32) };
+
+        let remaining_bytes = (length as usize * 4).saturating_sub(24);
+        let trapezoid_count = remaining_bytes / 40;
+        let mut trapezoids = Vec::with_capacity(trapezoid_count);
+        for _ in 0..trapezoid_count {
+            let top = fixed()?;
+            let bottom = fixed()?;
+            let left = LineFixed {
+                p1: PointFixed {
+                    x: fixed()?,
+                    y: fixed()?,
+                },
+                p2: PointFixed {
+                    x: fixed()?,
+                    y: fixed()?,
+                },
+            };
+            let right = LineFixed {
+                p1: PointFixed {
+                    x: fixed()?,
+                    y: fixed()?,
+                },
+                p2: PointFixed {
+                    x: fixed()?,
+                    y: fixed()?,
+                },
+            };
+            trapezoids.push(Trapezoid {
+                top,
+                bottom,
+                left,
+                right,
+            });
+        }
+
+        let request = RenderTrapezoidsRequest {
+            op,
+            src,
+            dst,
+            mask_format,
+            x_src,
+            y_src,
+            trapezoids,
+        };
+
+        Ok(Request {
+            kind: RequestKind::RenderTrapezoids(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 // SHAPE extension parsers
 impl RequestParser for ShapeMaskParser {
     const OPCODE: u8 = ShapeOpcode::Mask.to_u8();
@@ -2922,6 +3048,8 @@ impl X11RequestParser {
                     RenderQueryPictFormatsParser::parse(bytes)
                 } else if minor_opcode == RenderOpcode::CreatePicture.to_u8() {
                     RenderCreatePictureParser::parse(bytes)
+                } else if minor_opcode == RenderOpcode::Trapezoids.to_u8() {
+                    RenderTrapezoidsParser::parse(bytes)
                 } else if minor_opcode == RenderOpcode::CreateSolidFill.to_u8() {
                     RenderCreateSolidFillParser::parse(bytes)
                 } else {
@@ -3131,6 +3259,7 @@ impl RequestParser for X11RequestParser {
             }
             RequestKind::RenderCreatePicture(_) => RenderCreatePictureParser::validate(request),
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
+            RequestKind::RenderTrapezoids(_) => RenderTrapezoidsParser::validate(request),
             RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
             RequestKind::XkbUseExtension(_) => XkbUseExtensionParser::validate(request),
             RequestKind::XInputGetExtensionVersion(_) => {

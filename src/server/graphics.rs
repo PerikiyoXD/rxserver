@@ -88,6 +88,68 @@ pub fn fill_rectangle(drawable: &mut impl Drawable, rect: &Rectangle, color: u32
     }
 }
 
+/// Fill one RENDER trapezoid (renderproto.h's xTrapezoid) with a flat
+/// color, scanline by scanline between its slanted left/right edges. RENDER
+/// trapezoids are defined in 16.16 fixed-point and rendered with
+/// antialiased coverage against an arbitrary mask/source picture - this is
+/// a flat-color, non-antialiased approximation (same "simple approximation,
+/// not the full spec algorithm" tradeoff `fill_arc`/`draw_arc` already make
+/// above), good enough to make RenderTrapezoids draw *something* rather
+/// than silently do nothing, without building a full rasterizer.
+pub fn fill_trapezoid(
+    drawable: &mut impl Drawable,
+    trapezoid: &crate::protocol::request::Trapezoid,
+    color: u32,
+) {
+    const FIXED_SHIFT: i32 = 16;
+
+    let to_pixels = |fixed: i32| -> f64 { fixed as f64 / (1i32 << FIXED_SHIFT) as f64 };
+
+    let top = to_pixels(trapezoid.top);
+    let bottom = to_pixels(trapezoid.bottom);
+    if bottom <= top {
+        return;
+    }
+
+    let left_x = |y: f64| -> f64 {
+        let p1 = &trapezoid.left.p1;
+        let p2 = &trapezoid.left.p2;
+        interpolate_x(to_pixels(p1.x), to_pixels(p1.y), to_pixels(p2.x), to_pixels(p2.y), y)
+    };
+    let right_x = |y: f64| -> f64 {
+        let p1 = &trapezoid.right.p1;
+        let p2 = &trapezoid.right.p2;
+        interpolate_x(to_pixels(p1.x), to_pixels(p1.y), to_pixels(p2.x), to_pixels(p2.y), y)
+    };
+
+    let y_start = top.ceil().max(0.0) as i32;
+    let y_end = bottom.floor() as i32;
+    for y in y_start..=y_end {
+        let y_mid = y as f64 + 0.5;
+        let (mut x_left, mut x_right) = (left_x(y_mid), right_x(y_mid));
+        if x_right < x_left {
+            std::mem::swap(&mut x_left, &mut x_right);
+        }
+        let x_start = x_left.ceil().max(0.0) as i32;
+        let x_end = x_right.floor() as i32;
+        for x in x_start..=x_end {
+            if x >= 0 && y >= 0 {
+                drawable.set_pixel(x as u16, y as u16, color);
+            }
+        }
+    }
+}
+
+/// Linear interpolation of x at a given y along a line segment - a
+/// vertical segment (p1.y == p2.y, degenerate for a trapezoid edge but
+/// guarded against divide-by-zero) just returns p1.x.
+fn interpolate_x(x1: f64, y1: f64, x2: f64, y2: f64, y: f64) -> f64 {
+    if (y2 - y1).abs() < f64::EPSILON {
+        return x1;
+    }
+    x1 + (x2 - x1) * (y - y1) / (y2 - y1)
+}
+
 /// ClearArea's fill logic (xproto sect1-9.xml, ClearArea): x/y are relative
 /// to the window origin; a zero width/height is replaced with "to the far
 /// edge of the window" (not "zero pixels"); the fill itself follows the
