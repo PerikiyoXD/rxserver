@@ -54,6 +54,8 @@ pub enum RequestKind {
     // RENDER extension requests
     RenderQueryVersion(RenderQueryVersionRequest),
     RenderCreateSolidFill(RenderCreateSolidFillRequest),
+    // SHAPE extension requests
+    ShapeMask(ShapeMaskRequest),
 }
 
 #[derive(Debug, Clone)]
@@ -463,6 +465,17 @@ pub struct RenderCreateSolidFillRequest {
     pub alpha: u16,
 }
 
+// SHAPE extension request structures
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShapeMaskRequest {
+    pub op: u8,
+    pub dest_kind: u8,
+    pub dest: WindowId,
+    pub x_off: i16,
+    pub y_off: i16,
+    pub src: PixmapId, // 0 (None) clears the shape
+}
+
 pub trait RequestParser {
     /// The opcode this parser handles
     const OPCODE: u8;
@@ -511,6 +524,8 @@ pub struct RandrGetScreenSizeRangeParser;
 // RENDER parsers
 pub struct RenderQueryVersionParser;
 pub struct RenderCreateSolidFillParser;
+// SHAPE parsers
+pub struct ShapeMaskParser;
 
 impl RequestParser for GetGeometryParser {
     const OPCODE: u8 = Opcode::GetGeometry.to_u8();
@@ -2311,6 +2326,49 @@ impl RequestParser for RenderCreateSolidFillParser {
     }
 }
 
+// SHAPE extension parsers
+impl RequestParser for ShapeMaskParser {
+    const OPCODE: u8 = ShapeOpcode::Mask.to_u8();
+
+    fn parse(bytes: &[u8]) -> Result<Request> {
+        if bytes.len() < 20 {
+            return Err(anyhow::anyhow!("ShapeMask request too short"));
+        }
+
+        let mut reader = ByteOrderReader::new(bytes, ByteOrder::LittleEndian);
+        let major_opcode = read_or_err!(reader, read_u8);
+        let minor_opcode = read_or_err!(reader, read_u8);
+        let _length = read_or_err!(reader, read_u16);
+        let op = read_or_err!(reader, read_u8);
+        let dest_kind = read_or_err!(reader, read_u8);
+        let _junk = read_or_err!(reader, read_u16);
+        let dest = read_or_err!(reader, read_u32);
+        let x_off = read_or_err!(reader, read_i16);
+        let y_off = read_or_err!(reader, read_i16);
+        let src = read_or_err!(reader, read_u32);
+
+        let request = ShapeMaskRequest {
+            op,
+            dest_kind,
+            dest,
+            x_off,
+            y_off,
+            src,
+        };
+
+        Ok(Request {
+            kind: RequestKind::ShapeMask(request),
+            sequence_number: 0,
+            opcode: major_opcode,
+            minor_opcode: Some(minor_opcode),
+        })
+    }
+
+    fn validate(_request: &Request) -> Result<()> {
+        Ok(())
+    }
+}
+
 /// Main dispatcher parser that routes to specific parsers based on opcode
 pub struct X11RequestParser;
 
@@ -2382,6 +2440,17 @@ impl X11RequestParser {
                         "Unknown RENDER minor opcode: {}",
                         minor_opcode
                     ))
+                }
+            }
+            Some("SHAPE") => {
+                if bytes.len() < 2 {
+                    return Err(anyhow::anyhow!("SHAPE request too short"));
+                }
+                let minor_opcode = bytes[1];
+                if minor_opcode == ShapeOpcode::Mask.to_u8() {
+                    ShapeMaskParser::parse(bytes)
+                } else {
+                    Err(anyhow::anyhow!("Unknown SHAPE minor opcode: {}", minor_opcode))
                 }
             }
             Some(name) => Err(anyhow::anyhow!(
@@ -2513,6 +2582,7 @@ impl RequestParser for X11RequestParser {
             }
             RequestKind::RenderQueryVersion(_) => RenderQueryVersionParser::validate(request),
             RequestKind::RenderCreateSolidFill(_) => RenderCreateSolidFillParser::validate(request),
+            RequestKind::ShapeMask(_) => ShapeMaskParser::validate(request),
             RequestKind::GrabPointer(_) => {
                 // GrabPointer requests have their own validation logic
                 Ok(())

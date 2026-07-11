@@ -12,7 +12,7 @@ use crate::{
     protocol::{
         ByteOrder, ByteOrderWriter, HandlerResult, Request, RequestHandler, RequestKind, X11Error,
         randr::*,
-        types::{Opcode, PixmapValue, RenderOpcode, value_mask},
+        types::{Opcode, PixmapValue, RenderOpcode, ShapeOpcode, value_mask},
     },
     server::{
         GrabResult, PointerGrab, Server,
@@ -1086,6 +1086,79 @@ impl RequestHandler for RenderCreateSolidFillHandler {
     }
 }
 
+/// Handler for ShapeMask requests (SHAPE minor opcode 2)
+pub struct ShapeMaskHandler {
+    major_opcode: u8,
+}
+
+impl ShapeMaskHandler {
+    pub fn new(major_opcode: u8) -> Self {
+        Self { major_opcode }
+    }
+}
+
+#[async_trait]
+impl RequestHandler for ShapeMaskHandler {
+    async fn handle_request(
+        &self,
+        client_id: ClientId,
+        request: &Request,
+        server: Arc<Mutex<Server>>,
+    ) -> HandlerResult<Option<Vec<u8>>> {
+        let mask_request = match &request.kind {
+            RequestKind::ShapeMask(req) => req,
+            _ => {
+                return Err(X11Error::Protocol(format!(
+                    "Invalid request type for ShapeMask: {:?}",
+                    request.kind
+                )));
+            }
+        };
+
+        let mut server = server.lock().await;
+
+        let window = server.get_window(mask_request.dest).ok_or_else(|| {
+            X11Error::Protocol(format!(
+                "ShapeMask: window {} does not exist",
+                mask_request.dest
+            ))
+        })?;
+        if window.owner != Some(client_id) {
+            return Err(X11Error::Protocol(format!(
+                "ShapeMask: client {} does not own window {}",
+                client_id, mask_request.dest
+            )));
+        }
+
+        // src == None (0) clears the shape back to the window's rectangle.
+        let new_shape = if mask_request.src == 0 {
+            None
+        } else {
+            if server.get_pixmap(mask_request.src).is_none() {
+                return Err(X11Error::Protocol(format!(
+                    "ShapeMask: pixmap {} does not exist",
+                    mask_request.src
+                )));
+            }
+            Some(mask_request.src)
+        };
+
+        let window = server.get_window_mut(mask_request.dest).unwrap();
+        window.bounding_shape = new_shape;
+
+        // ShapeMask doesn't generate a response
+        Ok(None)
+    }
+
+    fn opcode(&self) -> (u8, Option<u8>) {
+        (self.major_opcode, Some(ShapeOpcode::Mask.to_u8()))
+    }
+
+    fn name(&self) -> &'static str {
+        "ShapeMask"
+    }
+}
+
 /// Handler for CreateWindow requests (opcode 1)
 pub struct CreateWindowHandler;
 
@@ -2069,6 +2142,10 @@ pub fn create_standard_handler_registry(
     if let Some(major) = extensions.major_opcode("RENDER") {
         registry.register_handler(RenderQueryVersionHandler::new(major));
         registry.register_handler(RenderCreateSolidFillHandler::new(major));
+    }
+
+    if let Some(major) = extensions.major_opcode("SHAPE") {
+        registry.register_handler(ShapeMaskHandler::new(major));
     }
 
     registry

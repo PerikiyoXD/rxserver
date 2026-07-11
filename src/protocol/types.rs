@@ -370,6 +370,38 @@ impl RenderOpcode {
     }
 }
 
+/// SHAPE extension minor opcodes. Like RENDER, SHAPE's major opcode is
+/// session-dynamic (assigned by `ExtensionRegistry`), so this enum only
+/// carries minor opcodes. Only the ones actually parsed have variants -
+/// see `extensions.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum ShapeOpcode {
+    QueryVersion = 0,
+    Mask = 2,
+}
+
+impl ShapeOpcode {
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::QueryVersion),
+            2 => Some(Self::Mask),
+            _ => None,
+        }
+    }
+
+    pub const fn to_u8(self) -> u8 {
+        self as u8
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::QueryVersion => "ShapeQueryVersion",
+            Self::Mask => "ShapeMask",
+        }
+    }
+}
+
 /// Extension-specific opcodes, keyed by major opcode
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ExtensionOpcode {
@@ -377,6 +409,7 @@ pub enum ExtensionOpcode {
     XcMisc(XcMiscOpcode),
     Randr(RandrOpcode),
     Render(RenderOpcode),
+    Shape(ShapeOpcode),
     Unknown(u8, u8), // (major_opcode, minor_opcode)
 }
 
@@ -395,6 +428,7 @@ impl ExtensionOpcode {
             Some("XC-MISC") => XcMiscOpcode::from_u8(minor).map(Self::XcMisc),
             Some("RANDR") => RandrOpcode::from_u8(minor).map(Self::Randr),
             Some("RENDER") => RenderOpcode::from_u8(minor).map(Self::Render),
+            Some("SHAPE") => ShapeOpcode::from_u8(minor).map(Self::Shape),
             Some(_) | None => None,
         };
 
@@ -430,6 +464,7 @@ impl ExtensionOpcode {
             Self::XcMisc(op) => op as u8,
             Self::Randr(op) => op.to_u8(),
             Self::Render(op) => op.to_u8(),
+            Self::Shape(op) => op.to_u8(),
             Self::Unknown(_, minor) => minor,
         }
     }
@@ -440,6 +475,7 @@ impl ExtensionOpcode {
             Self::XcMisc(op) => op.name().to_string(),
             Self::Randr(op) => op.name().to_string(),
             Self::Render(op) => op.name().to_string(),
+            Self::Shape(op) => op.name().to_string(),
             Self::Unknown(major, minor) => format!("UnknownExtension({}, {})", major, minor),
         }
     }
@@ -850,7 +886,8 @@ impl Opcode {
                 ExtensionOpcode::BigRequests(_)
                 | ExtensionOpcode::XcMisc(_)
                 | ExtensionOpcode::Randr(_)
-                | ExtensionOpcode::Render(_),
+                | ExtensionOpcode::Render(_)
+                | ExtensionOpcode::Shape(_),
             ) => panic!(
                 "extension major opcode is session-dynamic; use ExtensionRegistry::major_opcode instead of Opcode::to_u8"
             ),

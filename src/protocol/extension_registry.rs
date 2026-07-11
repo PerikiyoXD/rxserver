@@ -32,7 +32,7 @@ const KNOWN_EXTENSIONS: &[&str] = &[
 /// in this set, even though it still has a major opcode assigned above -
 /// advertising "supported" for an extension nothing can actually handle
 /// would just make every real request to it silently vanish.
-const IMPLEMENTED_EXTENSIONS: &[&str] = &["BIG-REQUESTS", "RANDR", "RENDER"];
+const IMPLEMENTED_EXTENSIONS: &[&str] = &["BIG-REQUESTS", "RANDR", "RENDER", "SHAPE"];
 
 #[derive(Debug, Clone)]
 pub struct ExtensionRegistry {
@@ -111,12 +111,12 @@ mod tests {
     }
 
     #[test]
-    fn only_big_requests_randr_and_render_are_implemented() {
+    fn only_big_requests_randr_render_and_shape_are_implemented() {
         let registry = ExtensionRegistry::new();
         assert!(registry.is_implemented("BIG-REQUESTS"));
         assert!(registry.is_implemented("RANDR"));
         assert!(registry.is_implemented("RENDER"));
-        assert!(!registry.is_implemented("SHAPE"));
+        assert!(registry.is_implemented("SHAPE"));
         assert!(!registry.is_implemented("MIT-SHM"));
         assert!(!registry.is_implemented("XINERAMA"));
     }

@@ -58,6 +58,9 @@ pub struct Window {
     pub pixel_data: Vec<u32>, // 0xAARRGGBB pixel data
     pub properties: HashMap<Atom, Property>,
     pub background: Background,
+    /// Bounding-shape mask set via SHAPE's ShapeMask request, if any -
+    /// the pixmap defining the window's non-rectangular outline.
+    pub bounding_shape: Option<PixmapId>,
 }
 
 impl Window {
@@ -91,6 +94,7 @@ impl Window {
             pixel_data,
             properties: HashMap::new(),
             background,
+            bounding_shape: None,
         })
     }
 
@@ -113,6 +117,7 @@ impl Window {
             pixel_data,
             properties: HashMap::new(),
             background: Background::Pixel(0xFF2E3440),
+            bounding_shape: None,
         }
     }
 
