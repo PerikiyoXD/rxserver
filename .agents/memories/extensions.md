@@ -1,23 +1,24 @@
 # extensions
 
 X11 extensions (BIG-REQUESTS, RANDR, SHAPE, MIT-SHM, XINERAMA, RENDER,
-XKEYBOARD) are handled through
+XKEYBOARD, XInputExtension) are handled through
 `protocol::extension_registry::ExtensionRegistry`, built once in
 `Server::new()`.
 
 ## What's real vs. what's just a reserved number
 
-All 7 known extensions get a major opcode assigned
+All 8 known extensions get a major opcode assigned
 (`KNOWN_EXTENSIONS` in `extension_registry.rs`, sequential from
 `FIRST_EXTENSION_OPCODE = 128`). `BIG-REQUESTS`, `RANDR`, `RENDER`,
-`SHAPE`, and `XKEYBOARD` are in `IMPLEMENTED_EXTENSIONS` - they have
-real parsers and handlers for at least one request. `MIT-SHM` and
-`XINERAMA` are still reserved-only. `QueryExtensionHandler` reports
-`present=1` only for implemented ones; the reserved-only ones get an
-honest `present=0` even though they technically have an opcode
-assigned. Do not flip that without also writing the parser/handler - a
-client that believes `present=1` and sends a real request for an
-unimplemented extension gets silently dropped.
+`SHAPE`, `XKEYBOARD`, and `XInputExtension` are in
+`IMPLEMENTED_EXTENSIONS` - they have real parsers and handlers for at
+least one request. `MIT-SHM` and `XINERAMA` are still reserved-only.
+`QueryExtensionHandler` reports `present=1` only for implemented ones;
+the reserved-only ones get an honest `present=0` even though they
+technically have an opcode assigned. Do not flip that without also
+writing the parser/handler - a client that believes `present=1` and
+sends a real request for an unimplemented extension gets silently
+dropped.
 
 XKEYBOARD only has `XkbUseExtension` (minor opcode 0) implemented -
 the version-negotiation handshake, and the only XKB request any live
@@ -31,6 +32,32 @@ logging can name them if they ever show up - none of the rest have
 real handler logic, and none should be built speculatively. If a live
 trace ever shows a client sending one of them, implement that one
 opcode, verify live, stop - same discipline as RENDER/SHAPE below.
+
+XInputExtension has three requests implemented, all confirmed live
+against xeyes/Xt in the order it actually calls them:
+`GetExtensionVersion` (XI1 minor opcode 1, replies `present=0` - no
+device subsystem backs it), `XIQueryVersion` (XI2 minor opcode 47,
+replies with version 2.0 - unlike `GetExtensionVersion`'s reply, XI2's
+has no `present` flag, so *not* replying is not an option: a live
+trace confirmed Xt blocks waiting for this specific reply and hangs
+the connection for 30s before timing out if it never arrives), and
+`XISelectEvents` (XI2 minor opcode 46, no reply per spec - stores
+per-device event masks on `Window::xi_event_masks`, which nothing
+reads yet since no XI2 event this server can generate exists). This
+resolved the multi-session "XInputExtension disconnect" investigation
+- xeyes/Xt now completes the full negotiation chain
+(`QueryExtension` -> `GetExtensionVersion` -> `XIQueryVersion` ->
+`XISelectEvents`) without error. A *different*, older disconnect
+remains after this point (client closes its socket right after
+`InternAtom(WM_PROTOCOLS)`) - see
+`tasks/investigate_wm_protocols_disconnect/task.md`.
+
+`XInputOpcode` in `types.rs` lists the full XI1 (1-35) and the one
+known XI2 (46, 47) minor opcode set for naming, same
+"list everything, implement only what's confirmed" pattern as
+`XkbOpcode`. XI2 has far more than 2 opcodes in the real spec (~20) -
+only 46 and 47 are listed here because those are the only two ever
+observed in a live trace; add more only when a trace shows them.
 
 RENDER and SHAPE are both implemented incrementally, one minor opcode
 at a time, same as core opcodes (`tasks/implement_opcode/task.md`) -

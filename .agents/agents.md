@@ -12,10 +12,9 @@ not re-derived from the code each time.
   negotiated and implemented incrementally
 - `tasks/implement_opcode/task.md` - step-by-step workflow for adding a
   missing core opcode (parser + handler)
-- `tasks/investigate_xinput_disconnect/task.md` - next handoff task:
-  live xeyes trace completes most of setup, then Xt's deferred fatal
-  on a missing `XInputExtension` closes the connection client-side
-  after the fact
+- `tasks/investigate_wm_protocols_disconnect/task.md` - next handoff
+  task: the XInputExtension disconnect is resolved; a different,
+  older disconnect remains right after `InternAtom(WM_PROTOCOLS)`
 
 If something here goes stale, fix the doc in the same commit as the
 code change. A wrong doc is worse than no doc.
